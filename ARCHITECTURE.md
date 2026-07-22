@@ -17,7 +17,7 @@ Uvicorn web server on 10.8.0.1:8443
 FastAPI application
       ├── Jinja2 dashboard templates
       ├── JSON status API
-      ├── Authentication and session handling
+      ├── HTTP Basic authentication
       └── Python status and control logic
                     │
                     ▼
@@ -188,7 +188,7 @@ If Python supplies `mode="NordVPN"`, the browser receives:
 <p>Current mode: NordVPN</p>
 ```
 
-SnarkyCtl will probably use Jinja2 only to deliver the login page and the initial dashboard page. After the dashboard loads, its JavaScript will call the API periodically and update the displayed information.
+SnarkyCtl will probably use Jinja2 only to deliver the initial dashboard page. HTTP Basic authentication is handled before the template is served. After the dashboard loads, its JavaScript will call the API periodically and update the displayed information.
 
 ---
 
@@ -363,19 +363,29 @@ The CA private key remains protected and is not placed in the application direct
 
 ---
 
-## Session Cookie and CSRF Protection
+## HTTP Basic Authentication
 
-After a successful login, the server gives the browser a temporary session cookie.
+SnarkyCtl uses HTTP Basic authentication over HTTPS. The browser displays its standard username-and-password prompt and supplies the resulting `Authorization` header on subsequent requests.
 
-The cookie is:
+There is no user database, login page, session cookie, or server-side session store. The authorized username and salted password hash are stored in a root-controlled file:
 
-- `HttpOnly`: JavaScript cannot read it.
-- `Secure`: the browser sends it only over HTTPS.
-- `SameSite=Strict`: the browser strongly restricts cross-site use.
+```text
+/etc/snarkypuss-control/auth.htpasswd
+```
 
-CSRF protection prevents another website from tricking an already-authenticated browser into selecting Direct VPS mode or disconnecting NordVPN behind the scenes.
+The file uses the standard `htpasswd` format with a modern password hash. It never contains the plaintext password. Recommended ownership and permissions are:
 
-For this private single-user service, a password-backed session is a conventional and understandable authentication model.
+```text
+root:snarkctl 0640
+```
+
+This allows the service account to verify credentials without allowing it to change the authorized password.
+
+HTTP Basic authentication must never be used over plaintext HTTP because its credentials are encoded, not encrypted. HTTPS supplies the necessary transport encryption, while WireGuard provides an additional private network boundary.
+
+State-changing endpoints will also require same-origin requests with JSON content and a dedicated request header. Cross-origin requests are rejected and CORS is not enabled. This prevents another website from using the browser's cached Basic credentials to trigger a control operation.
+
+Changing the password means generating a new hash in the auth file. Because browsers cache Basic credentials, fully clearing an authenticated browser state may require closing the browser or using a private browsing window.
 
 ---
 
