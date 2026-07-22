@@ -146,7 +146,6 @@ Do not add a database initially. Server aliases and display metadata belong in a
 │   │   ├── dashboard.js
 │   │   └── style.css
 │   └── templates/
-│       ├── login.html
 │       └── index.html
 ├── config/
 │   └── servers.yaml
@@ -422,20 +421,23 @@ Never use `0.0.0.0`. Verify the actual listener with `ss` and verify from an ext
 
 WireGuard provides network-level access control, but application authentication is still required before control endpoints are enabled.
 
-For the first browser-based version, use:
+For the first browser-based version, use HTTP Basic authentication over HTTPS:
 
-- A login page with a strong password.
-- A slow password hash stored in root-controlled configuration.
-- An `HttpOnly`, `Secure`, `SameSite=Strict` session cookie.
-- CSRF protection for state-changing requests.
-- A short, configurable session lifetime.
-- Rate limiting or progressive delay for failed logins.
+- The browser displays its native username-and-password prompt.
+- There is no user database, login page, session cookie, or server-side session store.
+- Store the username and salted password hash in `/etc/snarkypuss-control/auth.htpasswd`.
+- Use the standard `htpasswd` format with a modern password hash; never store the plaintext password.
+- Own the file as `root:snarkctl` with mode `0640`, so the service can read but not modify it.
+- Apply authentication to the dashboard and every API endpoint except narrowly defined liveness checks, if any.
+- Rate-limit or progressively delay failed authentication attempts.
 
-Do not store a long-lived bearer token in browser JavaScript or `localStorage`. A bearer token entered once and exchanged for a protected session cookie is an acceptable alternative.
+HTTP Basic credentials are encoded rather than encrypted, so Basic authentication must never be served over plaintext HTTP. HTTPS is mandatory.
+
+State-changing endpoints must additionally require a same-origin request, JSON content type, and a dedicated request header. Reject cross-origin requests and do not enable CORS. This protects control operations from cross-site requests that might otherwise reuse browser-cached Basic credentials.
 
 Later improvements may include mutual TLS and a separate client certificate per authorized management device.
 
-No state-changing route may be registered or enabled until authentication and CSRF tests pass.
+No state-changing route may be registered or enabled until authentication and cross-origin request protections pass their tests.
 
 ---
 
@@ -527,7 +529,7 @@ subprocess.run(
 
 Required behaviour:
 
-1. Authenticate the request and validate CSRF protection.
+1. Authenticate the request and validate the same-origin control-request requirements.
 2. Validate the alias at the application boundary.
 3. Acquire the single control-operation lock.
 4. Return HTTP `409 Conflict` if another operation is active.
@@ -647,8 +649,8 @@ Test:
 - Successful and partially degraded status responses.
 - Liveness versus readiness semantics.
 - Authentication success and failure.
-- Cookie security attributes.
-- CSRF rejection.
+- Auth-file hash verification and file-permission expectations.
+- Cross-origin control-request rejection.
 - Invalid connection target.
 - Connection timeout.
 - Successful and repeated disconnect.
@@ -679,7 +681,7 @@ Test real failures:
 - Restart WireGuard.
 - Reboot the VPS.
 - Disconnect the Windows WireGuard client during an API operation.
-- Expire or corrupt the browser session.
+- Replace the auth file or test invalid Basic credentials.
 - Make the public-IP providers unavailable.
 
 ## Critical connectivity regression test
@@ -732,7 +734,7 @@ Deliverables:
 - `GET /api/status`
 - Liveness and readiness endpoints.
 - Service available only at `10.8.0.1`.
-- Password-backed secure session authentication.
+- HTTP Basic authentication backed by a root-controlled `htpasswd` file.
 
 ## Milestone 5: Status Dashboard
 
@@ -801,7 +803,7 @@ Build and verify in this order:
 4. Produce typed, partially degradable status data.
 5. Establish the dedicated account and privileged boundary.
 6. Build the private read-only API.
-7. Add authentication and CSRF protection.
+7. Add HTTP Basic authentication and cross-origin request protection.
 8. Build the status dashboard.
 9. Add serialized, restricted NordVPN controls.
 10. Establish trusted HTTPS and harden the systemd service.
