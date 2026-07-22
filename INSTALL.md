@@ -56,6 +56,7 @@ Some paths may not exist on every installation.
 
 | Package | Purpose |
 |---|---|
+| `apache2-utils` | Supplies `htpasswd` for creating the HTTP Basic authentication file. It does not install or enable the Apache web server. |
 | `ca-certificates` | Validates HTTPS connections, including public-IP lookups and package downloads. |
 | `curl` | Installation and network diagnostics; also provides a simple independent exit-IP check. |
 | `git` | Retrieves and updates the SnarkyCtl repository. |
@@ -102,6 +103,7 @@ Run as an administrator:
 ```bash
 sudo apt-get update
 sudo apt-get install --yes --no-install-recommends \
+    apache2-utils \
     ca-certificates \
     curl \
     git \
@@ -187,7 +189,7 @@ The virtual environment will live at:
 /opt/snarkypuss-control/venv
 ```
 
-Python packages will be installed from the repository's pinned dependency file after it is added. Expected application dependencies include FastAPI, Uvicorn, Jinja2, a YAML parser, secure session support, and pytest for development/testing. Exact Python package versions belong in the repository dependency file, not in the `apt-get` command.
+Python packages will be installed from the repository's pinned dependency file after it is added. Expected application dependencies include FastAPI, Uvicorn, Jinja2, a YAML parser, password-hash verification support, and pytest for development/testing. Exact Python package versions belong in the repository dependency file, not in the `apt-get` command.
 
 ### 4. Create the service account
 
@@ -199,7 +201,7 @@ Install root-owned configuration, the authoritative server-alias allowlist, and 
 
 ### 6. Install authentication and certificates
 
-Create the password-backed session configuration, private certificate authority, and server certificate. Trust the CA on the Windows management computer. The certificate will include the chosen private hostname and, if used directly, `10.8.0.1` as an IP Subject Alternative Name.
+Create the root-controlled `auth.htpasswd` file for HTTP Basic authentication, followed by the private certificate authority and server certificate. Trust the CA on the Windows management computer. The certificate will include the chosen private hostname and, if used directly, `10.8.0.1` as an IP Subject Alternative Name.
 
 ### 7. Install the systemd service
 
@@ -234,6 +236,7 @@ The planned filesystem locations are:
 |---|---|---|
 | `/opt/snarkypuss-control` | Application code and virtual environment | `root:root` |
 | `/etc/snarkypuss-control/` | Configuration, secrets, and authoritative allowlists | `root:snarkctl` or `root:root`, mode-dependent |
+| `/etc/snarkypuss-control/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkctl`, mode `0640` |
 | `/usr/local/sbin/snark-*` | Privileged wrapper commands | `root:root` |
 | `/run/snarkypuss-control/` | Optional runtime lock/state | `snarkctl:snarkctl` |
 | `/etc/systemd/system/snarkypuss-control.service` | Service definition | `root:root` |
@@ -253,7 +256,7 @@ The following installation pieces will be filled in as their corresponding appli
 - Configuration templates.
 - NordVPN and mode-control wrappers.
 - Restricted sudoers file.
-- Password-hash and session-secret generation.
+- HTTP Basic auth-file generation and password-change procedure.
 - Private CA and server-certificate generation procedure.
 - systemd unit and hardening configuration.
 - Installation verification script.
