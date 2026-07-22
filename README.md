@@ -1,6 +1,6 @@
 # SnarkyCtl
 
-**SnarkyCtl** is a lightweight management service and web dashboard for the **snarkypuss** privacy gateway.
+**SnarkyCtl** is a lightweight management service and web dashboard for the [**snarkypuss**](SNARKYPUSS.md) privacy gateway.
 
 The project turns a Linux VPS into a remotely managed network appliance that is accessible **only through a private WireGuard tunnel**. It provides a secure control plane for monitoring and controlling NordVPN, WireGuard, DNS services, and selected system functions without exposing any management interface to the public Internet.
 
@@ -139,7 +139,7 @@ tests/
 8. Privilege separation
 9. Service hardening
 
-Detailed implementation notes are contained in **SNARKYCTL.md**.
+Detailed implementation notes are contained in [**SNARKYCTL.md**](SNARKYCTL.md).
 
 ---
 
