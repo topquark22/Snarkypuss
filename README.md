@@ -114,6 +114,12 @@ Current planned stack:
 
 ---
 
+# Installation
+
+Installation prerequisites, Linux package dependencies, and the staged deployment framework are documented in [**INSTALL.md**](INSTALL.md).
+
+---
+
 # Repository Layout
 
 ```text
