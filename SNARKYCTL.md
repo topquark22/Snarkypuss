@@ -19,6 +19,7 @@ The first release will support:
 - Displaying NordVPN connection status.
 - Connecting NordVPN to a predefined server or location.
 - Disconnecting NordVPN.
+- Selecting an explicit fail-closed or Direct VPS operating mode.
 - Displaying the current public IPv4 address.
 - Displaying WireGuard interface and peer activity.
 - Displaying essential VPS health information.
@@ -76,6 +77,39 @@ The following are requirements, not optional enhancements.
 8. **Serialize control operations**
 
    Only one NordVPN-changing operation may run at a time. Concurrent requests receive HTTP `409 Conflict`; disconnect is idempotent.
+
+9. **Never expose the VPS public IP by default**
+
+   If NordVPN disconnects unexpectedly, fails to connect, times out, or is unavailable after boot, forwarded client traffic must enter **Locked** mode. It must not silently fall back to the VPS's public Internet connection.
+
+   Direct use of the VPS public IP is permitted only after the user deliberately selects **Direct VPS** mode. The dashboard must display a prominent warning and require confirmation before enabling it. The WireGuard management path remains available in every mode.
+
+## Operating Modes
+
+The application distinguishes the desired policy from the observed network state:
+
+| Mode | NordVPN | Forwarded client traffic |
+|---|---|---|
+| **NordVPN** | Connected or connecting | Exits through NordVPN; locks if the VPN fails |
+| **Direct VPS** | Disconnected | Exits through the VPS public IP after explicit confirmation |
+| **Locked** | Disconnected | Blocked; WireGuard management remains available |
+
+`NordVPN disconnected` is an observed condition, not a routing policy. A generic disconnect action must not silently choose Direct VPS mode.
+
+The status model should expose at least:
+
+```json
+{
+  "desired_mode": "nordvpn",
+  "actual_mode": "locked",
+  "nordvpn_state": "disconnected",
+  "forwarding_allowed": false,
+  "exit_ip": null,
+  "warning": "NordVPN failed; forwarded traffic is locked"
+}
+```
+
+On reboot, the safe initial state is **Locked**. If the saved desired mode is NordVPN, forwarding remains locked until NordVPN reconnects successfully. Direct VPS mode must not be restored automatically unless a future, explicit policy decision changes this rule.
 
 ---
 
@@ -414,12 +448,13 @@ Serve a small dashboard from the same FastAPI application.
 │ Snarkypuss Control Panel                   │
 │                                            │
 │ WireGuard: Active  • handshake 42s ago     │
+│ Mode: NordVPN                              │
 │ NordVPN: Dallas #9167                      │
 │ Exit IPv4: 2.56.190.136                    │
 │ VPS: Healthy                               │
 │                                            │
 │ [ Dallas ] [ Prague ] [ Warsaw ]           │
-│ [ Disconnect NordVPN ]                     │
+│ [ Lock Internet ] [ Use VPS Directly ]     │
 │                                            │
 │ Last refresh: 21:42:17                     │
 └────────────────────────────────────────────┘
@@ -432,6 +467,10 @@ Dashboard behaviour:
 - Refresh status periodically without overlapping requests.
 - Show the age of the last successful check.
 - Distinguish WireGuard interface state, recent peer activity, NordVPN state, exit IPv4, and VPS health.
+- Display desired mode and actual mode separately when they differ.
+- Use a persistent, conspicuous warning whenever Direct VPS mode exposes the VPS public IP.
+- Require an explicit confirmation before entering Direct VPS mode.
+- Never describe an unexpected NordVPN failure as Direct VPS mode; show that traffic has been locked.
 - Preserve valid component data when another component fails.
 - Display controlled success and failure messages.
 - Mark stale data clearly.
@@ -447,6 +486,8 @@ Add authenticated state-changing endpoints:
 ```text
 POST /api/nordvpn/connect
 POST /api/nordvpn/disconnect
+POST /api/mode/locked
+POST /api/mode/direct
 ```
 
 A connection request accepts only a predefined alias:
@@ -496,6 +537,10 @@ Required behaviour:
 8. Release the lock reliably.
 
 Disconnecting an already disconnected client should succeed idempotently. The dashboard disables controls and displays a connecting or disconnecting state while an operation is active.
+
+`POST /api/nordvpn/disconnect` must not enable direct forwarding. It transitions to Locked mode unless it is an internal step in an already-confirmed switch to Direct VPS mode. `POST /api/mode/direct` requires explicit confirmation data and enables direct forwarding only after NordVPN is disconnected and the routing/firewall policy has been verified.
+
+If NordVPN exits unexpectedly, fails to connect, times out, or disagrees with the observed exit state, the backend immediately applies Locked mode. This fail-closed transition must not depend on the browser remaining connected.
 
 ---
 
@@ -607,6 +652,10 @@ Test:
 - Invalid connection target.
 - Connection timeout.
 - Successful and repeated disconnect.
+- Unexpected NordVPN loss transitions to Locked rather than Direct VPS mode.
+- Entering Direct VPS mode requires explicit confirmation.
+- Direct VPS mode displays the VPS exit IP and warning state.
+- Reboot begins Locked and does not automatically restore Direct VPS mode.
 - Two simultaneous operations, with the second receiving `409`.
 - Controlled browser errors that do not expose raw command output.
 
@@ -695,6 +744,8 @@ Deliverables:
 
 - Connect to predefined aliases.
 - Idempotent disconnect.
+- Fail-closed Locked mode for failures, disconnects, and startup.
+- Explicit, confirmed Direct VPS mode with a persistent exposure warning.
 - Serialized operations and HTTP `409` handling.
 - Progress and controlled error reporting.
 
@@ -731,7 +782,6 @@ Possible additions, each requiring its own wrapper and security review:
 - DNS blocklist-category toggles.
 - Safe, filtered log viewer.
 - Safe reboot with explicit confirmation.
-- Direct US-exit mode with NordVPN disconnected.
 - Warning when the apparent exit location is unexpected.
 - Windows system-tray client.
 - Desktop notifications after connection changes.
