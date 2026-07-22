@@ -114,6 +114,12 @@ Current planned stack:
 
 ---
 
+# Architecture
+
+A plain-language explanation of the server framework, application components, security boundaries, and operating modes is available in [**ARCHITECTURE.md**](ARCHITECTURE.md).
+
+---
+
 # Installation
 
 Installation prerequisites, Linux package dependencies, and the staged deployment framework are documented in [**INSTALL.md**](INSTALL.md).
