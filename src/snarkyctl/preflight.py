@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import grp
 import json
+import os
 import pwd
-import shutil
 import socket
 import ssl
 import stat
@@ -20,6 +20,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from snarkyctl.config import LoadedConfig, load_config
+from snarkyctl.providers.nordvpn import NORDVPN_EXECUTABLE
 
 SYSTEM_USER = "snarkyctl"
 SYSTEM_GROUP = "snarkyctl"
@@ -255,10 +256,14 @@ def _provider_checks(config: LoadedConfig) -> list[CheckResult]:
                 f"provider {provider} has no preflight implementation",
             )
         ]
-    executable = shutil.which("nordvpn")
-    if executable is None:
+    executable = NORDVPN_EXECUTABLE
+    if not executable.is_file() or not os.access(executable, os.X_OK):
         return [
-            _result("provider.executable", CheckStatus.FAIL, "NordVPN executable was not found")
+            _result(
+                "provider.executable",
+                CheckStatus.FAIL,
+                f"NordVPN executable is not runnable at {executable}",
+            )
         ]
     return [
         _result(
