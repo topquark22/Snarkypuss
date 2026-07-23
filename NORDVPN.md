@@ -45,4 +45,4 @@ Those are deployment configuration or later status-observation concerns. The exi
 
 Missing or non-executable binaries, permission errors, timeouts, excessive output, nonzero exit status, unsafe configured targets, and unrecognized status output are returned as stable `ProviderError` codes. Raw stderr is not exposed to the browser.
 
-The control daemon does not yet dispatch protocol operations to this adapter. That wiring is the next implementation stage.
+The privileged control daemon dispatches `STATUS`, `CONNECT`, and `DISCONNECT` to this adapter. It resolves aliases against the root-owned target allowlist before calling `connect`; an unknown alias never reaches NordVPN. `LOCK` and `DIRECT` remain unavailable until their policy semantics are implemented.
