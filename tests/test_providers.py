@@ -17,6 +17,7 @@ from snarkyctl.providers.nordvpn import (
     MAX_OUTPUT_LENGTH,
     CommandResult,
     NordVpnProvider,
+    parse_settings,
     parse_status,
     run_command,
 )
@@ -68,6 +69,26 @@ def test_parse_disconnected_nordvpn_status() -> None:
     assert status.interface is None
 
 
+def test_parse_nordvpn_settings() -> None:
+    settings = parse_settings(
+        """Technology: NORDLYNX
+Firewall: enabled
+Firewall Mark: 0xe1f1
+Routing: enabled
+Kill Switch: enabled
+"""
+    )
+    assert settings.leak_protection_enabled is True
+    assert settings.firewall_enabled is True
+    assert settings.routing_enabled is True
+    assert settings.firewall_mark == "0xe1f1"
+
+
+def test_parse_disabled_nordvpn_kill_switch() -> None:
+    settings = parse_settings("Kill Switch: disabled\nFirewall: enabled\n")
+    assert settings.leak_protection_enabled is False
+
+
 def test_parse_unknown_nordvpn_status_is_controlled_failure() -> None:
     with pytest.raises(ProviderError) as error:
         parse_status("Unexpected output\n")
@@ -91,6 +112,15 @@ def test_nordvpn_status_invokes_fixed_command() -> None:
     provider = NordVpnProvider(runner=runner)
     assert provider.status().state is VpnState.CONNECTED
     assert calls == [("status",)]
+
+
+def test_nordvpn_settings_invokes_fixed_command() -> None:
+    provider = NordVpnProvider(
+        runner=lambda *_args: CommandResult(
+            0, "Kill Switch: enabled\nFirewall: enabled\n", ""
+        )
+    )
+    assert provider.settings().leak_protection_enabled is True
 
 
 def test_nordvpn_connect_uses_one_configured_target_argument() -> None:
