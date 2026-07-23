@@ -60,7 +60,7 @@ The following are requirements, not optional enhancements.
 
 4. **Least privilege from the beginning**
 
-   The web application never runs as `root`. Privileged operations are available only through root-owned, non-writable wrapper programs with a strict allowlist.
+   The web application never runs as `root`. Privileged operations are available only through the separate root control daemon and its fixed, schema-validated Unix-socket protocol.
 
 5. **No unauthenticated state changes**
 
@@ -162,7 +162,7 @@ Do not add a database initially. Server aliases and display metadata belong in a
 └── SNARKYCTL.md
 ```
 
-Privileged wrappers are installed separately under `/usr/local/sbin`; secrets and authoritative privileged configuration do not live in the application tree.
+The root control daemon runs separately from the web service; secrets and authoritative privileged configuration do not live in the web application tree.
 
 ---
 
@@ -316,70 +316,64 @@ Define explicitly:
 
 # Phase 3: Privilege Boundary
 
-Create the security boundary before adding state-changing API routes.
+Create the privilege boundary before adding state-changing API routes.
 
 ## Dedicated account
 
 ```bash
 sudo useradd --system \
-  --home /usr/lib/snarkyctl \
+  --home /nonexistent \
   --shell /usr/sbin/nologin \
   snarkyctl
 ```
 
-Ownership must prevent a compromised web process from modifying executable code or privileged configuration:
+Application code is `root:root` and not writable by `snarkyctl). Secrets needed by the web service are `root:snarkyctl` with mode `0640). Writable runtime paths are narrowly scoped under `/run/snarkyctl`.
 
-- Application code: `root:root`, not writable by `snarkyctl`.
-- Privileged wrappers: `root:root`, mode `0755`, never writable by `snarkyctl`.
-- Secrets: `root:snarkyctl`, mode `0640`.
-- Writable runtime directory, if required: owned by `snarkyctl` and narrowly scoped.
-- Logs: use the systemd journal unless a separate log directory is necessary.
+## Root control daemon
 
-Do not recursively make the service account owner of `/usr/lib/snarkyctl`.
-
-## Restricted wrappers
-
-Install one root-owned wrapper for each privileged action:
+Install three systemd units:
 
 ```text
-/usr/libexec/snarkyctl/snark-nordvpn-connect
-/usr/libexec/snarkyctl/snark-nordvpn-disconnect
+snarkyctl-web.service
+snarkyctl-control.socket
+snarkyctl-control.service
 ```
 
-Later privileged operations, such as restarting `dnsmasq`, require separate wrappers and a separate security review.
-
-Each wrapper must:
-
-- Validate every argument.
-- Accept only predefined aliases.
-- Use an authoritative root-owned allowlist.
-- Reject extra or malformed arguments.
-- Use absolute command paths.
-- Avoid `eval`, shell expansion, and command substitution.
-- Produce predictable output and meaningful exit codes.
-- Be independently safe even if the application is compromised.
-
-Avoid inconsistent duplicate allowlists. The privileged wrapper or its root-owned configuration is authoritative; application configuration may add display labels but must not broaden the privileged choices.
-
-Create `/etc/sudoers.d/snarkyctl` with only the exact commands required. For example:
-
-```sudoers
-Defaults:snarkyctl secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
-snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
-```
-
-The wildcard makes strict wrapper-side validation essential. Never grant:
+The web service runs as `snarkyctl`. The control daemon runs as root. They communicate only through:
 
 ```text
-snarkyctl ALL=(ALL) NOPASSWD: ALL
+/run/snarkyctl/control.sock
 ```
 
-Validate the file:
+The socket is owned by `root:snarkyctl` with mode `0660`. The daemon verifies Linux peer credentials and accepts requests only from root or the configured `snarkyctl` UID.
 
-```bash
-sudo visudo -cf /etc/sudoers.d/snarkyctl
-```
+The versioned protocol exposes a fixed operation enumeration and strict schema. It never accepts shell text, executable paths, command arguments, firewall fragments, filenames, or arbitrary NordVPN targets.
+
+Every request has:
+
+- A protocol version.
+- A request identifier.
+- A fixed operation name.
+- A strict size limit.
+- Schema-validated fields.
+- A bounded execution timeout.
+
+The daemon serializes all mode-changing operations, validates aliases against root-owned configuration, uses subprocess argument arrays with `shell=False`, and returns structured results.
+
+## Firewall-enforced fail-closed policy
+
+The root daemon owns atomic mode transitions:
+
+- **NordVPN:** permit forwarded client traffic only through the active NordVPN interface.
+- **Direct VPS:** permit forwarded traffic through the explicitly configured public interface.
+- **Locked:** permit neither forwarding path.
+- **All modes:** preserve WireGuard management traffic.
+
+If the NordVPN interface disappears, the NordVPN forwarding rule no longer matches, so traffic becomes blocked without waiting for a monitor to detect failure. Boot begins Locked. Direct VPS mode is never restored automatically.
+
+The public interface is explicitly configured in root-owned configuration and validated during preflight. It is not silently guessed during an operation.
+
+The web service never calls `sudo`, never gains privileges, and may use `NoNewPrivileges=true`.
 
 ---
 
@@ -410,7 +404,7 @@ Bind Uvicorn only to:
 ```
 
 ```bash
-uvicorn app.main:app --host 10.8.0.1 --port 8443
+uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 --ssl-certfile /etc/snarkyctl/tls/server.crt --ssl-keyfile /etc/snarkyctl/tls/server.key
 ```
 
 Never use `0.0.0.0`. Verify the actual listener with `ss` and verify from an external host that the public VPS address does not accept connections on port `8443`.
@@ -517,13 +511,10 @@ The authoritative alias-to-NordVPN-target mapping remains root-owned at the priv
 Execution example:
 
 ```python
-subprocess.run(
-    ["/usr/bin/sudo", "/usr/libexec/snarkyctl/snark-nordvpn-connect", server_alias],
-    capture_output=True,
-    text=True,
+control_client.request(
+    operation="CONNECT",
+    target=server_alias,
     timeout=45,
-    check=False,
-    shell=False,
 )
 ```
 
@@ -533,7 +524,7 @@ Required behaviour:
 2. Validate the alias at the application boundary.
 3. Acquire the single control-operation lock.
 4. Return HTTP `409 Conflict` if another operation is active.
-5. Execute the restricted wrapper with a bounded timeout.
+5. Send the validated operation to the root control daemon with a bounded timeout.
 6. Query status after completion or failure.
 7. Return the resulting state and a controlled error message.
 8. Release the lock reliably.
@@ -574,16 +565,56 @@ Do not train the operator to ignore certificate warnings. Protect the private ke
 
 ---
 
-# Phase 9: systemd Service and Hardening
+# Phase 9: systemd Services and Hardening
 
-Create `/usr/lib/systemd/system/snarkyctl.service`:
+Install a protected socket, a root control daemon, and an unprivileged HTTPS web service.
+
+`snarkyctl-control.socket`:
 
 ```ini
 [Unit]
-Description=Snarkypuss Control Panel
+Description=SnarkyCtl privileged control socket
+
+[Socket]
+ListenStream=/run/snarkyctl/control.sock
+SocketUser=root
+SocketGroup=snarkyctl
+SocketMode=0660
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target
+```
+
+`snarkyctl-control.service`:
+
+```ini
+[Unit]
+Description=SnarkyCtl privileged control daemon
+Requires=snarkyctl-control.socket
 After=network-online.target wg-quick@wg0.service nordvpnd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/snarkyctl/venv/bin/python -m snarkyctl.control
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`snarkyctl-web.service`:
+
+```ini
+[Unit]
+Description=SnarkyCtl HTTPS control panel
+After=network-online.target wg-quick@wg0.service snarkyctl-control.socket
 Wants=network-online.target
-Requires=wg-quick@wg0.service
+Requires=wg-quick@wg0.service snarkyctl-control.socket
 
 [Service]
 Type=simple
@@ -591,26 +622,9 @@ User=snarkyctl
 Group=snarkyctl
 WorkingDirectory=/usr/lib/snarkyctl
 EnvironmentFile=-/etc/snarkyctl/snarkyctl.env
-ExecStart=/usr/lib/snarkyctl/venv/bin/uvicorn app.main:app --host 10.8.0.1 --port 8443
+ExecStart=/usr/lib/snarkyctl/venv/bin/uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 --ssl-certfile /etc/snarkyctl/tls/server.crt --ssl-keyfile /etc/snarkyctl/tls/server.key
 Restart=on-failure
 RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and inspect it:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now snarkyctl.service
-sudo systemctl status snarkyctl.service
-sudo journalctl -u snarkyctl.service -n 100 --no-pager
-```
-
-Add hardening directives incrementally:
-
-```ini
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
@@ -620,11 +634,20 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Important: `NoNewPrivileges=true` may prevent the service from using `sudo`, even for an allowlisted command. Test this explicitly. If it conflicts with the wrapper design, use a narrowly designed root helper or another explicit privilege-separation mechanism rather than silently weakening the boundary.
+Enable the socket and web service only after preflight:
 
-Review writable paths, certificate access, runtime locks, and Unix sockets before enabling each restriction.
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable --now snarkyctl-web.service
+```
+
+The control service is socket-activated. Hardening is applied incrementally and verified against required configuration, TLS, socket, and networking access. The web service must never receive `CAP_NET_ADMIN` or general root access.
 
 ---
 
@@ -663,13 +686,17 @@ Test:
 
 ## Privilege tests
 
-From the `snarkyctl` account, verify that:
+Verify that:
 
-- Approved wrappers work.
-- Unknown aliases and extra arguments fail.
-- Direct privileged commands fail.
-- Application code, wrappers, privileged configuration, and secrets cannot be modified.
-- No general-purpose sudo command is available.
+- Only root and the `snarkyctl` UID can connect to the control socket.
+- Peer credentials are checked even when socket permissions are correct.
+- Unknown operations, aliases, fields, protocol versions, and oversized requests fail.
+- Shell text, executable paths, firewall fragments, and arbitrary targets are never accepted.
+- Concurrent operations are serialized.
+- The web service cannot change routes or firewall state directly.
+- The web service runs with `NoNewPrivileges=true`.
+- Application code, root configuration, and control-daemon code cannot be modified by `snarkyctl`.
+- Killing either service leaves the active firewall policy fail-closed.
 
 ## Operational tests
 
@@ -723,9 +750,12 @@ It produces typed, reliable, partially degradable JSON.
 Deliverables:
 
 - Dedicated `snarkyctl` account.
-- Root-owned application and wrapper files.
+- Root-owned application and control-daemon files.
+- Protected systemd Unix socket with peer credential verification.
+- Versioned, schema-validated control protocol.
 - Authoritative root-owned target allowlist.
-- Minimal, validated sudo permissions.
+- Firewall-enforced atomic mode transitions.
+- No sudo permission or networking capability in the web service.
 
 ## Milestone 4: Authenticated Read-Only API
 
@@ -762,7 +792,7 @@ Deliverables:
 
 ## Milestone 8: Extended Management
 
-Possible additions, each requiring its own wrapper and security review:
+Possible additions, each requiring a new fixed control-protocol operation and security review:
 
 - Display and restart `dnsmasq`.
 - Reload DNS blocklists.
@@ -801,7 +831,7 @@ Build and verify in this order:
 2. Prove the WireGuard control-path invariant.
 3. Implement reliable command execution and parsing.
 4. Produce typed, partially degradable status data.
-5. Establish the dedicated account and privileged boundary.
+5. Establish the dedicated account, control daemon, protected socket, and firewall-enforced mode boundary.
 6. Build the private read-only API.
 7. Add HTTP Basic authentication and cross-origin request protection.
 8. Build the status dashboard.
