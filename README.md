@@ -142,6 +142,9 @@ The read-only deployment checks, result states, exit codes, and current safety l
 
 The implemented NordVPN command boundary, normalized status fields, and delegated networking responsibilities are documented in [**NORDVPN.md**](NORDVPN.md).
 
+The authenticated, read-only HTTPS status API and its stable response schema are documented
+in [**API.md**](API.md).
+
 The local administration CLI communicates exclusively with the privileged daemon:
 
 ```bash
