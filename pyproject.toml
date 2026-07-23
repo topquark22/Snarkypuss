@@ -1,0 +1,123 @@
+# pyproject.toml is the standard Python project and build configuration file.
+# It replaces several older files such as setup.py, setup.cfg, and pytest.ini.
+
+[build-system]
+# These packages are used only to build the SnarkyCtl wheel.
+requires = ["setuptools>=68", "wheel>=0.42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snarkyctl"
+version = "0.1.0.dev0"
+description = "Private control plane and web dashboard for the snarkypuss VPN gateway"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+authors = [
+    { name = "Gary Falk" },
+]
+keywords = [
+    "fastapi",
+    "nordvpn",
+    "vpn",
+    "wireguard",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: No Input/Output (Daemon)",
+    "Framework :: FastAPI",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking",
+    "Topic :: System :: Systems Administration",
+]
+
+# These are direct runtime dependencies. Transitive dependencies are resolved
+# and pinned with hashes in requirements.lock before a release is built.
+dependencies = [
+    "bcrypt>=4.2,<6",
+    "fastapi>=0.115,<1",
+    "jinja2>=3.1,<4",
+    "pydantic>=2.10,<3",
+    "pyyaml>=6.0,<7",
+    "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+# Install with: python -m pip install -e '.[dev]'
+dev = [
+    "build>=1.2,<2",
+    "httpx>=0.28,<1",
+    "mypy>=1.15,<2",
+    "pytest>=8.3,<10",
+    "pytest-cov>=6,<8",
+    "ruff>=0.11,<1",
+    "types-pyyaml>=6.0,<7",
+]
+
+[project.scripts]
+# This command will eventually provide status, validation, and preflight tools.
+snarkyctl = "snarkyctl.cli:main"
+
+[project.urls]
+Repository = "https://github.com/topquark22/snarkyctl"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# Include dashboard resources in both the wheel and Debian package.
+snarkyctl = [
+    "static/**/*.css",
+    "static/**/*.js",
+    "templates/**/*.html",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.3"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["snarkyctl"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "B",   # flake8-bugbear
+    "E",   # pycodestyle errors
+    "F",   # Pyflakes
+    "I",   # import sorting
+    "S",   # flake8-bandit security checks
+    "UP",  # Python syntax modernization
+    "W",   # pycodestyle warnings
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests commonly use assert directly; application code must not suppress S101.
+"tests/**/*.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["snarkyctl"]
+warn_unreachable = true
+show_error_codes = true
