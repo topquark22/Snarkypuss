@@ -41,11 +41,12 @@ The initial implementation verifies:
 - At least one syntactically valid bcrypt record in `auth.htpasswd`.
 - Successful loading of the TLS certificate/private-key pair.
 - Certificate validity and coverage of the configured private management IP address.
-- Presence of the selected provider's initial external prerequisite.
+- Presence of the selected provider's external prerequisite.
+- For NordVPN, successful parsing of `nordvpn settings` with both Kill Switch and the NordVPN firewall enabled.
 - Required user, privilege, and socket directives in the installed systemd units.
 - Type, owner, group, and mode of the live control socket when it is active.
 
-The provider check is adapter-specific. The first NordVPN check confirms that its command-line executable is available. It does not contact the daemon or change connection state.
+The provider check is adapter-specific. The NordVPN check confirms that its command-line executable is available and asks the daemon for read-only settings. It does not change connection state or provider configuration.
 
 ## Deliberate Limitations
 
