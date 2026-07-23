@@ -1,0 +1,29 @@
+# Copy to /etc/snarkyctl/snarkyctl.yaml and replace values for this VPS.
+schema_version: 1
+
+network:
+  management_interface: wg0
+  management_address: 10.8.0.1/24
+  client_subnet: 10.8.0.0/24
+  public_interface: eth0
+
+web:
+  # Must be the address on management_interface, never 0.0.0.0 or the public IP.
+  bind_address: 10.8.0.1
+  port: 8443
+  auth_file: /etc/snarkyctl/auth.htpasswd
+  tls_certificate: /etc/snarkyctl/tls/server.crt
+  tls_private_key: /etc/snarkyctl/tls/server.key
+  request_timeout_seconds: 10
+
+control:
+  socket_path: /run/snarkyctl/control.sock
+  operation_timeout_seconds: 60
+
+upstream_vpn:
+  # This is a fixed registry name compiled into SnarkyCtl, not a module name.
+  provider: nordvpn
+  # Provider-reported interfaces must match this root-owned allowlist.
+  expected_interfaces:
+    - nordlynx
+  targets_file: /etc/snarkyctl/targets.yaml
