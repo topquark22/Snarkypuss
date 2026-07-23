@@ -21,7 +21,7 @@ FastAPI application
       └── Python status and control logic
                     │
                     ▼
-       Restricted root-owned wrappers
+       Privileged control daemon
                     │
                     ▼
        NordVPN and selected Linux services
@@ -37,7 +37,7 @@ Python contains the application logic. It will:
 - Interpret their output.
 - Decide whether the gateway is in NordVPN, Direct VPS, or Locked mode.
 - Return structured status information.
-- Invoke narrowly restricted control wrappers.
+- Request narrowly defined privileged operations through the local control daemon.
 
 For example, Python might convert:
 
@@ -120,7 +120,9 @@ FastAPI = request-handling application
 The command:
 
 ```bash
-uvicorn app.main:app --host 10.8.0.1 --port 8443
+uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 \
+    --ssl-certfile /etc/snarkyctl/tls/server.crt \
+    --ssl-keyfile /etc/snarkyctl/tls/server.key
 ```
 
 means:
@@ -257,23 +259,22 @@ The systemd service runs the Uvicorn executable from this environment:
 
 ## systemd
 
-`systemd` is Ubuntu's service manager. It already manages services such as WireGuard and NordVPN.
+`systemd` is Ubuntu's service manager. SnarkyCtl installs three coordinated units:
 
-For SnarkyCtl it will:
+- `snarkyctl-web.service`: the HTTPS FastAPI/Uvicorn process running as `snarkyctl`.
+- `snarkyctl-control.socket`: the protected Unix-domain socket at `/run/snarkyctl/control.sock`.
+- `snarkyctl-control.service`: the deliberately small root control daemon, activated through the socket.
 
-- Start the dashboard after boot.
-- Run it as the `snarkyctl` account.
-- Restart it if it crashes.
-- Capture its logs.
-- Apply operating-system security restrictions.
+The web service can use `NoNewPrivileges=true` because it never calls `sudo` or otherwise attempts to gain privileges. The control daemon begins with the privilege it needs and exposes only the fixed local protocol.
 
-The principal administrative commands will be:
+Administrative commands include:
 
 ```bash
-sudo systemctl start snarkyctl
-sudo systemctl stop snarkyctl
-sudo systemctl status snarkyctl
-sudo journalctl -u snarkyctl
+sudo systemctl start snarkyctl-control.socket snarkyctl-web.service
+sudo systemctl stop snarkyctl-web.service snarkyctl-control.socket
+sudo systemctl status snarkyctl-web.service snarkyctl-control.service
+sudo journalctl -u snarkyctl-web.service
+sudo journalctl -u snarkyctl-control.service
 ```
 
 ---
@@ -294,47 +295,54 @@ If the web application has a vulnerability, an attacker initially obtains only t
 
 ---
 
-## Root-Owned Wrapper Programs
+## Privileged Control Daemon
 
-FastAPI will not execute commands such as:
+The web application never executes privileged network commands directly. It sends a small, schema-validated request over:
 
-```bash
-sudo nordvpn connect USER_SUPPLIED_TEXT
+```text
+/run/snarkyctl/control.sock
 ```
 
-Instead, it invokes a fixed wrapper:
+The socket is owned by `root:snarkyctl` with mode `0660`. The control daemon also verifies Linux peer credentials and accepts only root or the configured `snarkyctl` UID.
 
-```bash
-sudo /usr/libexec/snarkyctl/snark-nordvpn-connect dallas
+The protocol exposes a fixed operation enumeration, for example:
+
+```text
+STATUS
+LOCK
+CONNECT dallas
+DISCONNECT
+DIRECT <confirmation-token>
 ```
 
-The wrapper independently verifies that `dallas` is permitted and translates it into the actual NordVPN target.
+It never accepts shell source, executable names, command-line fragments, firewall rules, filenames, or arbitrary NordVPN targets. Requests have a protocol version, request identifier, strict size limit, validated fields, and bounded execution time.
 
-This creates two validation boundaries:
+The daemon:
 
-1. FastAPI rejects invalid requests.
-2. The privileged wrapper rejects them again.
+- Runs as root in its own systemd service.
+- Owns all mode-changing operations.
+- Serializes concurrent operations.
+- Validates aliases against root-owned configuration.
+- Invokes commands with argument arrays and `shell=False`.
+- Applies firewall changes atomically.
+- Returns a structured result rather than raw command output.
+- Logs security-relevant operations to the systemd journal.
 
-Even if someone compromises the FastAPI process, the wrapper does not become a general root shell.
+The root daemon is intentionally much smaller than the network-facing application. It contains no HTML, templates, static files, HTTP server, authentication UI, or general command runner.
 
----
+## Firewall-Enforced Modes
 
-## Restricted sudoers Rules
+Locked behaviour is a property of the firewall rules, not merely a state remembered by Python:
 
-The sudoers file grants the `snarkyctl` account permission to run only approved wrappers:
+- NordVPN mode permits forwarded client traffic only through the active NordVPN interface.
+- If that interface disappears, the rule ceases to match and traffic is blocked immediately.
+- Direct VPS mode uses a separate explicit rule for the configured public interface.
+- Locked mode permits neither forwarding path.
+- WireGuard management traffic remains permitted in every mode.
 
-```sudoers
-snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
-snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
-```
+The public interface is explicitly configured and validated during preflight. It is never silently guessed while changing modes.
 
-It does not grant general `sudo` access. The wrappers must independently reject unknown aliases, malformed input, and extra arguments.
-
-The sudoers file will be validated before use:
-
-```bash
-sudo visudo -cf /etc/sudoers.d/snarkyctl
-```
+The control daemon applies each transition atomically. Boot begins Locked, and Direct VPS mode is never automatically restored.
 
 ---
 
@@ -446,4 +454,4 @@ The first version does not need:
 - Redis or a job queue.
 - A cloud authentication provider.
 
-The resulting system remains a small Python service, two HTML templates, a little JavaScript, several carefully restricted Linux wrappers, and a systemd unit. FastAPI and Uvicorn provide structure without turning SnarkyCtl into a large web-development project.
+The resulting system remains a small Python HTTPS service, one HTML template, a little JavaScript, a deliberately small root control daemon, and three coordinated systemd units. FastAPI and Uvicorn provide structure without turning SnarkyCtl into a large web-development project.
