@@ -118,6 +118,8 @@ Current planned stack:
 
 A plain-language explanation of the server framework, application components, security boundaries, and operating modes is available in [**ARCHITECTURE.md**](ARCHITECTURE.md).
 
+Settled architectural choices are recorded in [**DECISIONS.md**](DECISIONS.md).
+
 ---
 
 # Deployment
@@ -136,28 +138,34 @@ Installation prerequisites, Linux package dependencies, and the staged deploymen
 
 ```text
 README.md
+ARCHITECTURE.md
+DECISIONS.md
+DEPLOYMENT.md
+INSTALL.md
 SNARKYCTL.md
-app/
+SNARKYPUSS.md
+pyproject.toml
+src/snarkyctl/
 config/
-scripts/
+systemd/
 tests/
+debian/
 ```
 
 ---
 
 # Development Roadmap
 
-1. Command execution layer
-2. Status parser
-3. Read-only REST API
-4. Dashboard
-5. NordVPN controls
-6. Authentication
-7. HTTPS
-8. Privilege separation
-9. Service hardening
+1. Establish the command parsers and typed status models.
+2. Implement the root control daemon and versioned Unix-socket protocol.
+3. Implement firewall-enforced Locked, NordVPN, and Direct VPS transitions.
+4. Establish the unprivileged `snarkyctl` account and systemd socket/service units.
+5. Build the authenticated, HTTPS-only read-only API.
+6. Build the status dashboard.
+7. Enable serialized state-changing controls through the control daemon.
+8. Complete Debian packaging, preflight, hardening, and operational tests.
 
-Detailed implementation notes are contained in [**SNARKYCTL.md**](SNARKYCTL.md).
+Detailed implementation requirements are contained in [**SNARKYCTL.md**](SNARKYCTL.md), with settled architectural choices in [**DECISIONS.md**](DECISIONS.md).
 
 ---
 
