@@ -1,0 +1,41 @@
+[Unit]
+Description=SnarkyCtl HTTPS control panel
+Documentation=https://github.com/topquark22/snarkyctl
+Wants=network-online.target
+After=network-online.target wg-quick@wg0.service snarkyctl-control.socket
+Requires=wg-quick@wg0.service snarkyctl-control.socket
+
+[Service]
+Type=simple
+User=snarkyctl
+Group=snarkyctl
+WorkingDirectory=/usr/lib/snarkyctl
+EnvironmentFile=-/etc/snarkyctl/snarkyctl.env
+ExecStart=/usr/lib/snarkyctl/venv/bin/uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 --ssl-certfile /etc/snarkyctl/tls/server.crt --ssl-keyfile /etc/snarkyctl/tls/server.key
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+UMask=0027
+
+# The network-facing process must never gain privileges.
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
