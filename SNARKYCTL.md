@@ -133,7 +133,7 @@ Do not add a database initially. Server aliases and display metadata belong in a
 ## Suggested Directory Layout
 
 ```text
-/opt/snarkypuss-control/
+/usr/lib/snarkyctl/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py
@@ -322,7 +322,7 @@ Create the security boundary before adding state-changing API routes.
 
 ```bash
 sudo useradd --system \
-  --home /opt/snarkypuss-control \
+  --home /usr/lib/snarkyctl \
   --shell /usr/sbin/nologin \
   snarkctl
 ```
@@ -335,15 +335,15 @@ Ownership must prevent a compromised web process from modifying executable code 
 - Writable runtime directory, if required: owned by `snarkctl` and narrowly scoped.
 - Logs: use the systemd journal unless a separate log directory is necessary.
 
-Do not recursively make the service account owner of `/opt/snarkypuss-control`.
+Do not recursively make the service account owner of `/usr/lib/snarkyctl`.
 
 ## Restricted wrappers
 
 Install one root-owned wrapper for each privileged action:
 
 ```text
-/usr/local/sbin/snark-nordvpn-connect
-/usr/local/sbin/snark-nordvpn-disconnect
+/usr/libexec/snarkyctl/snark-nordvpn-connect
+/usr/libexec/snarkyctl/snark-nordvpn-disconnect
 ```
 
 Later privileged operations, such as restarting `dnsmasq`, require separate wrappers and a separate security review.
@@ -361,12 +361,12 @@ Each wrapper must:
 
 Avoid inconsistent duplicate allowlists. The privileged wrapper or its root-owned configuration is authoritative; application configuration may add display labels but must not broaden the privileged choices.
 
-Create `/etc/sudoers.d/snarkypuss-control` with only the exact commands required. For example:
+Create `/etc/sudoers.d/snarkyctl` with only the exact commands required. For example:
 
 ```sudoers
 Defaults:snarkctl secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-snarkctl ALL=(root) NOPASSWD: /usr/local/sbin/snark-nordvpn-connect *
-snarkctl ALL=(root) NOPASSWD: /usr/local/sbin/snark-nordvpn-disconnect
+snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
+snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
 ```
 
 The wildcard makes strict wrapper-side validation essential. Never grant:
@@ -378,7 +378,7 @@ snarkctl ALL=(ALL) NOPASSWD: ALL
 Validate the file:
 
 ```bash
-sudo visudo -cf /etc/sudoers.d/snarkypuss-control
+sudo visudo -cf /etc/sudoers.d/snarkyctl
 ```
 
 ---
@@ -425,7 +425,7 @@ For the first browser-based version, use HTTP Basic authentication over HTTPS:
 
 - The browser displays its native username-and-password prompt.
 - There is no user database, login page, session cookie, or server-side session store.
-- Store the username and salted password hash in `/etc/snarkypuss-control/auth.htpasswd`.
+- Store the username and salted password hash in `/etc/snarkyctl/auth.htpasswd`.
 - Use the standard `htpasswd` format with a modern password hash; never store the plaintext password.
 - Own the file as `root:snarkctl` with mode `0640`, so the service can read but not modify it.
 - Apply authentication to the dashboard and every API endpoint except narrowly defined liveness checks, if any.
@@ -518,7 +518,7 @@ Execution example:
 
 ```python
 subprocess.run(
-    ["/usr/bin/sudo", "/usr/local/sbin/snark-nordvpn-connect", server_alias],
+    ["/usr/bin/sudo", "/usr/libexec/snarkyctl/snark-nordvpn-connect", server_alias],
     capture_output=True,
     text=True,
     timeout=45,
@@ -576,7 +576,7 @@ Do not train the operator to ignore certificate warnings. Protect the private ke
 
 # Phase 9: systemd Service and Hardening
 
-Create `/etc/systemd/system/snarkypuss-control.service`:
+Create `/usr/lib/systemd/system/snarkyctl.service`:
 
 ```ini
 [Unit]
@@ -589,9 +589,9 @@ Requires=wg-quick@wg0.service
 Type=simple
 User=snarkctl
 Group=snarkctl
-WorkingDirectory=/opt/snarkypuss-control
-EnvironmentFile=-/etc/snarkypuss-control.env
-ExecStart=/opt/snarkypuss-control/venv/bin/uvicorn app.main:app --host 10.8.0.1 --port 8443
+WorkingDirectory=/usr/lib/snarkyctl
+EnvironmentFile=-/etc/snarkyctl/snarkyctl.env
+ExecStart=/usr/lib/snarkyctl/venv/bin/uvicorn app.main:app --host 10.8.0.1 --port 8443
 Restart=on-failure
 RestartSec=5
 
@@ -603,9 +603,9 @@ Enable and inspect it:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now snarkypuss-control.service
-sudo systemctl status snarkypuss-control.service
-sudo journalctl -u snarkypuss-control.service -n 100 --no-pager
+sudo systemctl enable --now snarkyctl.service
+sudo systemctl status snarkyctl.service
+sudo journalctl -u snarkyctl.service -n 100 --no-pager
 ```
 
 Add hardening directives incrementally:
