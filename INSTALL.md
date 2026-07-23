@@ -193,7 +193,7 @@ Python packages will be installed from the repository's pinned dependency file a
 
 ### 4. Create the service account
 
-Create the non-interactive `snarkctl` system account. Application code and privileged wrappers remain owned by `root:root` and are not writable by this account.
+Create the non-interactive `snarkyctl` system account. Application code and privileged wrappers remain owned by `root:root` and are not writable by this account.
 
 ### 5. Install configuration and privileged wrappers
 
@@ -235,10 +235,10 @@ The planned filesystem locations are:
 | Path | Purpose | Ownership |
 |---|---|---|
 | `/usr/lib/snarkyctl` | Application code and virtual environment | `root:root` |
-| `/etc/snarkyctl/` | Configuration, secrets, and authoritative allowlists | `root:snarkctl` or `root:root`, mode-dependent |
-| `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkctl`, mode `0640` |
+| `/etc/snarkyctl/` | Configuration, secrets, and authoritative allowlists | `root:snarkyctl` or `root:root`, mode-dependent |
+| `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkyctl`, mode `0640` |
 | `/usr/libexec/snarkyctl/snark-*` | Privileged wrapper commands | `root:root` |
-| `/run/snarkyctl/` | Optional runtime lock/state | `snarkctl:snarkctl` |
+| `/run/snarkyctl/` | Optional runtime lock/state | `snarkyctl:snarkyctl` |
 | `/usr/lib/systemd/system/snarkyctl.service` | Service definition | `root:root` |
 | `/etc/sudoers.d/snarkyctl` | Restricted privilege rules | `root:root` |
 
