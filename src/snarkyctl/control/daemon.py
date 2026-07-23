@@ -1,9 +1,4 @@
-"""Socket-activated skeleton for the privileged SnarkyCtl control daemon.
-
-This initial implementation deliberately performs no privileged operation. It
-validates the activation environment, verifies the connecting UID, validates a
-protocol request, and returns NOT_IMPLEMENTED.
-"""
+"""Socket-activated privileged SnarkyCtl control daemon."""
 
 from __future__ import annotations
 
@@ -13,14 +8,24 @@ import pwd
 import socket
 import struct
 from contextlib import closing
+from pathlib import Path
 
+from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, LoadedConfig, load_config
 from snarkyctl.control.protocol import (
+    ConnectRequest,
+    ControlRequest,
     ControlResponse,
+    DirectRequest,
+    DisconnectRequest,
+    LockRequest,
     ProtocolError,
+    StatusRequest,
     encode_message,
     parse_request,
     receive_frame,
 )
+from snarkyctl.providers.base import ProviderError, VpnProvider, VpnTarget
+from snarkyctl.providers.registry import create_provider
 
 LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
@@ -30,6 +35,70 @@ _PEER_CREDENTIALS = struct.Struct("3i")
 
 class ActivationError(RuntimeError):
     """Raised when the daemon was not started with one systemd socket."""
+
+
+class ControlService:
+    """Dispatch fixed protocol operations to one configured provider."""
+
+    def __init__(self, config: LoadedConfig, provider: VpnProvider) -> None:
+        self._provider = provider
+        self._targets: dict[str, VpnTarget] = {
+            target.alias: target for target in config.targets.targets
+        }
+
+    @classmethod
+    def from_config(cls, path: Path = DEFAULT_CONFIG_PATH) -> ControlService:
+        """Load root-owned configuration and construct its compiled provider."""
+        config = load_config(path)
+        provider = create_provider(
+            config.settings.upstream_vpn.provider,
+            timeout_seconds=config.settings.control.operation_timeout_seconds,
+        )
+        return cls(config, provider)
+
+    def dispatch(self, request: ControlRequest) -> ControlResponse:
+        """Execute one already validated request."""
+        if isinstance(request, StatusRequest):
+            status = self._provider.status()
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Upstream VPN status retrieved.",
+                vpn_status=status,
+            )
+        if isinstance(request, ConnectRequest):
+            try:
+                target = self._targets[request.target]
+            except KeyError:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNKNOWN_TARGET",
+                    message="The requested target alias is not configured.",
+                )
+            status = self._provider.connect(target)
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message=f"Connected using target alias {target.alias}.",
+                vpn_status=status,
+            )
+        if isinstance(request, DisconnectRequest):
+            status = self._provider.disconnect()
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Upstream VPN disconnected.",
+                vpn_status=status,
+            )
+        if isinstance(request, (LockRequest, DirectRequest)):
+            return ControlResponse(
+                request_id=request.request_id,
+                success=False,
+                error_code="NOT_IMPLEMENTED",
+                message="This policy operation is not implemented yet.",
+            )
+        raise AssertionError("unreachable validated control request")
 
 
 def systemd_listener() -> socket.socket:
@@ -67,8 +136,21 @@ def peer_credentials(connection: socket.socket) -> tuple[int, int, int]:
     return _PEER_CREDENTIALS.unpack(raw)
 
 
-def handle_connection(connection: socket.socket, permitted_uids: frozenset[int]) -> None:
-    """Validate one request and return a safe placeholder response."""
+def _provider_failure(request: ControlRequest, error: ProviderError) -> ControlResponse:
+    return ControlResponse(
+        request_id=request.request_id,
+        success=False,
+        error_code=error.code,
+        message=str(error),
+    )
+
+
+def handle_connection(
+    connection: socket.socket,
+    permitted_uids: frozenset[int],
+    service: ControlService,
+) -> None:
+    """Authenticate, validate, dispatch, and respond to one local request."""
     connection.settimeout(CONTROL_IO_TIMEOUT_SECONDS)
     pid, uid, _gid = peer_credentials(connection)
     if uid not in permitted_uids:
@@ -77,35 +159,63 @@ def handle_connection(connection: socket.socket, permitted_uids: frozenset[int])
 
     try:
         request = parse_request(receive_frame(connection))
-        response = ControlResponse(
-            version=1,
-            request_id=request.request_id,
-            success=False,
-            error_code="NOT_IMPLEMENTED",
-            message="Privileged operations are not implemented yet.",
+        LOGGER.info(
+            "control operation requested pid=%d uid=%d operation=%s",
+            pid,
+            uid,
+            request.operation,
         )
+        try:
+            response = service.dispatch(request)
+        except ProviderError as exc:
+            LOGGER.warning(
+                "provider operation failed pid=%d uid=%d operation=%s code=%s",
+                pid,
+                uid,
+                request.operation,
+                exc.code,
+            )
+            response = _provider_failure(request, exc)
+        except Exception:
+            LOGGER.exception(
+                "unexpected provider failure pid=%d uid=%d operation=%s",
+                pid,
+                uid,
+                request.operation,
+            )
+            response = ControlResponse(
+                request_id=request.request_id,
+                success=False,
+                error_code="INTERNAL_ERROR",
+                message="The control operation failed unexpectedly.",
+            )
         connection.sendall(encode_message(response))
     except (OSError, ProtocolError) as exc:
         LOGGER.warning("rejected invalid control request pid=%d uid=%d: %s", pid, uid, exc)
 
 
-def serve(listener: socket.socket) -> None:  # pragma: no cover - integration loop
-    """Serve validated local requests until systemd stops the process."""
+def serve(listener: socket.socket, service: ControlService) -> None:  # pragma: no cover
+    """Serve local requests serially until systemd stops the process."""
     permitted_uids = allowed_uids()
     LOGGER.info("SnarkyCtl control daemon ready")
     while True:
         connection, _address = listener.accept()
         with closing(connection):
-            handle_connection(connection, permitted_uids)
+            handle_connection(connection, permitted_uids, service)
 
 
 def main() -> int:  # pragma: no cover - exercised by systemd integration tests
-    """Run the socket-activated control daemon."""
+    """Load configuration and run the socket-activated control daemon."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    try:
+        service = ControlService.from_config()
+    except (ConfigError, ProviderError) as exc:
+        LOGGER.error("control daemon configuration failed: %s", exc)
+        return 1
     with closing(systemd_listener()) as listener:
-        serve(listener)
+        serve(listener, service)
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover - console execution guard
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
