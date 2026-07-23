@@ -17,6 +17,7 @@ from snarkyctl.providers.base import (
     ProviderCapabilities,
     ProviderError,
     VpnProvider,
+    VpnSettings,
     VpnState,
     VpnStatus,
     VpnTarget,
@@ -135,6 +136,30 @@ def parse_status(output: str) -> VpnStatus:
     )
 
 
+def _parse_toggle(value: str | None) -> bool | None:
+    if value is None:
+        return None
+    normalized = value.casefold()
+    if normalized in {"enabled", "on", "true", "1"}:
+        return True
+    if normalized in {"disabled", "off", "false", "0"}:
+        return False
+    return None
+
+
+def parse_settings(output: str) -> VpnSettings:
+    """Normalize safety-relevant fields from ``nordvpn settings``."""
+    fields = _parse_fields(output)
+    return VpnSettings(
+        provider="nordvpn",
+        leak_protection_enabled=_parse_toggle(fields.get("kill_switch")),
+        technology=fields.get("technology"),
+        routing_enabled=_parse_toggle(fields.get("routing")),
+        firewall_enabled=_parse_toggle(fields.get("firewall")),
+        firewall_mark=fields.get("firewall_mark"),
+    )
+
+
 class NordVpnProvider(VpnProvider):
     """Built-in adapter for the NordVPN Linux CLI."""
 
@@ -169,6 +194,10 @@ class NordVpnProvider(VpnProvider):
     def status(self) -> VpnStatus:
         result = self._run("status")
         return parse_status(result.stdout)
+
+    def settings(self) -> VpnSettings:
+        result = self._run("settings")
+        return parse_settings(result.stdout)
 
     def connect(self, target: VpnTarget) -> VpnStatus:
         if TARGET_PATTERN.fullmatch(target.provider_target) is None:
