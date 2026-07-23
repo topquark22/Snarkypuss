@@ -24,7 +24,7 @@ FastAPI application
        Privileged control daemon
                     │
                     ▼
-       NordVPN and selected Linux services
+       Configured upstream VPN and selected Linux services
 ```
 
 ---
@@ -33,9 +33,9 @@ FastAPI application
 
 Python contains the application logic. It will:
 
-- Run status commands such as `nordvpn status` and `wg show`.
+- Read WireGuard status and request upstream-VPN status through the configured provider adapter.
 - Interpret their output.
-- Decide whether the gateway is in NordVPN, Direct VPS, or Locked mode.
+- Decide whether the gateway is in VPN, Direct VPS, or Locked mode.
 - Return structured status information.
 - Request narrowly defined privileged operations through the local control daemon.
 
@@ -74,8 +74,9 @@ app = FastAPI()
 @app.get("/api/status")
 def get_status():
     return {
-        "nordvpn": "connected",
-        "mode": "nordvpn",
+        "vpn": "connected",
+        "provider": "nordvpn",
+        "mode": "vpn",
         "exit_ip": "2.56.190.136",
     }
 ```
@@ -183,11 +184,11 @@ Jinja2 produces HTML from a template. For example:
 <p>Current mode: {{ mode }}</p>
 ```
 
-If Python supplies `mode="NordVPN"`, the browser receives:
+If Python supplies `mode="VPN"`, the browser receives:
 
 ```html
 <h1>SnarkyCtl</h1>
-<p>Current mode: NordVPN</p>
+<p>Current mode: VPN</p>
 ```
 
 SnarkyCtl will probably use Jinja2 only to deliver the initial dashboard page. HTTP Basic authentication is handled before the template is served. After the dashboard loads, its JavaScript will call the API periodically and update the displayed information.
@@ -295,6 +296,35 @@ If the web application has a vulnerability, an attacker initially obtains only t
 
 ---
 
+## Upstream VPN Provider Abstraction
+
+The private client-to-VPS tunnel remains WireGuard. A separate optional **upstream VPN** carries forwarded Internet traffic beyond the VPS.
+
+The root control daemon selects a trusted adapter through a fixed compiled registry:
+
+```text
+VpnProvider
+├── NordVpnProvider
+├── WireGuardProvider (future)
+└── OpenVpnProvider (future)
+```
+
+Every adapter implements the same provider-neutral operations:
+
+```python
+status() -> VpnStatus
+connect(target: VpnTarget) -> VpnStatus
+disconnect() -> VpnStatus
+```
+
+Common states are `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`, `FAILED`, and `UNKNOWN`. Provider-specific fields may appear only in a bounded details map; core policy does not depend on them.
+
+Configuration selects a registry key such as `nordvpn`. It may not name an arbitrary Python module. Provider adapters execute inside the root daemon and are therefore trusted code shipped by the package.
+
+The provider reports connection state and a verified upstream interface. It does not generate firewall rules. Firewall policy remains an independent core component.
+
+---
+
 ## Privileged Control Daemon
 
 The web application never executes privileged network commands directly. It sends a small, schema-validated request over:
@@ -315,7 +345,7 @@ DISCONNECT
 DIRECT <confirmation-token>
 ```
 
-It never accepts shell source, executable names, command-line fragments, firewall rules, filenames, or arbitrary NordVPN targets. Requests have a protocol version, request identifier, strict size limit, validated fields, and bounded execution time.
+It never accepts shell source, executable names, command-line fragments, firewall rules, filenames, or arbitrary provider targets. Requests have a protocol version, request identifier, strict size limit, validated fields, and bounded execution time.
 
 The daemon:
 
@@ -334,7 +364,7 @@ The root daemon is intentionally much smaller than the network-facing applicatio
 
 Locked behaviour is a property of the firewall rules, not merely a state remembered by Python:
 
-- NordVPN mode permits forwarded client traffic only through the active NordVPN interface.
+- VPN mode permits forwarded client traffic only through the verified interface reported by the configured provider.
 - If that interface disappears, the rule ceases to match and traffic is blocked immediately.
 - Direct VPS mode uses a separate explicit rule for the configured public interface.
 - Locked mode permits neither forwarding path.
@@ -404,14 +434,14 @@ Pytest is the testing framework. It allows parsers and policy decisions to be te
 For example:
 
 ```python
-def test_failed_nordvpn_connection_locks_forwarding():
+def test_failed_vpn_connection_locks_forwarding():
     status = handle_connection_failure()
 
     assert status.actual_mode == "locked"
     assert status.forwarding_allowed is False
 ```
 
-Saved samples of real command output allow the parser to be tested repeatedly without requiring NordVPN to connect during every test.
+Saved samples of real command output allow the parser to be tested repeatedly without requiring a real upstream VPN to connect during every test.
 
 ---
 
@@ -421,19 +451,19 @@ The architecture distinguishes policy from observed connectivity:
 
 | Mode | Behaviour |
 |---|---|
-| **NordVPN** | Forwarded traffic exits through NordVPN. If NordVPN fails, traffic becomes Locked. |
+| **VPN** | Forwarded traffic exits through the configured upstream provider. If it fails, traffic becomes Locked. |
 | **Direct VPS** | Forwarded traffic deliberately exits through the VPS public IP after explicit confirmation. |
 | **Locked** | Forwarded Internet traffic is blocked while WireGuard management remains available. |
 
-An observed NordVPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
+An observed upstream-VPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
 
 The status API therefore keeps desired and actual state separate:
 
 ```json
 {
-  "desired_mode": "nordvpn",
+  "desired_mode": "vpn",
   "actual_mode": "locked",
-  "nordvpn_state": "disconnected",
+  "vpn": { "provider": "nordvpn", "state": "DISCONNECTED" },
   "forwarding_allowed": false,
   "exit_ip": null
 }
