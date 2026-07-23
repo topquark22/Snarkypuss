@@ -13,6 +13,25 @@ neither plaintext passwords nor sessions in a database.
 The process-liveness endpoint is intentionally unauthenticated so that systemd and local
 monitoring can determine whether the web process is running. It contains no gateway data.
 
+## Browser hardening
+
+FastAPI's interactive `/docs` and `/redoc` pages and its `/openapi.json` schema route are
+disabled. The deployed service does not expose implementation discovery pages.
+
+Every HTTP response, including authentication and daemon errors, carries:
+
+- A restrictive Content Security Policy permitting resources and API connections only
+  from the same origin, while prohibiting objects, embedding, and base-URL changes.
+- `Strict-Transport-Security` with a one-year lifetime.
+- `X-Content-Type-Options: nosniff`.
+- Both CSP `frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+- `Referrer-Policy: no-referrer`.
+- A Permissions Policy disabling camera, microphone, and geolocation.
+- `Cache-Control: no-store`.
+
+Dashboard scripts and styles must therefore be served as separate same-origin static files.
+Inline scripts and inline styles are not permitted.
+
 ## `GET /api/health/live`
 
 Returns the web process name and package version. This endpoint does not query the control
