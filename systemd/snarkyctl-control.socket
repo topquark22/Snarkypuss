@@ -9,6 +9,7 @@ SocketGroup=snarkyctl
 SocketMode=0660
 DirectoryMode=0750
 Accept=false
+Backlog=8
 RemoveOnStop=true
 
 [Install]
