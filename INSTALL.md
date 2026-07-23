@@ -65,7 +65,6 @@ Some paths may not exist on every installation.
 | `python3` | Runs the SnarkyCtl application. |
 | `python3-pip` | Installs Python application dependencies inside the virtual environment. |
 | `python3-venv` | Creates an isolated Python virtual environment. |
-| `sudo` | Allows the unprivileged service account to invoke only approved root-owned wrappers. |
 | `wireguard-tools` | Supplies `wg` and `wg-quick` status tools. |
 
 The base Ubuntu installation already supplies `systemd` and `systemctl`; they are not installed separately here.
@@ -112,7 +111,6 @@ sudo apt-get install --yes --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
-    sudo \
     wireguard-tools
 ```
 
@@ -140,7 +138,6 @@ git --version
 openssl version
 ip -Version
 wg --version
-sudo --version
 ```
 
 Confirm that the existing gateway components are available:
@@ -193,23 +190,29 @@ Python packages will be installed from the repository's pinned dependency file a
 
 ### 4. Create the service account
 
-Create the non-interactive `snarkyctl` system account. Application code and privileged wrappers remain owned by `root:root` and are not writable by this account.
+Create the non-interactive `snarkyctl` system account. Application and control-daemon code remain owned by `root:root` and are not writable by this account.
 
-### 5. Install configuration and privileged wrappers
+### 5. Install the privileged control boundary
 
-Install root-owned configuration, the authoritative server-alias allowlist, and narrowly scoped wrapper commands. Validate `/etc/sudoers.d/snarkyctl` with `visudo` before enabling controls.
+Install the root control daemon, `snarkyctl-control.socket`, and `snarkyctl-control.service`. The Unix socket is created at `/run/snarkyctl/control.sock` with access limited to root and the `snarkyctl` group. No sudoers policy is used by the application.
+
+---
 
 ### 6. Install authentication and certificates
 
 Create the root-controlled `auth.htpasswd` file for HTTP Basic authentication, followed by the private certificate authority and server certificate. Trust the CA on the Windows management computer. The certificate will include the chosen private hostname and, if used directly, `10.8.0.1` as an IP Subject Alternative Name.
 
-### 7. Install the systemd service
+### 7. Install the systemd units
 
-Install and enable `snarkyctl.service`, initially with read-only status functionality. Bind Uvicorn only to:
+Install the socket-activated root control daemon and the unprivileged HTTPS service. The web service binds Uvicorn only to:
 
 ```text
 10.8.0.1:8443
 ```
+
+and loads the configured TLS certificate and key. The web service runs with `NoNewPrivileges=true` and communicates with the root daemon only through the protected Unix socket.
+
+---
 
 ### 8. Verify private reachability
 
@@ -237,12 +240,12 @@ The planned filesystem locations are:
 | `/usr/lib/snarkyctl` | Application code and virtual environment | `root:root` |
 | `/etc/snarkyctl/` | Configuration, secrets, and authoritative allowlists | `root:snarkyctl` or `root:root`, mode-dependent |
 | `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkyctl`, mode `0640` |
-| `/usr/libexec/snarkyctl/snark-*` | Privileged wrapper commands | `root:root` |
 | `/run/snarkyctl/` | Optional runtime lock/state | `snarkyctl:snarkyctl` |
-| `/usr/lib/systemd/system/snarkyctl.service` | Service definition | `root:root` |
-| `/etc/sudoers.d/snarkyctl` | Restricted privilege rules | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-web.service` | Unprivileged HTTPS service | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-control.socket` | Protected Unix socket definition | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-control.service` | Root control daemon | `root:root` |
 
-The service account must not be able to modify application code, wrapper commands, sudoers rules, certificates' private keys, or the authoritative target allowlist.
+The service account must not be able to modify application code, control-daemon code, systemd units, certificate private keys, or the authoritative target allowlist.
 
 ---
 
@@ -254,8 +257,9 @@ The following installation pieces will be filled in as their corresponding appli
 - Application checkout and update commands.
 - Service-account creation script.
 - Configuration templates.
-- NordVPN and mode-control wrappers.
-- Restricted sudoers file.
+- Root control daemon and versioned socket protocol.
+- Firewall mode-transition implementation.
+- systemd web, control, and socket units.
 - HTTP Basic auth-file generation and password-change procedure.
 - Private CA and server-certificate generation procedure.
 - systemd unit and hardening configuration.
