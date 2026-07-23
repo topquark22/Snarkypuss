@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 
+from snarkyctl.providers.base import VpnStatus
+
 PROTOCOL_VERSION: Final = 1
 MAX_MESSAGE_SIZE = 4096
 _FRAME_HEADER = struct.Struct("!I")
@@ -87,6 +89,7 @@ class ControlResponse(BaseModel):
     success: bool
     error_code: str | None = None
     message: str
+    vpn_status: VpnStatus | None = None
 
 
 def parse_request(payload: bytes) -> ControlRequest:
