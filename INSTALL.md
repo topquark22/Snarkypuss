@@ -176,7 +176,7 @@ Capture interfaces, routes, policy rules, firewall rules, WireGuard state, NordV
 The production checkout will live at:
 
 ```text
-/opt/snarkypuss-control
+/usr/lib/snarkyctl
 ```
 
 The final command sequence will clone or update this repository without giving the runtime account ownership of the application code.
@@ -186,7 +186,7 @@ The final command sequence will clone or update this repository without giving t
 The virtual environment will live at:
 
 ```text
-/opt/snarkypuss-control/venv
+/usr/lib/snarkyctl/venv
 ```
 
 Python packages will be installed from the repository's pinned dependency file after it is added. Expected application dependencies include FastAPI, Uvicorn, Jinja2, a YAML parser, password-hash verification support, and pytest for development/testing. Exact Python package versions belong in the repository dependency file, not in the `apt-get` command.
@@ -197,7 +197,7 @@ Create the non-interactive `snarkctl` system account. Application code and privi
 
 ### 5. Install configuration and privileged wrappers
 
-Install root-owned configuration, the authoritative server-alias allowlist, and narrowly scoped wrapper commands. Validate `/etc/sudoers.d/snarkypuss-control` with `visudo` before enabling controls.
+Install root-owned configuration, the authoritative server-alias allowlist, and narrowly scoped wrapper commands. Validate `/etc/sudoers.d/snarkyctl` with `visudo` before enabling controls.
 
 ### 6. Install authentication and certificates
 
@@ -205,7 +205,7 @@ Create the root-controlled `auth.htpasswd` file for HTTP Basic authentication, f
 
 ### 7. Install the systemd service
 
-Install and enable `snarkypuss-control.service`, initially with read-only status functionality. Bind Uvicorn only to:
+Install and enable `snarkyctl.service`, initially with read-only status functionality. Bind Uvicorn only to:
 
 ```text
 10.8.0.1:8443
@@ -234,13 +234,13 @@ The planned filesystem locations are:
 
 | Path | Purpose | Ownership |
 |---|---|---|
-| `/opt/snarkypuss-control` | Application code and virtual environment | `root:root` |
-| `/etc/snarkypuss-control/` | Configuration, secrets, and authoritative allowlists | `root:snarkctl` or `root:root`, mode-dependent |
-| `/etc/snarkypuss-control/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkctl`, mode `0640` |
-| `/usr/local/sbin/snark-*` | Privileged wrapper commands | `root:root` |
-| `/run/snarkypuss-control/` | Optional runtime lock/state | `snarkctl:snarkctl` |
-| `/etc/systemd/system/snarkypuss-control.service` | Service definition | `root:root` |
-| `/etc/sudoers.d/snarkypuss-control` | Restricted privilege rules | `root:root` |
+| `/usr/lib/snarkyctl` | Application code and virtual environment | `root:root` |
+| `/etc/snarkyctl/` | Configuration, secrets, and authoritative allowlists | `root:snarkctl` or `root:root`, mode-dependent |
+| `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkctl`, mode `0640` |
+| `/usr/libexec/snarkyctl/snark-*` | Privileged wrapper commands | `root:root` |
+| `/run/snarkyctl/` | Optional runtime lock/state | `snarkctl:snarkctl` |
+| `/usr/lib/systemd/system/snarkyctl.service` | Service definition | `root:root` |
+| `/etc/sudoers.d/snarkyctl` | Restricted privilege rules | `root:root` |
 
 The service account must not be able to modify application code, wrapper commands, sudoers rules, certificates' private keys, or the authoritative target allowlist.
 
