@@ -114,6 +114,29 @@ def parse_request(payload: bytes) -> ControlRequest:
         raise ProtocolError("request does not match the control protocol") from exc
 
 
+def parse_response(payload: bytes) -> ControlResponse:
+    """Decode and strictly validate one JSON response payload."""
+    value = _decode_payload(payload, "response")
+    try:
+        return ControlResponse.model_validate(value)
+    except ValidationError as exc:
+        raise ProtocolError("response does not match the control protocol") from exc
+
+
+def _decode_payload(payload: bytes, message_type: str) -> dict[str, object]:
+    if not payload:
+        raise ProtocolError(f"{message_type} payload is empty")
+    if len(payload) > MAX_MESSAGE_SIZE:
+        raise ProtocolError(f"{message_type} payload exceeds the maximum size")
+    try:
+        value = json.loads(payload.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProtocolError(f"{message_type} is not valid UTF-8 JSON") from exc
+    if not isinstance(value, dict):
+        raise ProtocolError(f"{message_type} must be a JSON object")
+    return value
+
+
 def encode_message(message: BaseModel) -> bytes:
     """Encode a model as a size-prefixed JSON frame."""
     payload = message.model_dump_json().encode("utf-8")
