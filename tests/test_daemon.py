@@ -21,9 +21,11 @@ from snarkyctl.control.protocol import (
     receive_frame,
 )
 from snarkyctl.providers.base import (
+    GatewayMode,
     ProviderCapabilities,
     ProviderError,
     VpnProvider,
+    VpnSettings,
     VpnState,
     VpnStatus,
     VpnTarget,
@@ -44,6 +46,13 @@ class FakeProvider(VpnProvider):
     def status(self) -> VpnStatus:
         state = VpnState.CONNECTED if self.connected_target else VpnState.DISCONNECTED
         return VpnStatus(state=state, provider="fake")
+
+    def settings(self) -> VpnSettings:
+        return VpnSettings(
+            provider="fake",
+            leak_protection_enabled=True,
+            firewall_enabled=True,
+        )
 
     def connect(self, target: VpnTarget) -> VpnStatus:
         self.connected_target = target
@@ -155,6 +164,7 @@ def test_valid_status_request_is_dispatched() -> None:
     assert response.success is True
     assert response.vpn_status is not None
     assert response.vpn_status.state is VpnState.DISCONNECTED
+    assert response.vpn_status.gateway_mode is GatewayMode.LOCKED
 
 
 def test_control_service_connects_only_configured_alias() -> None:
@@ -193,6 +203,27 @@ def test_control_service_disconnects_provider() -> None:
     assert response.success
     assert response.vpn_status is not None
     assert response.vpn_status.state is VpnState.DISCONNECTED
+    assert response.vpn_status.gateway_mode is GatewayMode.LOCKED
+
+
+def test_control_service_refuses_unsafe_disconnect() -> None:
+    class UnsafeProvider(FakeProvider):
+        def settings(self) -> VpnSettings:
+            return VpnSettings(
+                provider="fake",
+                leak_protection_enabled=False,
+                firewall_enabled=True,
+            )
+
+        def disconnect(self) -> VpnStatus:
+            raise AssertionError("disconnect must not be called")
+
+    request = DisconnectRequest(
+        version=1, request_id=REQUEST_ID, operation=Operation.DISCONNECT
+    )
+    response = control_service(UnsafeProvider()).dispatch(request)
+    assert not response.success
+    assert response.error_code == "UNSAFE_DISCONNECT"
 
 
 def test_policy_operations_remain_unavailable() -> None:
