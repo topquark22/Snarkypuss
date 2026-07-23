@@ -32,6 +32,18 @@ Every HTTP response, including authentication and daemon errors, carries:
 Dashboard scripts and styles must therefore be served as separate same-origin static files.
 Inline scripts and inline styles are not permitted.
 
+## Read-only dashboard
+
+The authenticated `/` route serves the initial status dashboard. Its HTML contains no
+state-changing controls and no inline scripts or styles. A small same-origin JavaScript
+client polls `GET /api/v1/status` every five seconds.
+
+The dashboard gives the gateway mode visual priority. `DIRECT` mode uses a red state panel
+and a separate public-IP exposure alert. `UNKNOWN` and communication failures warn that
+gateway safety cannot be confirmed. `VPN` and `LOCKED` are displayed as non-exposing
+states. Provider, target, server, interface, VPN state, leak protection, and refresh time
+appear in the connection details panel.
+
 ## `GET /api/health/live`
 
 Returns the web process name and package version. This endpoint does not query the control
