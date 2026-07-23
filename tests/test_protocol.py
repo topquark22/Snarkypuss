@@ -17,6 +17,7 @@ from snarkyctl.control.protocol import (
     StatusRequest,
     encode_message,
     parse_request,
+    parse_response,
     receive_frame,
 )
 from snarkyctl.providers.base import VpnState, VpnStatus
@@ -91,6 +92,13 @@ def test_size_prefixed_response_round_trip() -> None:
     assert decoded["request_id"] == REQUEST_ID
     assert decoded["error_code"] == "NOT_IMPLEMENTED"
     assert decoded["vpn_status"]["state"] == "DISCONNECTED"
+    assert parse_response(payload) == response
+
+
+@pytest.mark.parametrize("payload", [b"", b"[]", b"not json", b'{"version":2}'])
+def test_invalid_responses_are_rejected(payload: bytes) -> None:
+    with pytest.raises(ProtocolError):
+        parse_response(payload)
 
 
 def test_declared_oversized_frame_is_rejected() -> None:
