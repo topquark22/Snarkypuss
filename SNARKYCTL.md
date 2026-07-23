@@ -11,14 +11,14 @@ Windows browser
       ↓ HTTPS over WireGuard
 10.8.0.1 management service
       ↓
-NordVPN CLI and selected system services
+Configured upstream VPN and selected system services
 ```
 
 The first release will support:
 
-- Displaying NordVPN connection status.
-- Connecting NordVPN to a predefined server or location.
-- Disconnecting NordVPN.
+- Displaying provider-neutral upstream-VPN status.
+- Connecting the configured upstream VPN to a predefined target alias.
+- Disconnecting the configured upstream VPN.
 - Selecting an explicit fail-closed or Direct VPS operating mode.
 - Displaying the current public IPv4 address.
 - Displaying WireGuard interface and peer activity.
@@ -32,9 +32,9 @@ Restarting `dnsmasq`, viewing logs, restarting services, and rebooting the VPS a
 
 The following are requirements, not optional enhancements.
 
-1. **The control plane survives NordVPN changes**
+1. **The control plane survives upstream-VPN changes**
 
-   The dashboard must remain reachable over `wg0` while NordVPN connects, disconnects, changes servers, restarts, or modifies routes and firewall rules.
+   The dashboard must remain reachable over `wg0` while the upstream VPN connects, disconnects, changes targets, restarts, or modifies routes.
 
    The management path must always remain:
 
@@ -42,7 +42,7 @@ The following are requirements, not optional enhancements.
    Windows → WireGuard → 10.8.0.1
    ```
 
-   It must not depend on the NordVPN exit path.
+   It must not depend on the upstream-VPN exit path.
 
 2. **Private by default**
 
@@ -76,11 +76,11 @@ The following are requirements, not optional enhancements.
 
 8. **Serialize control operations**
 
-   Only one NordVPN-changing operation may run at a time. Concurrent requests receive HTTP `409 Conflict`; disconnect is idempotent.
+   Only one upstream-VPN-changing operation may run at a time. Concurrent requests receive HTTP `409 Conflict`; disconnect is idempotent.
 
 9. **Never expose the VPS public IP by default**
 
-   If NordVPN disconnects unexpectedly, fails to connect, times out, or is unavailable after boot, forwarded client traffic must enter **Locked** mode. It must not silently fall back to the VPS's public Internet connection.
+   If the upstream VPN disconnects unexpectedly, fails to connect, times out, or is unavailable after boot, forwarded client traffic must enter **Locked** mode. It must not silently fall back to the VPS's public Internet connection.
 
    Direct use of the VPS public IP is permitted only after the user deliberately selects **Direct VPS** mode. The dashboard must display a prominent warning and require confirmation before enabling it. The WireGuard management path remains available in every mode.
 
@@ -88,30 +88,51 @@ The following are requirements, not optional enhancements.
 
 The application distinguishes the desired policy from the observed network state:
 
-| Mode | NordVPN | Forwarded client traffic |
+| Mode | Upstream VPN | Forwarded client traffic |
 |---|---|---|
-| **NordVPN** | Connected or connecting | Exits through NordVPN; locks if the VPN fails |
+| **VPN** | Connected or connecting | Exits through the configured provider; locks if the VPN fails |
 | **Direct VPS** | Disconnected | Exits through the VPS public IP after explicit confirmation |
 | **Locked** | Disconnected | Blocked; WireGuard management remains available |
 
-`NordVPN disconnected` is an observed condition, not a routing policy. A generic disconnect action must not silently choose Direct VPS mode.
+`Upstream VPN disconnected` is an observed condition, not a routing policy. A generic disconnect action must not silently choose Direct VPS mode.
 
 The status model should expose at least:
 
 ```json
 {
-  "desired_mode": "nordvpn",
+  "desired_mode": "vpn",
   "actual_mode": "locked",
-  "nordvpn_state": "disconnected",
+  "vpn": { "provider": "nordvpn", "state": "DISCONNECTED" },
   "forwarding_allowed": false,
   "exit_ip": null,
-  "warning": "NordVPN failed; forwarded traffic is locked"
+  "warning": "Upstream VPN failed; forwarded traffic is locked"
 }
 ```
 
-On reboot, the safe initial state is **Locked**. If the saved desired mode is NordVPN, forwarding remains locked until NordVPN reconnects successfully. Direct VPS mode must not be restored automatically unless a future, explicit policy decision changes this rule.
+On reboot, the safe initial state is **Locked**. If the saved desired mode is VPN, forwarding remains locked until the selected provider reconnects successfully. Direct VPS mode must not be restored automatically unless a future, explicit policy decision changes this rule.
 
 ---
+
+## Upstream VPN Provider Model
+
+The client-to-VPS tunnel remains WireGuard. Forwarded Internet traffic may optionally use a separate upstream VPN selected through a trusted provider adapter.
+
+The root control daemon uses a fixed provider registry:
+
+```text
+VpnProvider
+├── NordVpnProvider
+├── WireGuardProvider (future)
+└── OpenVpnProvider (future)
+```
+
+Every provider implements provider-neutral `status`, `connect`, and `disconnect` operations and returns the common lifecycle states `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`, `FAILED`, or `UNKNOWN`.
+
+Provider adapters own provider-specific commands and output parsing. They report a verified upstream interface but never generate firewall rules. The independent firewall layer implements VPN, Direct VPS, and Locked modes.
+
+Configuration selects a name from the compiled registry. It must never supply a Python module, executable path, raw command, or arbitrary browser-provided provider target.
+
+The first built-in adapter is NordVPN. Its CLI commands and output fixtures are implementation examples, not core protocol or API requirements.
 
 ## Recommended Technology Stack
 
@@ -155,8 +176,8 @@ Do not add a database initially. Server aliases and display metadata belong in a
 │   ├── test_security.py
 │   ├── test_operations.py
 │   └── fixtures/
-│       ├── nordvpn-connected.txt
-│       └── nordvpn-disconnected.txt
+│       ├── vpn-connected.txt
+│       └── vpn-disconnected.txt
 ├── requirements.txt
 ├── README.md
 └── SNARKYCTL.md
@@ -174,9 +195,9 @@ Before writing the application, record the VPS's actual configuration:
 - `wg0` address, peer networks, and listen port.
 - Main and policy routing tables.
 - Firewall implementation and active rules.
-- NordVPN technology, kill-switch setting, routing behaviour, and daemon service name.
-- Exact paths and representative output for `nordvpn`, `wg`, `systemctl`, `ip`, and the chosen public-IP client.
-- DNS configuration in both NordVPN-connected and disconnected states.
+- Selected provider, expected interface, routing behaviour, capabilities, and any provider daemon service.
+- Exact paths and representative output for the selected provider, `wg`, `systemctl`, `ip`, and the chosen public-IP client.
+- DNS configuration in both upstream-VPN-connected and disconnected states.
 
 Capture a diagnostic baseline using read-only commands such as:
 
@@ -185,12 +206,17 @@ ip -brief address
 ip route show table all
 ip rule show
 wg show
+```
+
+For the initial NordVPN adapter, capture the following provider-specific diagnostics:
+
+```bash
 nordvpn settings
 nordvpn status
 systemctl status nordvpnd --no-pager
 ```
 
-Then prove manually that the WireGuard management path survives:
+Then prove manually that the WireGuard management path survives the corresponding provider operations:
 
 - `nordvpn connect`
 - `nordvpn disconnect`
@@ -204,7 +230,7 @@ Verify specifically that:
 - Incoming WireGuard packets remain accepted on the VPS public interface.
 - Replies to the Windows WireGuard client leave through `wg0`.
 - Policy routing does not send those replies through NordLynx.
-- NordVPN firewall rules do not block the WireGuard control path.
+- Provider or external-client firewall rules do not block the WireGuard control path.
 - DNS behaves correctly in connected and disconnected modes.
 
 Do not proceed to remote state-changing controls until this invariant is demonstrated.
@@ -217,9 +243,9 @@ Build a Python command layer that gathers and parses system status before creati
 
 It should collect:
 
-- `nordvpn status`
+- Provider-adapter status
 - `wg show`
-- `systemctl is-active nordvpnd`
+- Provider-specific dependency status, when applicable
 - Current public IPv4 address
 - Uptime, load, memory, and disk information as needed
 
@@ -233,7 +259,8 @@ Example output:
 
 ```json
 {
-  "nordvpn": {
+  "vpn": {
+    "provider": "nordvpn",
     "state": "connected",
     "server": "us9167",
     "hostname": "us9167.nordvpn.com",
@@ -256,7 +283,7 @@ Example output:
     "checked_at": "2026-07-22T10:42:11Z"
   },
   "services": {
-    "nordvpnd": "active"
+    "provider_dependency": "active"
   },
   "system": {
     "uptime_seconds": 48291
@@ -264,7 +291,7 @@ Example output:
 }
 ```
 
-WireGuard has no persistent connected state. `recently_active` is only an interpretation of handshake age using a documented threshold, initially 180 seconds. The raw handshake time and age must also be returned.
+The example VPN details are supplied by the NordVPN adapter; the core model depends only on the common fields. WireGuard has no persistent connected state. `recently_active` is only an interpretation of handshake age using a documented threshold, initially 180 seconds. The raw handshake time and age must also be returned.
 
 Use `subprocess.run()` with:
 
@@ -277,7 +304,7 @@ Use `subprocess.run()` with:
 
 ```python
 subprocess.run(
-    ["/usr/bin/nordvpn", "status"],
+    ["/usr/bin/nordvpn", "status"],  # Inside the NordVPN adapter only
     capture_output=True,
     text=True,
     timeout=15,
@@ -295,7 +322,7 @@ Use a controlled error structure:
   "state": "unavailable",
   "checked_at": "2026-07-22T10:42:11Z",
   "error_code": "COMMAND_TIMEOUT",
-  "message": "NordVPN status check timed out"
+  "message": "Upstream VPN status check timed out"
 }
 ```
 
@@ -310,7 +337,7 @@ Define explicitly:
 - Each request has a short timeout.
 - A second independent provider is used as fallback.
 - Failure is reported only for the public-IP component, not the whole status response.
-- A later check may compare the observed address or location with the expected NordVPN state.
+- A later check may compare the observed address or location with the expected upstream-VPN state.
 
 ---
 
@@ -347,7 +374,7 @@ The web service runs as `snarkyctl`. The control daemon runs as root. They commu
 
 The socket is owned by `root:snarkyctl` with mode `0660`. The daemon verifies Linux peer credentials and accepts requests only from root or the configured `snarkyctl` UID.
 
-The versioned protocol exposes a fixed operation enumeration and strict schema. It never accepts shell text, executable paths, command arguments, firewall fragments, filenames, or arbitrary NordVPN targets.
+The versioned protocol exposes a fixed operation enumeration and strict schema. It never accepts shell text, executable paths, command arguments, firewall fragments, filenames, or arbitrary provider targets.
 
 Every request has:
 
@@ -364,12 +391,12 @@ The daemon serializes all mode-changing operations, validates aliases against ro
 
 The root daemon owns atomic mode transitions:
 
-- **NordVPN:** permit forwarded client traffic only through the active NordVPN interface.
+- **VPN:** permit forwarded client traffic only through the verified interface reported by the configured provider.
 - **Direct VPS:** permit forwarded traffic through the explicitly configured public interface.
 - **Locked:** permit neither forwarding path.
 - **All modes:** preserve WireGuard management traffic.
 
-If the NordVPN interface disappears, the NordVPN forwarding rule no longer matches, so traffic becomes blocked without waiting for a monitor to detect failure. Boot begins Locked. Direct VPS mode is never restored automatically.
+If the verified upstream interface disappears, the VPN forwarding rule no longer matches, so traffic becomes blocked without waiting for a monitor to detect failure. Boot begins Locked. Direct VPS mode is never restored automatically.
 
 The public interface is explicitly configured in root-owned configuration and validated during preflight. It is not silently guessed during an operation.
 
@@ -444,8 +471,8 @@ Serve a small dashboard from the same FastAPI application.
 │ Snarkypuss Control Panel                   │
 │                                            │
 │ WireGuard: Active  • handshake 42s ago     │
-│ Mode: NordVPN                              │
-│ NordVPN: Dallas #9167                      │
+│ Mode: VPN                                  │
+│ VPN: NordVPN / Dallas #9167                      │
 │ Exit IPv4: 2.56.190.136                    │
 │ VPS: Healthy                               │
 │                                            │
@@ -462,11 +489,11 @@ Dashboard behaviour:
 
 - Refresh status periodically without overlapping requests.
 - Show the age of the last successful check.
-- Distinguish WireGuard interface state, recent peer activity, NordVPN state, exit IPv4, and VPS health.
+- Distinguish WireGuard interface state, recent peer activity, upstream-VPN and provider state, exit IPv4, and VPS health.
 - Display desired mode and actual mode separately when they differ.
 - Use a persistent, conspicuous warning whenever Direct VPS mode exposes the VPS public IP.
 - Require an explicit confirmation before entering Direct VPS mode.
-- Never describe an unexpected NordVPN failure as Direct VPS mode; show that traffic has been locked.
+- Never describe an unexpected upstream-VPN failure as Direct VPS mode; show that traffic has been locked.
 - Preserve valid component data when another component fails.
 - Display controlled success and failure messages.
 - Mark stale data clearly.
@@ -475,13 +502,13 @@ Use browser `fetch()` calls against same-origin API endpoints.
 
 ---
 
-# Phase 7: Serialized NordVPN Controls
+# Phase 7: Serialized Upstream VPN Controls
 
 Add authenticated state-changing endpoints:
 
 ```text
-POST /api/nordvpn/connect
-POST /api/nordvpn/disconnect
+POST /api/vpn/connect
+POST /api/vpn/disconnect
 POST /api/mode/locked
 POST /api/mode/direct
 ```
@@ -497,16 +524,26 @@ A connection request accepts only a predefined alias:
 Display configuration may look like:
 
 ```yaml
-servers:
-  dallas:
-    label: Dallas, United States
-  prague:
-    label: Prague, Czechia
-  warsaw:
-    label: Warsaw, Poland
+schema_version: 1
+
+network:
+  client_interface: wg0
+  public_interface: eth0
+
+vpn:
+  provider: nordvpn
+  expected_interfaces:
+    - nordlynx
+  targets:
+    dallas:
+      label: Dallas, United States
+      provider_target: us9167
+    prague:
+      label: Prague, Czechia
+      provider_target: Czech_Republic
 ```
 
-The authoritative alias-to-NordVPN-target mapping remains root-owned at the privileged boundary. The browser never submits arbitrary server names or raw command arguments.
+The authoritative alias-to-provider-target mapping remains root-owned at the privileged boundary. The browser never submits arbitrary server names or raw command arguments.
 
 Execution example:
 
@@ -522,18 +559,18 @@ Required behaviour:
 
 1. Authenticate the request and validate the same-origin control-request requirements.
 2. Validate the alias at the application boundary.
-3. Acquire the single control-operation lock.
-4. Return HTTP `409 Conflict` if another operation is active.
-5. Send the validated operation to the root control daemon with a bounded timeout.
-6. Query status after completion or failure.
-7. Return the resulting state and a controlled error message.
-8. Release the lock reliably.
+3. Send the validated operation to the root control daemon with a bounded timeout.
+4. Let the control daemon acquire the authoritative operation lock.
+5. Return HTTP `409 Conflict` if the daemon reports another operation is active.
+6. Let the configured provider resolve the root-owned target and perform the operation.
+7. Query common provider status after completion or failure.
+8. Return the resulting provider-neutral state and a controlled error message.
 
 Disconnecting an already disconnected client should succeed idempotently. The dashboard disables controls and displays a connecting or disconnecting state while an operation is active.
 
-`POST /api/nordvpn/disconnect` must not enable direct forwarding. It transitions to Locked mode unless it is an internal step in an already-confirmed switch to Direct VPS mode. `POST /api/mode/direct` requires explicit confirmation data and enables direct forwarding only after NordVPN is disconnected and the routing/firewall policy has been verified.
+`POST /api/vpn/disconnect` must not enable direct forwarding. It transitions to Locked mode unless it is an internal step in an already-confirmed switch to Direct VPS mode. `POST /api/mode/direct` requires explicit confirmation data and enables direct forwarding only after the upstream VPN is disconnected and the routing/firewall policy has been verified.
 
-If NordVPN exits unexpectedly, fails to connect, times out, or disagrees with the observed exit state, the backend immediately applies Locked mode. This fail-closed transition must not depend on the browser remaining connected.
+If the upstream VPN exits unexpectedly, fails to connect, times out, or disagrees with the observed exit state, the backend immediately applies Locked mode. This fail-closed transition must not depend on the browser remaining connected.
 
 ---
 
@@ -592,7 +629,7 @@ WantedBy=sockets.target
 [Unit]
 Description=SnarkyCtl privileged control daemon
 Requires=snarkyctl-control.socket
-After=network-online.target wg-quick@wg0.service nordvpnd.service
+After=network-online.target wg-quick@wg0.service
 
 [Service]
 Type=simple
@@ -657,8 +694,8 @@ The control service is socket-activated. Hardening is applied incrementally and 
 
 Test parsers and command handling using saved output:
 
-- Connected and disconnected NordVPN status.
-- Multiple NordVPN output versions or formats actually observed on the VPS.
+- Connected and disconnected common VPN status.
+- Provider-specific output versions or formats actually observed on the VPS.
 - WireGuard with a recent, old, or absent handshake.
 - Malformed output and missing fields.
 - Command timeout and nonzero exit.
@@ -677,7 +714,7 @@ Test:
 - Invalid connection target.
 - Connection timeout.
 - Successful and repeated disconnect.
-- Unexpected NordVPN loss transitions to Locked rather than Direct VPS mode.
+- Unexpected upstream-VPN loss transitions to Locked rather than Direct VPS mode.
 - Entering Direct VPS mode requires explicit confirmation.
 - Direct VPS mode displays the VPS exit IP and warning state.
 - Reboot begins Locked and does not automatically restore Direct VPS mode.
@@ -702,8 +739,8 @@ Verify that:
 
 Test real failures:
 
-- Stop `nordvpnd`.
-- Disconnect NordVPN.
+- Stop the selected provider dependency, if any.
+- Disconnect the upstream VPN.
 - Connect to an unavailable target.
 - Restart WireGuard.
 - Reboot the VPS.
@@ -713,15 +750,15 @@ Test real failures:
 
 ## Critical connectivity regression test
 
-For every networking change, verify that the dashboard remains reachable during:
+For every networking or provider-adapter change, verify that the dashboard remains reachable during:
 
 - `nordvpn connect`
 - `nordvpn disconnect`
-- NordVPN server switching
-- NordVPN daemon restart
+- Upstream-VPN target switching
+- Provider daemon restart, when applicable
 - Kill-switch or firewall rule reload
 
-This test is required before release and after any change to routing, WireGuard, NordVPN, firewall, or systemd network ordering.
+This test is required before release and after any change to routing, WireGuard, an upstream provider, firewall, or systemd network ordering.
 
 ---
 
@@ -731,8 +768,8 @@ This test is required before release and after any change to routing, WireGuard,
 
 Deliverables:
 
-- Recorded interface, route, firewall, WireGuard, NordVPN, and DNS state.
-- Demonstrated management connectivity through NordVPN transitions.
+- Recorded interface, route, firewall, WireGuard, selected-provider, and DNS state.
+- Demonstrated management connectivity through upstream-VPN transitions.
 - Representative command-output fixtures.
 
 ## Milestone 2: Structured Status Command
@@ -768,9 +805,9 @@ Deliverables:
 
 ## Milestone 5: Status Dashboard
 
-Deliverable: a browser page showing WireGuard activity, NordVPN status, exit IPv4, and VPS health, including partial failures and stale-data indicators.
+Deliverable: a browser page showing WireGuard activity, upstream-VPN and provider status, exit IPv4, and VPS health, including partial failures and stale-data indicators.
 
-## Milestone 6: Restricted NordVPN Controls
+## Milestone 6: Restricted Upstream VPN Controls
 
 Deliverables:
 
@@ -797,7 +834,7 @@ Possible additions, each requiring a new fixed control-protocol operation and se
 - Display and restart `dnsmasq`.
 - Reload DNS blocklists.
 - Show narrowly filtered recent logs.
-- Restart `nordvpnd`.
+- Restart a configured provider dependency.
 - Safe VPS reboot.
 - Display traffic counters.
 - Show latency to predefined exit locations.
@@ -806,7 +843,7 @@ Possible additions, each requiring a new fixed control-protocol operation and se
 
 # Possible Later Features
 
-- NordVPN location dropdown backed by approved aliases.
+- Provider-neutral target dropdown backed by approved aliases.
 - Saved favourite servers.
 - Latency tests for predefined exits.
 - WireGuard and NordLynx transfer counters.
@@ -835,8 +872,8 @@ Build and verify in this order:
 6. Build the private read-only API.
 7. Add HTTP Basic authentication and cross-origin request protection.
 8. Build the status dashboard.
-9. Add serialized, restricted NordVPN controls.
+9. Add serialized, restricted upstream-VPN controls.
 10. Establish trusted HTTPS and harden the systemd service.
 11. Run connectivity, privilege, security, and failure tests.
 
-The visual dashboard is intentionally not the first implementation task. The difficult part is preserving the WireGuard management path while NordVPN modifies routing and firewall policy; that requirement governs the architecture and release criteria.
+The visual dashboard is intentionally not the first implementation task. The difficult part is preserving the WireGuard management path while an upstream VPN modifies routing and interface state; that requirement governs the architecture and release criteria.
