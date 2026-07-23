@@ -24,7 +24,15 @@ from snarkyctl.control.protocol import (
     parse_request,
     receive_frame,
 )
-from snarkyctl.providers.base import ProviderError, VpnProvider, VpnTarget
+from snarkyctl.providers.base import (
+    GatewayMode,
+    ProviderError,
+    VpnProvider,
+    VpnSettings,
+    VpnState,
+    VpnStatus,
+    VpnTarget,
+)
 from snarkyctl.providers.registry import create_provider
 
 LOGGER = logging.getLogger("snarkyctl.control")
@@ -60,6 +68,11 @@ class ControlService:
         """Execute one already validated request."""
         if isinstance(request, StatusRequest):
             status = self._provider.status()
+            try:
+                settings = self._provider.settings()
+            except ProviderError:
+                settings = None
+            status = self._with_gateway_mode(status, settings)
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -77,6 +90,11 @@ class ControlService:
                     message="The requested target alias is not configured.",
                 )
             status = self._provider.connect(target)
+            try:
+                settings = self._provider.settings()
+            except ProviderError:
+                settings = None
+            status = self._with_gateway_mode(status, settings)
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -84,7 +102,22 @@ class ControlService:
                 vpn_status=status,
             )
         if isinstance(request, DisconnectRequest):
+            settings = self._provider.settings()
+            if not (
+                settings.leak_protection_enabled is True
+                and settings.firewall_enabled is True
+            ):
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNSAFE_DISCONNECT",
+                    message=(
+                        "Disconnect refused because provider leak protection "
+                        "and firewall are not verified enabled."
+                    ),
+                )
             status = self._provider.disconnect()
+            status = self._with_gateway_mode(status, settings)
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -99,6 +132,23 @@ class ControlService:
                 message="This policy operation is not implemented yet.",
             )
         raise AssertionError("unreachable validated control request")
+
+    @staticmethod
+    def _with_gateway_mode(
+        status: VpnStatus, settings: VpnSettings | None
+    ) -> VpnStatus:
+        protection = settings.leak_protection_enabled if settings is not None else None
+        if status.state is VpnState.CONNECTED:
+            mode = GatewayMode.VPN
+        elif status.state is VpnState.DISCONNECTED and protection is True:
+            mode = GatewayMode.LOCKED
+        elif status.state is VpnState.DISCONNECTED and protection is False:
+            mode = GatewayMode.DIRECT
+        else:
+            mode = GatewayMode.UNKNOWN
+        return status.model_copy(
+            update={"gateway_mode": mode, "leak_protection_active": protection}
+        )
 
 
 def systemd_listener() -> socket.socket:
