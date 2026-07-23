@@ -6,7 +6,10 @@ import pytest
 
 from snarkyctl import __version__
 from snarkyctl.cli import main
+from snarkyctl.control.client import ControlClientError
+from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.preflight import CheckResult, CheckStatus, PreflightReport
+from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
 
 
 def test_version_option(capsys: pytest.CaptureFixture[str]) -> None:
@@ -49,3 +52,52 @@ def test_preflight_config_error(
     monkeypatch.setattr("snarkyctl.cli.run_preflight", fail)
     assert main(["preflight"]) == 2
     assert "invalid" in capsys.readouterr().err
+
+
+def test_status_human_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    response = ControlResponse(
+        request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+        success=True,
+        message="ok",
+        vpn_status=VpnStatus(
+            state=VpnState.CONNECTED,
+            provider="nordvpn",
+            gateway_mode=GatewayMode.VPN,
+            leak_protection_active=True,
+            target="dallas",
+        ),
+    )
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.status", lambda _self: response)
+
+    assert main(["status"]) == 0
+    output = capsys.readouterr().out
+    assert "Gateway mode:     VPN" in output
+    assert "Public exposure:  No" in output
+
+
+def test_connect_json_output(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    response = ControlResponse(
+        request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+        success=False,
+        error_code="INVALID_TARGET",
+        message="unknown target",
+    )
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.connect", lambda _self, _target: response)
+
+    assert main(["connect", "dallas", "--json"]) == 1
+    assert '"error_code": "INVALID_TARGET"' in capsys.readouterr().out
+
+
+def test_control_client_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(_self: object) -> ControlResponse:
+        raise ControlClientError("DAEMON_UNAVAILABLE", "not running")
+
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.disconnect", fail)
+    assert main(["disconnect"]) == 2
+    assert "DAEMON_UNAVAILABLE" in capsys.readouterr().err
