@@ -1,0 +1,110 @@
+"""Unprivileged client for the root control daemon."""
+
+from __future__ import annotations
+
+import socket
+from pathlib import Path
+from uuid import uuid4
+
+from snarkyctl.control.protocol import (
+    PROTOCOL_VERSION,
+    ConnectRequest,
+    ControlRequest,
+    ControlResponse,
+    DisconnectRequest,
+    Operation,
+    ProtocolError,
+    StatusRequest,
+    encode_message,
+    parse_response,
+    receive_frame,
+)
+
+DEFAULT_CONTROL_SOCKET = Path("/run/snarkyctl/control.sock")
+DEFAULT_CONTROL_TIMEOUT_SECONDS = 65.0
+
+
+class ControlClientError(RuntimeError):
+    """Controlled failure while communicating with the control daemon."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class ControlClient:
+    """Send validated requests to the privileged daemon over its Unix socket."""
+
+    def __init__(
+        self,
+        socket_path: Path = DEFAULT_CONTROL_SOCKET,
+        timeout_seconds: float = DEFAULT_CONTROL_TIMEOUT_SECONDS,
+    ) -> None:
+        self.socket_path = socket_path
+        self.timeout_seconds = timeout_seconds
+
+    def status(self) -> ControlResponse:
+        """Request current provider and gateway status."""
+        return self.request(
+            StatusRequest(version=PROTOCOL_VERSION, request_id=uuid4(), operation=Operation.STATUS)
+        )
+
+    def connect(self, target: str) -> ControlResponse:
+        """Connect to a configured target alias."""
+        return self.request(
+            ConnectRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.CONNECT,
+                target=target,
+            )
+        )
+
+    def disconnect(self) -> ControlResponse:
+        """Safely disconnect the upstream VPN."""
+        return self.request(
+            DisconnectRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.DISCONNECT,
+            )
+        )
+
+    def request(self, request: ControlRequest) -> ControlResponse:
+        """Exchange one framed request and correlated response."""
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(self.timeout_seconds)
+                connection.connect(str(self.socket_path))
+                connection.sendall(encode_message(request))
+                response = parse_response(receive_frame(connection))
+        except FileNotFoundError as exc:
+            raise ControlClientError(
+                "DAEMON_UNAVAILABLE",
+                f"control socket does not exist: {self.socket_path}",
+            ) from exc
+        except PermissionError as exc:
+            raise ControlClientError(
+                "ACCESS_DENIED",
+                f"permission denied opening control socket: {self.socket_path}",
+            ) from exc
+        except (ConnectionRefusedError, ConnectionResetError) as exc:
+            raise ControlClientError(
+                "DAEMON_UNAVAILABLE",
+                "control daemon is not accepting connections",
+            ) from exc
+        except TimeoutError as exc:
+            raise ControlClientError(
+                "DAEMON_TIMEOUT", "control daemon did not respond in time"
+            ) from exc
+        except ProtocolError as exc:
+            raise ControlClientError("INVALID_RESPONSE", str(exc)) from exc
+        except OSError as exc:
+            raise ControlClientError("SOCKET_ERROR", f"control socket error: {exc}") from exc
+
+        if response.request_id != request.request_id:
+            raise ControlClientError(
+                "MISMATCHED_RESPONSE",
+                "control response request ID does not match the request",
+            )
+        return response
