@@ -261,7 +261,31 @@ The complete deployment follows these stages.
 
 ### 1. Record the network baseline
 
-Capture interfaces, routes, policy rules, firewall rules, WireGuard state, NordVPN settings, service names, and representative command output. This establishes the control-path invariant before any state-changing endpoint is introduced.
+Capture interfaces, routes, policy rules, firewall rules, WireGuard state, NordVPN settings,
+and service status before changing the installation:
+
+```bash
+sudo install -d -o root -g root -m 0700 /root/snarkyctl-baseline
+ip -brief address | sudo tee /root/snarkyctl-baseline/ip-address.txt >/dev/null
+ip route show table all | sudo tee /root/snarkyctl-baseline/ip-routes.txt >/dev/null
+ip rule show | sudo tee /root/snarkyctl-baseline/ip-rules.txt >/dev/null
+sudo wg show all | sudo tee /root/snarkyctl-baseline/wireguard.txt >/dev/null
+sudo nordvpn status | sudo tee /root/snarkyctl-baseline/nordvpn-status.txt >/dev/null
+sudo nordvpn settings | sudo tee /root/snarkyctl-baseline/nordvpn-settings.txt >/dev/null
+sudo systemctl status wg-quick@wg0 nordvpnd --no-pager \
+    | sudo tee /root/snarkyctl-baseline/services.txt >/dev/null
+```
+
+Capture the active firewall with the tool already used by the gateway:
+
+```bash
+sudo nft list ruleset | sudo tee /root/snarkyctl-baseline/nftables.txt >/dev/null
+sudo iptables-save | sudo tee /root/snarkyctl-baseline/iptables.txt >/dev/null
+```
+
+One of the last two commands may be inapplicable. Do not install or switch firewall
+frameworks merely to make both commands work. These files may contain private addresses and
+network metadata; keep the directory root-only.
 
 ### 2. Obtain the application
 
@@ -274,6 +298,11 @@ virtual environment live under:
 
 The runtime account does not own or modify the repository, installed wheel, or virtual
 environment.
+
+The checkout is a build input, not the runtime application directory. Do not copy the Git
+checkout into `/usr/lib/snarkyctl` and do not run the service from a root-owned home
+directory. The wheel installation in the earlier section places the importable package in
+the production virtual environment.
 
 ### 3. Create the Python environment
 
@@ -290,6 +319,23 @@ authoritative in `pyproject.toml`; development tools are not installed in produc
 
 Create the non-interactive `snarkyctl` system account. Application code remains owned by
 `root:root` and is not writable by this account.
+
+On Ubuntu, run:
+
+```bash
+sudo adduser --system \
+    --group \
+    --no-create-home \
+    --home /nonexistent \
+    --shell /usr/sbin/nologin \
+    snarkyctl
+id snarkyctl
+getent passwd snarkyctl
+```
+
+If the account already exists, do not recreate it. Confirm that its primary group is
+`snarkyctl`, it has no usable home directory, and its shell is `/usr/sbin/nologin`.
+Do not add it to `sudo`, `adm`, or another privileged group.
 
 ### 5. Install configuration and the privileged daemon
 
@@ -309,6 +355,8 @@ getent group snarkyctl
 /usr/lib/snarkyctl/venv/bin/snarkyctl --version
 systemctl is-active wg-quick@wg0
 command -v nordvpn
+sudo /usr/bin/nordvpn status
+sudo /usr/bin/nordvpn settings
 ```
 
 The `snarkyctl` account must have `snarkyctl` as its primary group and a non-interactive
@@ -317,6 +365,9 @@ shell. The current systemd unit assumes that WireGuard is managed by
 replace or disrupt a working management tunnel.
 
 For the initial NordVPN adapter, `command -v nordvpn` should print `/usr/bin/nordvpn`.
+The daemon runs the NordVPN CLI as root, so the two `sudo /usr/bin/nordvpn` checks are the
+relevant execution context. Confirm that the output is the same provider configuration
+that currently protects the gateway.
 
 #### 5.2 Install the configuration templates
 
@@ -409,6 +460,11 @@ targets:
 Aliases may contain lowercase letters, digits, underscores, and hyphens, and must begin
 with a letter. The browser and CLI submit only the alias. The root-owned file determines
 the provider target, preventing a web request from supplying arbitrary command arguments.
+
+The example `provider_target` values are broad country selectors. If an alias is intended
+to select a particular city or server, replace the value with the exact provider argument
+already accepted by the installed VPN client. SnarkyCtl passes that one configured value
+as one argument; it does not interpret shell quoting, spaces, or additional options.
 
 Restore the required ownership and permissions after editing:
 
@@ -671,6 +727,10 @@ be the address assigned to `wg0`, never `0.0.0.0` or the VPS public address. If 
 address, port, or certificate paths differ, update both the configuration and a local copy
 of the unit before installing it.
 
+`EnvironmentFile=-/etc/snarkyctl/snarkyctl.env` reserves an optional location for future
+non-secret service settings. No environment file is required for the current release, and
+it does not override the bind address or configuration path.
+
 #### 7.2 Install and verify the web unit
 
 From the repository root, run:
@@ -772,7 +832,41 @@ The dashboard is intentionally reachable only through WireGuard.
 
 ### 8. Verify private reachability
 
-Confirm all of the following:
+From Windows with WireGuard connected, confirm private reachability in PowerShell:
+
+```powershell
+Test-NetConnection 10.8.0.1 -Port 8443
+curl.exe --cacert .\ca.crt --user snarkadmin https://10.8.0.1:8443/api/v1/status
+```
+
+The first command should report `TcpTestSucceeded : True`. `curl.exe` prompts for the
+password.
+
+Then disconnect WireGuard on Windows and repeat only the connectivity test:
+
+```powershell
+Test-NetConnection 10.8.0.1 -Port 8443
+```
+
+It should fail because `10.8.0.1` is a private WireGuard address. Reconnect WireGuard
+before continuing. Separately confirm in the Linode Cloud Firewall that TCP port 8443 has
+no public inbound rule.
+
+With a second WireGuard SSH session kept open, verify the supported VPN transitions:
+
+```bash
+sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl connect dallas
+sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl status
+sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl disconnect
+sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl status
+```
+
+Replace `dallas` with an alias actually present in `/etc/snarkyctl/targets.yaml`.
+Disconnect is deliberately refused unless the provider reports both leak protection and
+its firewall enabled. After each transition, confirm that the dashboard and the second SSH
+session remain reachable through WireGuard.
+
+The final installation should satisfy all of the following:
 
 - The dashboard is reachable over WireGuard.
 - Nothing listens on the VPS public address at TCP port `8443`.
@@ -783,13 +877,23 @@ Confirm all of the following:
 
 ### 9. Enable state-changing controls
 
-Only after the earlier checks pass, enable the restricted NordVPN and operating-mode endpoints. Direct VPS mode must require deliberate confirmation and must display a persistent public-IP exposure warning.
+There is no additional switch to enable in the current release.
+
+The local `snarkyctl connect ALIAS` and `snarkyctl disconnect` commands are implemented and
+always pass through the privileged daemon. The web dashboard and HTTP API remain
+read-only. Web Connect and Disconnect endpoints have not yet been implemented.
+
+The protocol reserves `LOCK` and `DIRECT`, but the daemon currently returns
+`NOT_IMPLEMENTED` for both operations. Do not add firewall exceptions or invoke provider
+commands outside SnarkyCtl in an attempt to enable them. Direct VPS mode will require a
+separate implementation, explicit confirmation, and a persistent public-IP exposure
+warning.
 
 ---
 
 ## Installation Paths
 
-The planned filesystem locations are:
+The current manual-installation filesystem locations are:
 
 | Path | Purpose | Ownership |
 |---|---|---|
@@ -815,4 +919,5 @@ The following installation pieces will be filled in as their corresponding appli
 - Installation verification script.
 - Upgrade, rollback, and removal procedures.
 
-Until those components exist, this document should be treated as the dependency and installation framework rather than a complete production installer.
+Until those components exist, this document describes a controlled development deployment,
+not a finalized Debian-package installation.
