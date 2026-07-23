@@ -120,6 +120,12 @@ A plain-language explanation of the server framework, application components, se
 
 ---
 
+# Deployment
+
+The reproducible wheel and Debian-package build, filesystem layout, release pipeline, and upgrade model are documented in [**DEPLOYMENT.md**](DEPLOYMENT.md).
+
+---
+
 # Installation
 
 Installation prerequisites, Linux package dependencies, and the staged deployment framework are documented in [**INSTALL.md**](INSTALL.md).
