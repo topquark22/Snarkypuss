@@ -4,9 +4,9 @@
 
 ## Scope
 
-This document installs SnarkyCtl on the existing `snarkypuss` gateway. It does not build the underlying WireGuard, NordVPN, DNS, routing, or firewall configuration from scratch; that is documented in [SNARKYPUSS.md](SNARKYPUSS.md).
+This document installs SnarkyCtl on the existing `snarkypuss` gateway. It does not build the underlying WireGuard, upstream VPN, DNS, routing, or firewall configuration from scratch; that is documented in [SNARKYPUSS.md](SNARKYPUSS.md).
 
-The dependency installation below is intentionally non-destructive. It installs packages but does not change routes, firewall rules, WireGuard configuration, NordVPN settings, DNS configuration, or service startup policy.
+The dependency installation below is intentionally non-destructive. It installs packages but does not change routes, firewall rules, WireGuard configuration, upstream-VPN settings, DNS configuration, or service startup policy.
 
 ---
 
@@ -17,7 +17,7 @@ The initial supported server platform is:
 - Ubuntu Server 24.04 LTS
 - A working WireGuard interface named `wg0`
 - WireGuard server address `10.8.0.1`
-- A working NordVPN Linux CLI installation
+- A working installation for the selected upstream-VPN provider
 - `systemd`
 - Administrative access through SSH over WireGuard
 
@@ -33,7 +33,7 @@ Before installation:
 - Confirm that a second administrative session can reach `10.8.0.1` through WireGuard.
 - Take a Linode snapshot or otherwise back up the current gateway configuration.
 - Do not expose TCP port `8443` on the Linode Cloud Firewall or the VPS public firewall.
-- Do not change NordVPN, WireGuard, routing, or firewall settings merely to make the dashboard work.
+- Do not change the upstream VPN, WireGuard, routing, or firewall settings merely to make the dashboard work.
 
 Back up at least:
 
@@ -75,8 +75,8 @@ The following are required by the gateway, but are not installed by the SnarkyCt
 
 | Component | Expected command or service | Notes |
 |---|---|---|
-| NordVPN Linux client | `nordvpn`, `nordvpnd.service` | Installed from NordVPN's repository or installer, not Ubuntu's standard package set. |
-| WireGuard configuration | `wg0`, `wg-quick@wg0.service` | Must remain reachable independently of NordVPN. |
+| Selected upstream provider | Provider-specific | NordVPN is the first supported adapter; its CLI and daemon are required only when `provider: nordvpn` is configured. |
+| WireGuard configuration | `wg0`, `wg-quick@wg0.service` | Must remain reachable independently of the upstream VPN. |
 | Firewall and NAT | `iptables` and/or `nft` | SnarkyCtl must first detect and document the gateway's actual ruleset. |
 | DNS service | `dnsmasq.service` | Optional for the first SnarkyCtl release; existing gateway DNS must continue working. |
 
@@ -144,8 +144,10 @@ Confirm that the existing gateway components are available:
 
 ```bash
 systemctl is-active wg-quick@wg0
-systemctl is-active nordvpnd
 wg show wg0
+
+# Provider-specific example when provider: nordvpn is selected:
+systemctl is-active nordvpnd
 nordvpn status
 ip -brief address show wg0
 ```
@@ -156,7 +158,7 @@ The expected WireGuard address is:
 10.8.0.1/24
 ```
 
-Do not continue to remote control implementation if `wg0` is unavailable or if connecting and disconnecting NordVPN breaks the WireGuard management path.
+Do not continue to remote control implementation if `wg0` is unavailable or if connecting and disconnecting the selected upstream VPN breaks the WireGuard management path.
 
 ---
 
@@ -166,7 +168,7 @@ The completed installer will follow these stages.
 
 ### 1. Record the network baseline
 
-Capture interfaces, routes, policy rules, firewall rules, WireGuard state, NordVPN settings, service names, and representative command output. This establishes the control-path invariant before any state-changing endpoint is introduced.
+Capture interfaces, routes, policy rules, firewall rules, WireGuard state, selected-provider settings, service names, and representative command output. This establishes the control-path invariant before any state-changing endpoint is introduced.
 
 ### 2. Obtain the application
 
@@ -222,12 +224,12 @@ Confirm all of the following:
 - Nothing listens on the VPS public address at TCP port `8443`.
 - Authentication is required.
 - The HTTPS certificate is trusted by the Windows browser.
-- NordVPN transitions do not interrupt the management path.
-- Unexpected NordVPN failure leaves forwarded traffic Locked rather than exposing the VPS public IP.
+- Upstream-VPN transitions do not interrupt the management path.
+- Unexpected upstream-VPN failure leaves forwarded traffic Locked rather than exposing the VPS public IP.
 
 ### 9. Enable state-changing controls
 
-Only after the earlier checks pass, enable the restricted NordVPN and operating-mode endpoints. Direct VPS mode must require deliberate confirmation and must display a persistent public-IP exposure warning.
+Only after the earlier checks pass, enable the restricted upstream-VPN and operating-mode endpoints. Direct VPS mode must require deliberate confirmation and must display a persistent public-IP exposure warning.
 
 ---
 
