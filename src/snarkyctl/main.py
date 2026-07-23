@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict
 
 from snarkyctl import __version__
@@ -34,6 +36,8 @@ SECURITY_HEADERS: Final[dict[str, str]] = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
+_PACKAGE_DIRECTORY = Path(__file__).resolve().parent
+_TEMPLATES = Jinja2Templates(directory=_PACKAGE_DIRECTORY / "templates")
 
 
 class LivenessResponse(BaseModel):
@@ -116,6 +120,11 @@ def create_app(
     )
     application.state.runtime = runtime
     application.state.config_path = config_path
+    application.mount(
+        "/static",
+        StaticFiles(directory=_PACKAGE_DIRECTORY / "static"),
+        name="static",
+    )
 
     @application.middleware("http")
     async def add_security_headers(
@@ -141,6 +150,20 @@ def create_app(
     def liveness() -> LivenessResponse:
         """Report that the HTTPS application process is running."""
         return LivenessResponse(version=__version__)
+
+    @application.get("/", response_class=HTMLResponse)
+    def dashboard(
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> Response:
+        """Serve the authenticated, read-only status dashboard."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        return _TEMPLATES.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context={"version": __version__},
+        )
 
     @application.get(
         "/api/v1/status",
