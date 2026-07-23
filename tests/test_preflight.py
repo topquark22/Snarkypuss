@@ -150,9 +150,12 @@ def test_auth_file_requires_bcrypt_record(tmp_path: Path) -> None:
 
 def test_provider_prerequisite(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config = make_config(tmp_path)
-    monkeypatch.setattr("snarkyctl.preflight.shutil.which", lambda _name: "/usr/bin/nordvpn")
+    executable = tmp_path / "nordvpn"
+    executable.write_text("", encoding="utf-8")
+    executable.chmod(0o755)
+    monkeypatch.setattr("snarkyctl.preflight.NORDVPN_EXECUTABLE", executable)
     assert _provider_checks(config)[0].status is CheckStatus.PASS
-    monkeypatch.setattr("snarkyctl.preflight.shutil.which", lambda _name: None)
+    executable.chmod(0o644)
     assert _provider_checks(config)[0].status is CheckStatus.FAIL
 
 
