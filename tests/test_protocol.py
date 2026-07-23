@@ -19,6 +19,7 @@ from snarkyctl.control.protocol import (
     parse_request,
     receive_frame,
 )
+from snarkyctl.providers.base import VpnState, VpnStatus
 
 REQUEST_ID = "0de2718e-98b1-43a0-879f-867d87b81a75"
 
@@ -76,6 +77,7 @@ def test_size_prefixed_response_round_trip() -> None:
         success=False,
         error_code="NOT_IMPLEMENTED",
         message="Not implemented.",
+        vpn_status=VpnStatus(state=VpnState.DISCONNECTED, provider="nordvpn"),
     )
     sender, receiver = socket.socketpair()
     try:
@@ -88,6 +90,7 @@ def test_size_prefixed_response_round_trip() -> None:
     decoded = json.loads(payload)
     assert decoded["request_id"] == REQUEST_ID
     assert decoded["error_code"] == "NOT_IMPLEMENTED"
+    assert decoded["vpn_status"]["state"] == "DISCONNECTED"
 
 
 def test_declared_oversized_frame_is_rejected() -> None:
