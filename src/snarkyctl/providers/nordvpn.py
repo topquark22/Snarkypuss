@@ -25,6 +25,7 @@ from snarkyctl.providers.base import (
 NORDVPN_EXECUTABLE = Path("/usr/bin/nordvpn")
 DEFAULT_TIMEOUT_SECONDS = 45.0
 MAX_OUTPUT_LENGTH = 64 * 1024
+MAX_FIELD_LENGTH = 256
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._#-]{0,99}$")
 
 
@@ -87,8 +88,11 @@ def _parse_fields(output: str) -> dict[str, str]:
         if not separator:
             continue
         normalized = key.strip().casefold().replace("-", "_").replace(" ", "_")
-        if normalized and value.strip():
-            fields[normalized] = value.strip()
+        field_value = value.strip()
+        if len(normalized) > MAX_FIELD_LENGTH or len(field_value) > MAX_FIELD_LENGTH:
+            raise ProviderError("PROVIDER_OUTPUT_INVALID", "NordVPN returned an oversized field")
+        if normalized and field_value:
+            fields[normalized] = field_value
     return fields
 
 
