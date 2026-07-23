@@ -21,6 +21,15 @@ class VpnState(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class GatewayMode(StrEnum):
+    """Observed relationship between client traffic and the public Internet."""
+
+    VPN = "VPN"
+    LOCKED = "LOCKED"
+    DIRECT = "DIRECT"
+    UNKNOWN = "UNKNOWN"
+
+
 class ProviderCapabilities(BaseModel):
     """Operations and information supported by a provider adapter."""
 
@@ -49,12 +58,27 @@ class VpnStatus(BaseModel):
 
     state: VpnState
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    gateway_mode: GatewayMode = GatewayMode.UNKNOWN
+    leak_protection_active: bool | None = None
     target: str | None = None
     display_name: str | None = None
     interface: str | None = None
     connected_since: datetime | None = None
     diagnostic_code: str | None = None
     details: dict[str, str] = Field(default_factory=dict)
+
+
+class VpnSettings(BaseModel):
+    """Provider-neutral settings relevant to safe control decisions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    leak_protection_enabled: bool | None
+    technology: str | None = None
+    routing_enabled: bool | None = None
+    firewall_enabled: bool | None = None
+    firewall_mark: str | None = None
 
 
 class ProviderError(RuntimeError):
@@ -74,6 +98,10 @@ class VpnProvider(ABC):
     @abstractmethod
     def status(self) -> VpnStatus:
         """Return the current provider-neutral VPN status."""
+
+    @abstractmethod
+    def settings(self) -> VpnSettings:
+        """Return provider settings needed for safe control decisions."""
 
     @abstractmethod
     def connect(self, target: VpnTarget) -> VpnStatus:
