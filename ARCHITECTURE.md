@@ -262,7 +262,7 @@ The systemd service runs the Uvicorn executable from this environment:
 For SnarkyCtl it will:
 
 - Start the dashboard after boot.
-- Run it as the `snarkctl` account.
+- Run it as the `snarkyctl` account.
 - Restart it if it crashes.
 - Capture its logs.
 - Apply operating-system security restrictions.
@@ -278,9 +278,9 @@ sudo journalctl -u snarkyctl
 
 ---
 
-## The `snarkctl` Service Account
+## The `snarkyctl` Service Account
 
-`snarkctl` is a dedicated Linux service account, not a human login account.
+`snarkyctl` is a dedicated Linux service account, not a human login account.
 
 It:
 
@@ -290,7 +290,7 @@ It:
 - Runs the web server.
 - Can invoke only specifically authorized operations.
 
-If the web application has a vulnerability, an attacker initially obtains only the limited powers of `snarkctl`, not unrestricted root access.
+If the web application has a vulnerability, an attacker initially obtains only the limited powers of `snarkyctl`, not unrestricted root access.
 
 ---
 
@@ -321,11 +321,11 @@ Even if someone compromises the FastAPI process, the wrapper does not become a g
 
 ## Restricted sudoers Rules
 
-The sudoers file grants the `snarkctl` account permission to run only approved wrappers:
+The sudoers file grants the `snarkyctl` account permission to run only approved wrappers:
 
 ```sudoers
-snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
-snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
+snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
+snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
 ```
 
 It does not grant general `sudo` access. The wrappers must independently reject unknown aliases, malformed input, and extra arguments.
@@ -376,7 +376,7 @@ There is no user database, login page, session cookie, or server-side session st
 The file uses the standard `htpasswd` format with a modern password hash. It never contains the plaintext password. Recommended ownership and permissions are:
 
 ```text
-root:snarkctl 0640
+root:snarkyctl 0640
 ```
 
 This allows the service account to verify credentials without allowing it to change the authorized password.
