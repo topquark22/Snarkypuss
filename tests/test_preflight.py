@@ -27,6 +27,7 @@ from snarkyctl.preflight import (
     format_report,
     run_preflight,
 )
+from snarkyctl.providers.base import VpnSettings
 
 
 def make_config(tmp_path: Path) -> LoadedConfig:
@@ -154,9 +155,37 @@ def test_provider_prerequisite(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     executable.write_text("", encoding="utf-8")
     executable.chmod(0o755)
     monkeypatch.setattr("snarkyctl.preflight.NORDVPN_EXECUTABLE", executable)
-    assert _provider_checks(config)[0].status is CheckStatus.PASS
+    provider = SimpleNamespace(
+        settings=lambda: VpnSettings(
+            provider="nordvpn",
+            leak_protection_enabled=True,
+            firewall_enabled=True,
+        )
+    )
+    monkeypatch.setattr("snarkyctl.preflight.create_provider", lambda *_args, **_kwargs: provider)
+    assert all(result.status is CheckStatus.PASS for result in _provider_checks(config))
     executable.chmod(0o644)
     assert _provider_checks(config)[0].status is CheckStatus.FAIL
+
+
+def test_provider_prerequisite_rejects_disabled_kill_switch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config = make_config(tmp_path)
+    executable = tmp_path / "nordvpn"
+    executable.write_text("", encoding="utf-8")
+    executable.chmod(0o755)
+    monkeypatch.setattr("snarkyctl.preflight.NORDVPN_EXECUTABLE", executable)
+    provider = SimpleNamespace(
+        settings=lambda: VpnSettings(
+            provider="nordvpn",
+            leak_protection_enabled=False,
+            firewall_enabled=True,
+        )
+    )
+    monkeypatch.setattr("snarkyctl.preflight.create_provider", lambda *_args, **_kwargs: provider)
+    results = _provider_checks(config)
+    assert results[1].status is CheckStatus.FAIL
 
 
 def test_interface_checks_report_missing_interfaces(
