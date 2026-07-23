@@ -74,6 +74,12 @@ def test_parse_unknown_nordvpn_status_is_controlled_failure() -> None:
     assert error.value.code == "UNPARSEABLE_STATUS"
 
 
+def test_parse_nordvpn_status_rejects_oversized_field() -> None:
+    with pytest.raises(ProviderError) as error:
+        parse_status("Status: Connected\nServer: " + "x" * 257)
+    assert error.value.code == "PROVIDER_OUTPUT_INVALID"
+
+
 def test_nordvpn_status_invokes_fixed_command() -> None:
     calls: list[tuple[str, ...]] = []
 
