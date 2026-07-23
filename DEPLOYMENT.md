@@ -16,7 +16,7 @@ Python wheel
 Ubuntu/Debian package (.deb)
       │
       ▼
-Installed snarkyctl.service
+Installed SnarkyCtl services
 ```
 
 The Python wheel is the logical application build artifact. The Debian package is the complete operational artifact installed on the VPS.
@@ -37,7 +37,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 
 3. **Package-owned code is immutable at runtime**
 
-   Application code, the virtual environment, privileged helpers, systemd units, and sudoers policy are owned by `root:root` and are not writable by the `snarkyctl` service account.
+   Application code, the virtual environment, control-daemon code, and systemd units are owned by `root:root` and are not writable by the `snarkyctl` service account.
 
 4. **Local secrets are never build artifacts**
 
@@ -63,8 +63,8 @@ The package must be self-contained: installing it on the VPS must not contact Py
 |---|---|---|---|
 | Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkyctl` | Built as a wheel and installed in the packaged virtual environment |
 | Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, read-only | Included as Python package data |
-| Privileged helpers | NordVPN and forwarding-mode operations | Root, only through exact sudoers rules | Installed as root-owned executables |
-| Service integration | systemd unit, tmpfiles rule, and sudoers policy | System | Installed by the `.deb` |
+| Privileged control daemon | NordVPN and atomic forwarding-mode operations | Root in a separate socket-activated service | Installed with a protected Unix socket and strict local protocol |
+| Service integration | Web service, control daemon, protected socket, and tmpfiles rule | System | Installed by the `.deb` |
 | Administrator configuration | General settings and approved target labels | Read by `snarkyctl` | Installed as examples or conffiles |
 | Authentication | Username and salted password hash | Read by `snarkyctl` | Generated locally; never included with real credentials |
 | TLS identity | Server certificate and private key | Read by service as narrowly permitted | Generated or installed locally |
@@ -102,20 +102,20 @@ snarkyctl/
 │       └── templates/
 │           └── index.html
 │
-├── helpers/
-│   ├── snark-nordvpn-connect
-│   ├── snark-nordvpn-disconnect
-│   ├── snark-mode-direct
-│   └── snark-mode-locked
+├── src/snarkyctl/control/
+│   ├── daemon.py
+│   ├── protocol.py
+│   ├── firewall.py
+│   └── nordvpn.py
 │
 ├── config/
 │   ├── snarkyctl.yaml.example
 │   └── targets.yaml.example
 │
 ├── systemd/
-│   └── snarkyctl.service
-├── sudoers/
-│   └── snarkyctl
+│   ├── snarkyctl-web.service
+│   ├── snarkyctl-control.socket
+│   └── snarkyctl-control.service
 ├── tmpfiles/
 │   └── snarkyctl.conf
 │
@@ -177,7 +177,7 @@ The wheel does not contain:
 - Live credentials or password hashes.
 - TLS private keys or machine certificates.
 - VPS-specific routing state.
-- sudoers rules.
+- systemd service and socket installation.
 - systemd installation scripts.
 
 Those are operating-system integration or local-configuration concerns.
@@ -234,15 +234,15 @@ A future `arm64` package must be built and tested separately.
 
 | Installed path | Purpose | Ownership |
 |---|---|---|
-| `/usr/lib/snarkyctl/` | Packaged application and virtual environment | `root:root` |
-| `/usr/libexec/snarkyctl/` | Privileged helper executables | `root:root` |
+| `/usr/lib/snarkyctl/` | Packaged web application, control daemon, and virtual environment | `root:root` |
 | `/etc/snarkyctl/snarkyctl.yaml` | Main administrator configuration | `root:snarkyctl`, normally `0640` |
 | `/etc/snarkyctl/targets.yaml` | Approved aliases and labels | `root:snarkyctl` or `root:root` according to use |
 | `/etc/snarkyctl/auth.htpasswd` | Basic-auth username and password hash | `root:snarkyctl`, `0640` |
 | `/etc/snarkyctl/tls/` | Server certificate and private key | Narrow root/service permissions |
-| `/usr/lib/systemd/system/snarkyctl.service` | systemd unit supplied by package | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-web.service` | Unprivileged HTTPS service | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-control.socket` | Protected control socket | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-control.service` | Root control daemon | `root:root` |
 | `/usr/lib/tmpfiles.d/snarkyctl.conf` | Runtime-directory definition | `root:root` |
-| `/etc/sudoers.d/snarkyctl` | Restricted helper authorization | `root:root`, `0440` |
 | `/run/snarkyctl/` | Operation lock and ephemeral runtime data | `snarkyctl:snarkyctl` |
 | `/var/lib/snarkyctl/` | Minimal persistent state, if required | `snarkyctl:snarkyctl` |
 | `/usr/share/doc/snarkyctl/` | Packaged documentation and changelog | `root:root` |
@@ -259,10 +259,10 @@ These are replaced during an upgrade:
 
 ```text
 /usr/lib/snarkyctl/
-/usr/libexec/snarkyctl/
-/usr/lib/systemd/system/snarkyctl.service
+/usr/lib/systemd/system/snarkyctl-web.service
+/usr/lib/systemd/system/snarkyctl-control.socket
+/usr/lib/systemd/system/snarkyctl-control.service
 /usr/lib/tmpfiles.d/snarkyctl.conf
-/etc/sudoers.d/snarkyctl
 ```
 
 They are owned by `root:root` and are not writable by `snarkyctl`.
@@ -297,6 +297,40 @@ If persistent policy state is necessary, it belongs under:
 No database is required. A small file written atomically is sufficient. Direct VPS mode must not be restored automatically after reboot.
 
 Logs go to the systemd journal rather than an application-owned log directory.
+
+---
+
+## Privileged Control Boundary
+
+The package installs a separate root control daemon and systemd socket:
+
+```text
+snarkyctl-web.service
+        │
+        │ /run/snarkyctl/control.sock
+        ▼
+snarkyctl-control.service
+```
+
+The socket is owned by `root:snarkyctl` with mode `0660`. The daemon verifies Linux peer credentials and accepts only root or the configured `snarkyctl` UID.
+
+The protocol is versioned, size-limited, and schema-validated. It exposes only fixed operations and approved aliases. It never accepts shell text, executable paths, arbitrary command arguments, firewall fragments, or filenames.
+
+The root daemon serializes all state-changing requests and applies mode transitions atomically. The unprivileged web service never calls `sudo`, receives `CAP_NET_ADMIN`, or joins a broadly privileged networking group. It can therefore run with `NoNewPrivileges=true`.
+
+## Firewall-Enforced Locked Mode
+
+The Debian package includes the implementation needed to maintain these invariants:
+
+- Boot begins Locked.
+- NordVPN mode permits forwarding only through the active NordVPN interface.
+- If that interface disappears, the rule ceases to match and forwarding is blocked without a monitoring delay.
+- Direct VPS mode has a separate explicit rule for the configured public interface.
+- Locked mode permits neither forwarding path.
+- WireGuard management remains available in all modes.
+- Direct VPS mode is never restored automatically.
+
+The public interface is explicitly configured in root-owned configuration and verified during preflight. Firewall changes are never performed by the web service.
 
 ---
 
@@ -370,7 +404,7 @@ It may:
 - Create the non-interactive `snarkyctl` system account if absent.
 - Create configuration, runtime, and state directories.
 - Apply safe ownership and permissions.
-- Validate `/etc/sudoers.d/snarkyctl` with `visudo`.
+- Verify the control socket, service units, ownership, and modes.
 - Run `systemctl daemon-reload`.
 - Print the remaining configuration and preflight steps.
 
@@ -381,10 +415,10 @@ It must not:
 - Change routes, forwarding, DNS, WireGuard, or firewall rules.
 - Generate a password automatically.
 - Create an unprotected certificate authority.
-- enable Direct VPS mode.
+- Enable Direct VPS mode.
 - Start a service lacking authentication, configuration, or TLS.
 
-The initial package installs `snarkyctl.service` without automatically enabling it.
+The initial package installs all three units without automatically enabling the web service.
 
 ### `prerm`
 
@@ -414,8 +448,9 @@ The preflight command verifies at least:
 - The auth file exists, is readable by `snarkyctl`, and is not world-readable.
 - The TLS certificate and private key exist and match.
 - The certificate covers the configured private hostname or IP address.
-- Privileged helpers are root-owned and not writable by `snarkyctl`.
-- The sudoers file passes `visudo` validation.
+- Control-daemon code and systemd units are root-owned and not writable by `snarkyctl`.
+- The control socket is owned by `root:snarkyctl`, mode `0660`, and rejects unauthorized peer credentials.
+- The versioned control protocol rejects unknown, malformed, and oversized requests.
 - TCP port `8443` is not already occupied.
 - No configuration requests binding to `0.0.0.0` or the public VPS address.
 - Locked mode can preserve WireGuard management access.
@@ -423,7 +458,8 @@ The preflight command verifies at least:
 Only after preflight succeeds should the service be activated:
 
 ```bash
-sudo systemctl enable --now snarkyctl.service
+sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable --now snarkyctl-web.service
 ```
 
 ---
@@ -480,7 +516,7 @@ A container can verify:
 - Ownership and permissions.
 - Python imports and CLI execution.
 - Configuration validation.
-- sudoers syntax.
+- systemd service, socket, ownership, and permission definitions.
 - Installation, upgrade, removal, and purge behaviour.
 
 A conventional container cannot fully validate systemd, WireGuard, NordVPN, routing, or reboot behaviour.
@@ -532,7 +568,8 @@ sudo apt-get install ./snarkyctl_0.1.0-1_amd64.deb
 After configuration and successful preflight:
 
 ```bash
-sudo systemctl enable --now snarkyctl.service
+sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable --now snarkyctl-web.service
 ```
 
 Upgrade with:
@@ -576,11 +613,12 @@ Removal and purge must never modify the gateway's independent WireGuard, NordVPN
 1. Add `pyproject.toml` and the `src/snarkyctl` package skeleton.
 2. Add a reproducible dependency-locking process.
 3. Build and test the Python wheel.
-4. Add systemd, tmpfiles, helper, and sudoers source files.
-5. Add Debian metadata and build rules.
-6. Produce a `.deb` containing the assembled virtual environment.
-7. Test install, upgrade, rollback, remove, and purge in a clean Ubuntu environment.
-8. Test the package on a disposable WireGuard/NordVPN gateway.
-9. Run preflight and deploy the tested artifact to `snarkypuss`.
+4. Add the root control daemon, versioned protocol, and firewall transition layer.
+5. Add the web, control-socket, control-service, and tmpfiles units.
+6. Add Debian metadata and build rules.
+7. Produce a `.deb` containing the assembled virtual environment.
+8. Test install, upgrade, rollback, remove, and purge in a clean Ubuntu environment.
+9. Test the package on a disposable WireGuard/NordVPN gateway.
+10. Run preflight and deploy the tested artifact to `snarkypuss`.
 
 The packaging work begins before the dashboard is complete because filesystem ownership, configuration boundaries, command entry points, and service activation rules shape the implementation itself.
