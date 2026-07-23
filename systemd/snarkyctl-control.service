@@ -1,0 +1,49 @@
+[Unit]
+Description=SnarkyCtl privileged control daemon
+Documentation=https://github.com/topquark22/snarkyctl
+Wants=network-online.target
+After=network-online.target wg-quick@wg0.service nordvpnd.service
+Requires=snarkyctl-control.socket wg-quick@wg0.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+
+# The daemon must consume the listening socket passed by systemd rather than
+# creating a second socket at /run/snarkyctl/control.sock.
+ExecStart=/usr/lib/snarkyctl/venv/bin/python -m snarkyctl.control.daemon
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+UMask=0027
+
+# Root privilege is intentional, but the daemon receives only the Linux
+# capabilities required for network and firewall administration.
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+
+# Persistent state is optional, but any state that is needed must be confined
+# to this package-managed directory. The socket itself is managed by systemd.
+StateDirectory=snarkyctl
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/snarkyctl
