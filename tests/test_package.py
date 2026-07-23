@@ -1,6 +1,8 @@
 """Tests for package metadata and the minimal HTTP application."""
 
-from fastapi.testclient import TestClient
+import asyncio
+
+import httpx
 
 from snarkyctl import __version__
 from snarkyctl.main import app
@@ -11,7 +13,12 @@ def test_package_has_development_version() -> None:
 
 
 def test_liveness_endpoint() -> None:
-    response = TestClient(app).get("/api/health/live")
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+            return await client.get("/api/health/live")
+
+    response = asyncio.run(request())
 
     assert response.status_code == 200
     assert response.json() == {
