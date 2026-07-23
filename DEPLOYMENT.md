@@ -45,7 +45,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 
 5. **Installation does not alter gateway routing**
 
-   Package installation must not connect or disconnect NordVPN, change forwarding, modify firewall rules, expose Direct VPS mode, or reconfigure WireGuard.
+   Package installation must not connect or disconnect the configured upstream VPN, change forwarding, modify firewall rules, expose Direct VPS mode, or reconfigure WireGuard.
 
 6. **Activation is explicit**
 
@@ -63,7 +63,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 |---|---|---|---|
 | Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkyctl` | Built as a wheel and installed in the packaged virtual environment |
 | Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, read-only | Included as Python package data |
-| Privileged control daemon | NordVPN and atomic forwarding-mode operations | Root in a separate socket-activated service | Installed with a protected Unix socket and strict local protocol |
+| Privileged control daemon | Provider-neutral VPN and atomic forwarding-mode operations | Root in a separate socket-activated service | Installed with a protected Unix socket and strict local protocol |
 | Service integration | Web service, control daemon, protected socket, and tmpfiles rule | System | Installed by the `.deb` |
 | Administrator configuration | General settings and approved target labels | Read by `snarkyctl` | Installed as examples or conffiles |
 | Authentication | Username and salted password hash | Read by `snarkyctl` | Generated locally; never included with real credentials |
@@ -105,7 +105,12 @@ snarkyctl/
 ├── src/snarkyctl/control/
 │   ├── daemon.py
 │   ├── protocol.py
-│   ├── firewall.py
+│   └── firewall.py
+│
+├── src/snarkyctl/providers/
+│   ├── base.py
+│   ├── registry.py
+│   ├── placeholder.py
 │   └── nordvpn.py
 │
 ├── config/
@@ -230,6 +235,16 @@ A future `arm64` package must be built and tested separately.
 
 ---
 
+## Provider Adapter Packaging
+
+The base package contains the provider-neutral interface, fixed registry, firewall policy, and the first built-in NordVPN adapter. NordVPN itself is an external prerequisite only when `provider: nordvpn` is configured; it is not an unconditional Debian package dependency.
+
+Provider code runs inside the root control daemon and is fully trusted. Configuration selects only a compiled registry key and can never name an arbitrary module or executable.
+
+Future adapters may remain in the base package when they add no substantial dependencies. A provider with large or conflicting dependencies may later be shipped as an additional signed Debian package.
+
+---
+
 ## Installed Filesystem Layout
 
 | Installed path | Purpose | Ownership |
@@ -323,7 +338,7 @@ The root daemon serializes all state-changing requests and applies mode transiti
 The Debian package includes the implementation needed to maintain these invariants:
 
 - Boot begins Locked.
-- NordVPN mode permits forwarding only through the active NordVPN interface.
+- VPN mode permits forwarding only through the verified interface reported by the configured provider.
 - If that interface disappears, the rule ceases to match and forwarding is blocked without a monitoring delay.
 - Direct VPS mode has a separate explicit rule for the configured public interface.
 - Locked mode permits neither forwarding path.
@@ -411,7 +426,7 @@ It may:
 It must not:
 
 - Run `pip install` or access PyPI.
-- Connect or disconnect NordVPN.
+- Connect or disconnect the configured upstream VPN.
 - Change routes, forwarding, DNS, WireGuard, or firewall rules.
 - Generate a password automatically.
 - Create an unprotected certificate authority.
@@ -443,7 +458,7 @@ sudo snarkyctl preflight
 The preflight command verifies at least:
 
 - `wg0` exists and owns `10.8.0.1`.
-- `nordvpn` and `nordvpnd` are available.
+- The selected provider adapter and its external prerequisites are available.
 - Required configuration files parse successfully.
 - The auth file exists, is readable by `snarkyctl`, and is not world-readable.
 - The TLS certificate and private key exist and match.
@@ -519,7 +534,7 @@ A container can verify:
 - systemd service, socket, ownership, and permission definitions.
 - Installation, upgrade, removal, and purge behaviour.
 
-A conventional container cannot fully validate systemd, WireGuard, NordVPN, routing, or reboot behaviour.
+A conventional container cannot fully validate systemd, WireGuard, the selected upstream VPN, routing, or reboot behaviour.
 
 ### Disposable Ubuntu 24.04 VM or VPS
 
@@ -527,12 +542,12 @@ A VM or disposable VPS is required to verify:
 
 - systemd startup and restart behaviour.
 - Binding only to the WireGuard address.
-- NordVPN CLI integration.
+- Selected provider-adapter integration.
 - Routing and firewall transitions.
 - Fail-closed Locked mode.
 - Explicit Direct VPS mode.
 - Reboot behaviour.
-- Continued management access during NordVPN transitions.
+- Continued management access during upstream-VPN transitions.
 
 The live `snarkypuss` gateway should not be the first machine on which a newly built package is installed.
 
@@ -604,7 +619,7 @@ A purge may remove package-supplied configuration, but locally generated credent
 sudo apt-get purge snarkyctl
 ```
 
-Removal and purge must never modify the gateway's independent WireGuard, NordVPN, DNS, routing, or firewall configuration.
+Removal and purge must never modify the gateway's independent WireGuard, upstream-VPN, DNS, routing, or firewall configuration.
 
 ---
 
@@ -618,7 +633,7 @@ Removal and purge must never modify the gateway's independent WireGuard, NordVPN
 6. Add Debian metadata and build rules.
 7. Produce a `.deb` containing the assembled virtual environment.
 8. Test install, upgrade, rollback, remove, and purge in a clean Ubuntu environment.
-9. Test the package on a disposable WireGuard/NordVPN gateway.
+9. Test the package on a disposable WireGuard/upstream-VPN gateway.
 10. Run preflight and deploy the tested artifact to `snarkypuss`.
 
 The packaging work begins before the dashboard is complete because filesystem ownership, configuration boundaries, command entry points, and service activation rules shape the implementation itself.
