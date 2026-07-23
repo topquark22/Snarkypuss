@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, ConfigDict
 
@@ -20,6 +21,19 @@ from snarkyctl.providers.base import GatewayMode, VpnStatus
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
 UNKNOWN_WARNING = "The gateway's public-IP exposure state cannot be determined."
 _BASIC_AUTH = HTTPBasic(auto_error=False)
+SECURITY_HEADERS: Final[dict[str, str]] = {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; "
+        "connect-src 'self'; object-src 'none'; base-uri 'none'; "
+        "frame-ancestors 'none'; form-action 'self'"
+    ),
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+    "Referrer-Policy": "no-referrer",
+    "Strict-Transport-Security": "max-age=31536000",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+}
 
 
 class LivenessResponse(BaseModel):
@@ -96,9 +110,22 @@ def create_app(
         title="SnarkyCtl",
         description="Private control plane for the snarkypuss VPN gateway.",
         version=__version__,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     application.state.runtime = runtime
     application.state.config_path = config_path
+
+    @application.middleware("http")
+    async def add_security_headers(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers[name] = value
+        return response
 
     @application.exception_handler(ApiError)
     async def handle_api_error(_request: Request, exc: ApiError) -> JSONResponse:
