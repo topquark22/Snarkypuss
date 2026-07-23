@@ -2,15 +2,17 @@
 
 **SnarkyCtl** is a lightweight management service and web dashboard for the [**snarkypuss**](SNARKYPUSS.md) privacy gateway.
 
-The project turns a Linux VPS into a remotely managed network appliance that is accessible **only through a private WireGuard tunnel**. It provides a secure control plane for monitoring and controlling NordVPN, WireGuard, DNS services, and selected system functions without exposing any management interface to the public Internet.
+The project turns a Linux VPS into a remotely managed network appliance that is accessible **only through a private WireGuard tunnel**. It provides a secure control plane for monitoring and controlling an optional upstream VPN, WireGuard, DNS services, and selected system functions without exposing any management interface to the public Internet.
+
+SnarkyCtl is not tied to one VPN technology or commercial provider. Its provider-adapter interface can support command-line VPN clients, WireGuard-based services, OpenVPN-based services, or other VPN implementations. NordVPN is the first planned adapter, not an architectural requirement.
 
 ---
 
 ## Motivation
 
-The `snarkypuss` gateway routes traffic through a private WireGuard tunnel to a VPS, and optionally onward through NordVPN.
+The `snarkypuss` gateway routes traffic through a private WireGuard tunnel to a VPS, and optionally onward through a separately configured upstream VPN.
 
-While this architecture provides strong privacy and jurisdictional control, day-to-day administration currently requires running SSH commands such as:
+While this architecture provides strong privacy and jurisdictional control, day-to-day administration currently requires provider-specific SSH commands. For example, the initial NordVPN deployment uses:
 
 ```bash
 ssh root@snarkypuss "nordvpn connect us9167"
@@ -26,11 +28,11 @@ The project is designed to:
 
 - Provide a private web dashboard.
 - Expose a small, well-defined REST API.
-- Monitor WireGuard and NordVPN.
+- Monitor WireGuard and the configured upstream VPN.
 - Switch VPN exit locations.
 - Display the current public exit IP.
 - Manage selected system services (such as `dnsmasq`).
-- Remain accessible even while NordVPN reconnects.
+- Remain accessible while the upstream VPN connects, disconnects, changes endpoints, or fails.
 - Follow the principle of least privilege.
 
 ---
@@ -51,18 +53,20 @@ The project is designed to:
 ## Dashboard
 
 - WireGuard status
-- NordVPN status
+- Upstream VPN status, provider, and connection details
 - Current exit IP
 - DNS service status
 - System health
 - Uptime and load
 
-## NordVPN Control
+## Upstream VPN Control
 
-- Connect
-- Disconnect
-- Select predefined exit locations
-- Display current server
+- Connect and disconnect through a trusted provider adapter
+- Select predefined provider-neutral target aliases
+- Display normalized connection state and provider-specific details
+- Support additional VPN technologies without changing the web API, control protocol, or firewall policy
+
+The initial release will include a NordVPN adapter. Future adapters may support other command-line clients, WireGuard configurations, OpenVPN configurations, or commercial VPN services. An adapter must be compiled into the trusted package registry; configuration cannot load arbitrary modules or executables.
 
 ## DNS Management
 
@@ -161,7 +165,7 @@ debian/
 
 1. Establish the command parsers and typed status models.
 2. Implement the root control daemon and versioned Unix-socket protocol.
-3. Implement firewall-enforced Locked, NordVPN, and Direct VPS transitions.
+3. Implement firewall-enforced Locked, upstream-VPN, and Direct VPS transitions.
 4. Establish the unprivileged `snarkyctl` account and systemd socket/service units.
 5. Build the authenticated, HTTPS-only read-only API.
 6. Build the status dashboard.
