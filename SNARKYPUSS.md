@@ -156,8 +156,8 @@ Recommended settings:
 
 ```bash
 nordvpn set technology nordlynx
-nordvpn set firewall on
-nordvpn set killswitch on
+nordvpn set firewall off
+nordvpn set killswitch off
 nordvpn set autoconnect off
 ```
 
@@ -166,32 +166,6 @@ Allow WireGuard subnet:
 ```bash
 nordvpn whitelist add subnet 10.8.0.0/24
 ```
-
-Verify the safety-relevant settings:
-
-```bash
-nordvpn settings
-```
-
-The output must report at least:
-
-```text
-Firewall: enabled
-Kill Switch: enabled
-```
-
-With Kill Switch enabled, a manual or unexpected NordVPN disconnection blocks ordinary Internet access instead of exposing the VPS public IP. The WireGuard management path must remain reachable through the configured firewall mark and policy-routing exception. SnarkyCtl verifies these NordVPN settings but does not change them.
-
-Test this from two independent management paths before relying on it:
-
-1. Keep a Linode Lish console open as a recovery path.
-2. Keep one SSH session open through WireGuard.
-3. Run `nordvpn disconnect`.
-4. Confirm a new SSH connection to `10.8.0.1` still succeeds.
-5. Confirm Internet access through the Windows WireGuard client is blocked.
-6. Run `nordvpn connect` and confirm Internet access returns through a NordVPN exit IP.
-
-If WireGuard management stops working, use Lish to run `nordvpn set killswitch off`, restore access, and inspect the mark, routing policy, and allowlist before trying again.
 
 ---
 
