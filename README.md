@@ -142,6 +142,18 @@ The read-only deployment checks, result states, exit codes, and current safety l
 
 The implemented NordVPN command boundary, normalized status fields, and delegated networking responsibilities are documented in [**NORDVPN.md**](NORDVPN.md).
 
+The local administration CLI communicates exclusively with the privileged daemon:
+
+```bash
+snarkyctl status
+snarkyctl connect dallas
+snarkyctl disconnect
+```
+
+Add `--json` to any of these commands for the complete machine-readable response. The CLI
+does not invoke a VPN client directly. A Direct gateway state is reported prominently as
+exposing the VPS public IP; disconnect remains subject to the daemon's leak-protection policy.
+
 ---
 
 # Repository Layout
