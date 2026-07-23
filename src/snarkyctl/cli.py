@@ -7,6 +7,7 @@ from pathlib import Path
 
 from snarkyctl import __version__
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, load_config
+from snarkyctl.preflight import format_report, run_preflight
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +32,21 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CONFIG_PATH,
         help=f"main configuration path (default: {DEFAULT_CONFIG_PATH})",
     )
+    preflight = commands.add_parser(
+        "preflight",
+        help="run read-only deployment safety checks before service activation",
+    )
+    preflight.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=f"main configuration path (default: {DEFAULT_CONFIG_PATH})",
+    )
+    preflight.add_argument(
+        "--json",
+        action="store_true",
+        help="emit the versioned machine-readable report",
+    )
     return parser
 
 
@@ -48,4 +64,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"Configuration is valid: provider={loaded.settings.upstream_vpn.provider}, "
             f"targets={len(loaded.targets.targets)}"
         )
+    elif args.command == "preflight":
+        try:
+            report = run_preflight(args.config)
+        except ConfigError as exc:
+            print(f"snarkyctl: {exc}", file=sys.stderr)
+            return 2
+        print(report.as_json() if args.json else format_report(report))
+        return 0 if report.passed else 1
     return 0
