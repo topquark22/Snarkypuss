@@ -297,6 +297,232 @@ Install the root-owned configuration, authoritative target allowlist, systemd-ac
 control socket, and privileged control daemon. The web service receives no `sudo`
 permission; it communicates with the daemon only through `/run/snarkyctl/control.sock`.
 
+Run the following commands from the root of the SnarkyCtl repository checkout.
+
+#### 5.1 Confirm the prerequisites
+
+Confirm that the service account and installed application exist:
+
+```bash
+getent passwd snarkyctl
+getent group snarkyctl
+/usr/lib/snarkyctl/venv/bin/snarkyctl --version
+systemctl is-active wg-quick@wg0
+command -v nordvpn
+```
+
+The `snarkyctl` account must have `snarkyctl` as its primary group and a non-interactive
+shell. The current systemd unit assumes that WireGuard is managed by
+`wg-quick@wg0.service`. Stop here if that service is not active; do not let installation
+replace or disrupt a working management tunnel.
+
+For the initial NordVPN adapter, `command -v nordvpn` should print `/usr/bin/nordvpn`.
+
+#### 5.2 Install the configuration templates
+
+Create the configuration directory and install editable copies of the example files:
+
+```bash
+sudo install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl
+sudo install -o root -g snarkyctl -m 0640 \
+    config/snarkyctl.yaml.example \
+    /etc/snarkyctl/snarkyctl.yaml
+sudo install -o root -g snarkyctl -m 0640 \
+    config/targets.yaml.example \
+    /etc/snarkyctl/targets.yaml
+```
+
+Both files are writable only by root. Group read access is necessary because the
+unprivileged web service reads the same validated configuration when it starts.
+
+#### 5.3 Edit the main configuration
+
+First identify the VPS public interface:
+
+```bash
+ip route show default
+ip -brief address show wg0
+```
+
+Then edit:
+
+```bash
+sudoedit /etc/snarkyctl/snarkyctl.yaml
+```
+
+At minimum, verify these values:
+
+```yaml
+network:
+  management_interface: wg0
+  management_address: 10.8.0.1/24
+  client_subnet: 10.8.0.0/24
+  public_interface: eth0
+
+web:
+  bind_address: 10.8.0.1
+  port: 8443
+  auth_file: /etc/snarkyctl/auth.htpasswd
+  tls_certificate: /etc/snarkyctl/tls/server.crt
+  tls_private_key: /etc/snarkyctl/tls/server.key
+
+control:
+  socket_path: /run/snarkyctl/control.sock
+
+upstream_vpn:
+  provider: nordvpn
+  expected_interfaces:
+    - nordlynx
+  targets_file: /etc/snarkyctl/targets.yaml
+```
+
+Replace `eth0` if the default route reports a different public interface. Do not change
+`web.bind_address` to `0.0.0.0` or to the public address.
+
+If NordVPN is configured to use a technology with an interface other than `nordlynx`,
+record the actual expected interface instead. This is an allowlist, not a command.
+
+#### 5.4 Configure target aliases
+
+Edit:
+
+```bash
+sudoedit /etc/snarkyctl/targets.yaml
+```
+
+Each entry maps a short user-facing alias to the exact argument passed to the configured
+provider. For example:
+
+```yaml
+schema_version: 1
+
+targets:
+  - alias: dallas
+    label: Dallas, United States
+    provider_target: us
+
+  - alias: prague
+    label: Prague, Czechia
+    provider_target: cz
+```
+
+Aliases may contain lowercase letters, digits, underscores, and hyphens, and must begin
+with a letter. The browser and CLI submit only the alias. The root-owned file determines
+the provider target, preventing a web request from supplying arbitrary command arguments.
+
+Restore the required ownership and permissions after editing:
+
+```bash
+sudo chown root:snarkyctl \
+    /etc/snarkyctl/snarkyctl.yaml \
+    /etc/snarkyctl/targets.yaml
+sudo chmod 0640 \
+    /etc/snarkyctl/snarkyctl.yaml \
+    /etc/snarkyctl/targets.yaml
+```
+
+#### 5.5 Validate the configuration
+
+Run the validator as root:
+
+```bash
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl validate-config \
+    --config /etc/snarkyctl/snarkyctl.yaml
+```
+
+Expected output resembles:
+
+```text
+Configuration is valid: provider=nordvpn, targets=2
+```
+
+This validates both YAML files, the schema, provider registry name, interface-name syntax,
+path requirements, and unique target aliases. It does not connect or disconnect the VPN.
+
+#### 5.6 Install the control units
+
+Install the unit source files:
+
+```bash
+sudo install -o root -g root -m 0644 \
+    systemd/snarkyctl-control.socket \
+    /usr/lib/systemd/system/snarkyctl-control.socket
+sudo install -o root -g root -m 0644 \
+    systemd/snarkyctl-control.service \
+    /usr/lib/systemd/system/snarkyctl-control.service
+```
+
+Check their syntax before loading them:
+
+```bash
+sudo systemd-analyze verify \
+    /usr/lib/systemd/system/snarkyctl-control.socket \
+    /usr/lib/systemd/system/snarkyctl-control.service
+```
+
+Warnings about other unrelated units can be reviewed separately. Errors naming either
+SnarkyCtl unit must be corrected before continuing.
+
+#### 5.7 Start socket activation
+
+Reload systemd and enable the socket:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl status snarkyctl-control.socket --no-pager
+```
+
+Do not start `snarkyctl-control.service` directly. The socket unit creates
+`/run/snarkyctl/control.sock`; the first client request then starts the privileged daemon
+and passes the already-open socket to it.
+
+Verify the socket:
+
+```bash
+sudo stat -c '%A %U:%G %n' /run/snarkyctl/control.sock
+sudo ss -xlpn | grep /run/snarkyctl/control.sock
+```
+
+The expected owner, group, and mode are:
+
+```text
+srw-rw---- root:snarkyctl /run/snarkyctl/control.sock
+```
+
+#### 5.8 Test the daemon connection
+
+Run the status request as the unprivileged service account:
+
+```bash
+sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl status
+```
+
+This is an end-to-end test of socket permissions, systemd activation, request framing, peer
+authentication, the privileged daemon, and the NordVPN adapter. It is read-only and does
+not connect or disconnect NordVPN.
+
+After the request, inspect the daemon:
+
+```bash
+sudo systemctl status snarkyctl-control.service --no-pager
+sudo journalctl -u snarkyctl-control.service -n 50 --no-pager
+```
+
+If the request fails, leave the WireGuard and VPN configuration unchanged. Collect:
+
+```bash
+sudo systemctl status snarkyctl-control.socket snarkyctl-control.service --no-pager
+sudo journalctl -u snarkyctl-control.service -n 100 --no-pager
+sudo ls -ld /run/snarkyctl
+sudo ls -l /run/snarkyctl/control.sock
+sudo -u snarkyctl test -r /etc/snarkyctl/snarkyctl.yaml
+sudo -u snarkyctl test -r /etc/snarkyctl/targets.yaml
+```
+
+The last two commands produce no output when the files are readable; inspect their exit
+status with `echo $?` immediately after each command if necessary.
+
 ### 6. Install authentication and certificates
 
 Create the root-controlled `auth.htpasswd` file for HTTP Basic authentication, followed by the private certificate authority and server certificate. Trust the CA on the Windows management computer. The certificate will include the chosen private hostname and, if used directly, `10.8.0.1` as an IP Subject Alternative Name.
