@@ -1,0 +1,15 @@
+[Unit]
+Description=SnarkyCtl privileged control socket
+Documentation=https://github.com/topquark22/snarkyctl
+
+[Socket]
+ListenStream=/run/snarkyctl/control.sock
+SocketUser=root
+SocketGroup=snarkyctl
+SocketMode=0660
+DirectoryMode=0750
+Accept=false
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target
