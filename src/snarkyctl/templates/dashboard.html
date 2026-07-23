@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>SnarkyCtl Gateway</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+    <script src="/static/dashboard.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="SnarkyCtl status">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>
+          <strong>SnarkyCtl</strong>
+          <small>Private gateway</small>
+        </span>
+      </a>
+      <span class="read-only-badge">Read-only</span>
+    </header>
+
+    <main class="dashboard" data-mode="LOADING">
+      <section class="mode-panel" aria-labelledby="gateway-heading">
+        <div class="mode-heading">
+          <div>
+            <p class="eyebrow">Gateway mode</p>
+            <h1 id="gateway-heading" aria-live="polite">Checking…</h1>
+          </div>
+          <span class="mode-light" aria-hidden="true"></span>
+        </div>
+        <p id="mode-summary" class="mode-summary">
+          Contacting the privileged control service.
+        </p>
+      </section>
+
+      <section id="exposure-alert" class="exposure-alert" role="alert" hidden>
+        <strong>Public IP exposure</strong>
+        <span id="exposure-message"></span>
+      </section>
+
+      <section class="details-panel" aria-labelledby="details-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Current connection</p>
+            <h2 id="details-heading">Upstream VPN</h2>
+          </div>
+          <span id="connection-state" class="state-pill">Checking</span>
+        </div>
+
+        <dl class="details-grid">
+          <div>
+            <dt>Provider</dt>
+            <dd id="provider">—</dd>
+          </div>
+          <div>
+            <dt>Target</dt>
+            <dd id="target">—</dd>
+          </div>
+          <div>
+            <dt>Server</dt>
+            <dd id="server">—</dd>
+          </div>
+          <div>
+            <dt>Interface</dt>
+            <dd id="interface">—</dd>
+          </div>
+          <div>
+            <dt>Leak protection</dt>
+            <dd id="leak-protection">—</dd>
+          </div>
+          <div>
+            <dt>Last refreshed</dt>
+            <dd id="last-refreshed">—</dd>
+          </div>
+        </dl>
+      </section>
+    </main>
+
+    <footer>
+      <span>Management access through WireGuard</span>
+      <span>SnarkyCtl {{ version }}</span>
+    </footer>
+  </body>
+</html>
