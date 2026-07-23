@@ -293,5 +293,5 @@ def test_run_preflight_aggregates_and_marks_firewall_skip(
     )
     report = run_preflight(tmp_path / "snarkyctl.yaml", unit_dir=tmp_path)
     assert report.passed
-    assert report.checks[-1].check_id == "firewall.policy"
+    assert report.checks[-1].check_id == "exposure.policy"
     assert report.checks[-1].status is CheckStatus.SKIP
