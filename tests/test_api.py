@@ -50,6 +50,45 @@ def test_status_requires_authentication(tmp_path: Path) -> None:
     assert response.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
 
 
+def test_dashboard_requires_authentication(tmp_path: Path) -> None:
+    response = get(create_app(make_runtime(tmp_path)), path="/")
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == 'Basic realm="SnarkyCtl"'
+
+
+def test_dashboard_is_read_only_and_uses_external_assets(tmp_path: Path) -> None:
+    application = create_app(make_runtime(tmp_path))
+
+    response = get(application, path="/", auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    assert "SnarkyCtl Gateway" in response.text
+    assert "Read-only" in response.text
+    assert "<button" not in response.text
+    assert "<form" not in response.text
+    assert 'src="/static/dashboard.js"' in response.text
+    assert 'href="/static/dashboard.css"' in response.text
+    assert "<script>" not in response.text
+    assert "<style>" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("path", "content_type"),
+    [
+        ("/static/dashboard.css", "text/css"),
+        ("/static/dashboard.js", "text/javascript"),
+    ],
+)
+def test_dashboard_assets_are_packaged(
+    tmp_path: Path, path: str, content_type: str
+) -> None:
+    response = get(create_app(make_runtime(tmp_path)), path=path)
+
+    assert response.status_code == 200
+    assert content_type in response.headers["content-type"]
+
+
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
 def test_interactive_api_documentation_is_disabled(tmp_path: Path, path: str) -> None:
     response = get(create_app(make_runtime(tmp_path)), path=path)
