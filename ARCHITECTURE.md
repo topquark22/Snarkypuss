@@ -236,7 +236,7 @@ JSON would work equally well. YAML is easier for a human to edit, particularly w
 The virtual environment is an isolated collection of Python packages located at:
 
 ```text
-/opt/snarkypuss-control/venv/
+/usr/lib/snarkyctl/venv/
 ```
 
 FastAPI, Uvicorn, and the other Python dependencies are installed there instead of modifying Ubuntu's system Python installation.
@@ -250,7 +250,7 @@ This prevents:
 The systemd service runs the Uvicorn executable from this environment:
 
 ```text
-/opt/snarkypuss-control/venv/bin/uvicorn
+/usr/lib/snarkyctl/venv/bin/uvicorn
 ```
 
 ---
@@ -270,10 +270,10 @@ For SnarkyCtl it will:
 The principal administrative commands will be:
 
 ```bash
-sudo systemctl start snarkypuss-control
-sudo systemctl stop snarkypuss-control
-sudo systemctl status snarkypuss-control
-sudo journalctl -u snarkypuss-control
+sudo systemctl start snarkyctl
+sudo systemctl stop snarkyctl
+sudo systemctl status snarkyctl
+sudo journalctl -u snarkyctl
 ```
 
 ---
@@ -305,7 +305,7 @@ sudo nordvpn connect USER_SUPPLIED_TEXT
 Instead, it invokes a fixed wrapper:
 
 ```bash
-sudo /usr/local/sbin/snark-nordvpn-connect dallas
+sudo /usr/libexec/snarkyctl/snark-nordvpn-connect dallas
 ```
 
 The wrapper independently verifies that `dallas` is permitted and translates it into the actual NordVPN target.
@@ -324,8 +324,8 @@ Even if someone compromises the FastAPI process, the wrapper does not become a g
 The sudoers file grants the `snarkctl` account permission to run only approved wrappers:
 
 ```sudoers
-snarkctl ALL=(root) NOPASSWD: /usr/local/sbin/snark-nordvpn-connect *
-snarkctl ALL=(root) NOPASSWD: /usr/local/sbin/snark-nordvpn-disconnect
+snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
+snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
 ```
 
 It does not grant general `sudo` access. The wrappers must independently reject unknown aliases, malformed input, and extra arguments.
@@ -333,7 +333,7 @@ It does not grant general `sudo` access. The wrappers must independently reject 
 The sudoers file will be validated before use:
 
 ```bash
-sudo visudo -cf /etc/sudoers.d/snarkypuss-control
+sudo visudo -cf /etc/sudoers.d/snarkyctl
 ```
 
 ---
@@ -370,7 +370,7 @@ SnarkyCtl uses HTTP Basic authentication over HTTPS. The browser displays its st
 There is no user database, login page, session cookie, or server-side session store. The authorized username and salted password hash are stored in a root-controlled file:
 
 ```text
-/etc/snarkypuss-control/auth.htpasswd
+/etc/snarkyctl/auth.htpasswd
 ```
 
 The file uses the standard `htpasswd` format with a modern password hash. It never contains the plaintext password. Recommended ownership and permissions are:
