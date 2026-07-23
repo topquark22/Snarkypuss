@@ -37,7 +37,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 
 3. **Package-owned code is immutable at runtime**
 
-   Application code, the virtual environment, privileged helpers, systemd units, and sudoers policy are owned by `root:root` and are not writable by the `snarkctl` service account.
+   Application code, the virtual environment, privileged helpers, systemd units, and sudoers policy are owned by `root:root` and are not writable by the `snarkyctl` service account.
 
 4. **Local secrets are never build artifacts**
 
@@ -61,15 +61,15 @@ The package must be self-contained: installing it on the VPS must not contact Py
 
 | Component | Contents | Runtime privilege | Package treatment |
 |---|---|---|---|
-| Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkctl` | Built as a wheel and installed in the packaged virtual environment |
-| Web resources | Jinja2 templates, CSS, and JavaScript | `snarkctl`, read-only | Included as Python package data |
+| Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkyctl` | Built as a wheel and installed in the packaged virtual environment |
+| Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, read-only | Included as Python package data |
 | Privileged helpers | NordVPN and forwarding-mode operations | Root, only through exact sudoers rules | Installed as root-owned executables |
 | Service integration | systemd unit, tmpfiles rule, and sudoers policy | System | Installed by the `.deb` |
-| Administrator configuration | General settings and approved target labels | Read by `snarkctl` | Installed as examples or conffiles |
-| Authentication | Username and salted password hash | Read by `snarkctl` | Generated locally; never included with real credentials |
+| Administrator configuration | General settings and approved target labels | Read by `snarkyctl` | Installed as examples or conffiles |
+| Authentication | Username and salted password hash | Read by `snarkyctl` | Generated locally; never included with real credentials |
 | TLS identity | Server certificate and private key | Read by service as narrowly permitted | Generated or installed locally |
-| Runtime state | Operation lock and transient status | `snarkctl` | Created under `/run/snarkyctl` |
-| Persistent state | Minimal policy state, if required | `snarkctl` | Stored under `/var/lib/snarkyctl`; no database |
+| Runtime state | Operation lock and transient status | `snarkyctl` | Created under `/run/snarkyctl` |
+| Persistent state | Minimal policy state, if required | `snarkyctl` | Stored under `/var/lib/snarkyctl`; no database |
 
 ---
 
@@ -236,15 +236,15 @@ A future `arm64` package must be built and tested separately.
 |---|---|---|
 | `/usr/lib/snarkyctl/` | Packaged application and virtual environment | `root:root` |
 | `/usr/libexec/snarkyctl/` | Privileged helper executables | `root:root` |
-| `/etc/snarkyctl/snarkyctl.yaml` | Main administrator configuration | `root:snarkctl`, normally `0640` |
-| `/etc/snarkyctl/targets.yaml` | Approved aliases and labels | `root:snarkctl` or `root:root` according to use |
-| `/etc/snarkyctl/auth.htpasswd` | Basic-auth username and password hash | `root:snarkctl`, `0640` |
+| `/etc/snarkyctl/snarkyctl.yaml` | Main administrator configuration | `root:snarkyctl`, normally `0640` |
+| `/etc/snarkyctl/targets.yaml` | Approved aliases and labels | `root:snarkyctl` or `root:root` according to use |
+| `/etc/snarkyctl/auth.htpasswd` | Basic-auth username and password hash | `root:snarkyctl`, `0640` |
 | `/etc/snarkyctl/tls/` | Server certificate and private key | Narrow root/service permissions |
 | `/usr/lib/systemd/system/snarkyctl.service` | systemd unit supplied by package | `root:root` |
 | `/usr/lib/tmpfiles.d/snarkyctl.conf` | Runtime-directory definition | `root:root` |
 | `/etc/sudoers.d/snarkyctl` | Restricted helper authorization | `root:root`, `0440` |
-| `/run/snarkyctl/` | Operation lock and ephemeral runtime data | `snarkctl:snarkctl` |
-| `/var/lib/snarkyctl/` | Minimal persistent state, if required | `snarkctl:snarkctl` |
+| `/run/snarkyctl/` | Operation lock and ephemeral runtime data | `snarkyctl:snarkyctl` |
+| `/var/lib/snarkyctl/` | Minimal persistent state, if required | `snarkyctl:snarkyctl` |
 | `/usr/share/doc/snarkyctl/` | Packaged documentation and changelog | `root:root` |
 
 `/usr/local` is not used for files owned by the Debian package. It remains reserved for files managed directly by the VPS administrator.
@@ -265,7 +265,7 @@ These are replaced during an upgrade:
 /etc/sudoers.d/snarkyctl
 ```
 
-They are owned by `root:root` and are not writable by `snarkctl`.
+They are owned by `root:root` and are not writable by `snarkyctl`.
 
 ### Administrator-controlled files
 
@@ -308,7 +308,7 @@ The administrator creates one interactively:
 
 ```bash
 sudo htpasswd -cB /etc/snarkyctl/auth.htpasswd snarkadmin
-sudo chown root:snarkctl /etc/snarkyctl/auth.htpasswd
+sudo chown root:snarkyctl /etc/snarkyctl/auth.htpasswd
 sudo chmod 0640 /etc/snarkyctl/auth.htpasswd
 ```
 
@@ -367,7 +367,7 @@ Debian lifecycle scripts must remain conservative and idempotent.
 
 It may:
 
-- Create the non-interactive `snarkctl` system account if absent.
+- Create the non-interactive `snarkyctl` system account if absent.
 - Create configuration, runtime, and state directories.
 - Apply safe ownership and permissions.
 - Validate `/etc/sudoers.d/snarkyctl` with `visudo`.
@@ -411,10 +411,10 @@ The preflight command verifies at least:
 - `wg0` exists and owns `10.8.0.1`.
 - `nordvpn` and `nordvpnd` are available.
 - Required configuration files parse successfully.
-- The auth file exists, is readable by `snarkctl`, and is not world-readable.
+- The auth file exists, is readable by `snarkyctl`, and is not world-readable.
 - The TLS certificate and private key exist and match.
 - The certificate covers the configured private hostname or IP address.
-- Privileged helpers are root-owned and not writable by `snarkctl`.
+- Privileged helpers are root-owned and not writable by `snarkyctl`.
 - The sudoers file passes `visudo` validation.
 - TCP port `8443` is not already occupied.
 - No configuration requests binding to `0.0.0.0` or the public VPS address.
