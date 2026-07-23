@@ -49,7 +49,7 @@ The provider check is adapter-specific. The first NordVPN check confirms that it
 
 ## Deliberate Limitations
 
-Firewall-policy analysis is not implemented in this first version and appears as `SKIP`. That result must not be interpreted as proof that forwarding is fail-closed or that port `8443` is blocked on the public interface. Do not enable state-changing forwarding controls until the nftables inspection and Locked-mode transition layer are implemented and tested on a disposable gateway.
+Public-IP exposure observation is not implemented in this first version and appears as `SKIP`. That result must not be interpreted as proof that disconnected traffic is blocked or that port `8443` is blocked on the public interface. Routing, firewall, management-bypass, and leak-protection configuration remain the responsibility of the selected VPN provider and the VPS administrator. `DIRECT` and `LOCK` remain unavailable until SnarkyCtl can reliably observe and report those resulting states.
 
 An inactive control socket also appears as `SKIP`; this is normal when preflight is run before first activation. Its installed systemd socket definition is still checked.
 
