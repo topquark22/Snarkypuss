@@ -4,6 +4,7 @@ from snarkyctl.providers.base import (
     ProviderCapabilities,
     ProviderError,
     VpnProvider,
+    VpnSettings,
     VpnState,
     VpnStatus,
     VpnTarget,
@@ -23,6 +24,9 @@ class PlaceholderProvider(VpnProvider):
 
     def status(self) -> VpnStatus:
         return VpnStatus(state=VpnState.DISCONNECTED, provider=self.name)
+
+    def settings(self) -> VpnSettings:
+        return VpnSettings(provider=self.name, leak_protection_enabled=None)
 
     def connect(self, target: VpnTarget) -> VpnStatus:
         del target
