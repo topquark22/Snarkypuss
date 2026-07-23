@@ -20,7 +20,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from snarkyctl.config import LoadedConfig, load_config
+from snarkyctl.providers.base import ProviderError
 from snarkyctl.providers.nordvpn import NORDVPN_EXECUTABLE
+from snarkyctl.providers.registry import create_provider
 
 SYSTEM_USER = "snarkyctl"
 SYSTEM_GROUP = "snarkyctl"
@@ -265,11 +267,57 @@ def _provider_checks(config: LoadedConfig) -> list[CheckResult]:
                 f"NordVPN executable is not runnable at {executable}",
             )
         ]
-    return [
+    results = [
         _result(
             "provider.executable", CheckStatus.PASS, f"NordVPN executable found at {executable}"
         )
     ]
+    try:
+        adapter = create_provider(
+            provider,
+            timeout_seconds=config.settings.control.operation_timeout_seconds,
+        )
+        settings = adapter.settings()
+    except ProviderError as exc:
+        results.append(
+            _result(
+                "provider.leak_protection",
+                CheckStatus.FAIL,
+                f"cannot verify NordVPN settings: {exc.code}",
+            )
+        )
+        return results
+    kill_switch_status = (
+        CheckStatus.PASS
+        if settings.leak_protection_enabled is True
+        else CheckStatus.FAIL
+    )
+    results.append(
+        _result(
+            "provider.leak_protection",
+            kill_switch_status,
+            (
+                "NordVPN Kill Switch is enabled"
+                if kill_switch_status is CheckStatus.PASS
+                else "NordVPN Kill Switch is disabled or unverifiable"
+            ),
+        )
+    )
+    firewall_status = (
+        CheckStatus.PASS if settings.firewall_enabled is True else CheckStatus.FAIL
+    )
+    results.append(
+        _result(
+            "provider.firewall",
+            firewall_status,
+            (
+                "NordVPN firewall is enabled"
+                if firewall_status is CheckStatus.PASS
+                else "NordVPN firewall is disabled or unverifiable"
+            ),
+        )
+    )
+    return results
 
 
 def _unit_check(path: Path, required: Iterable[str], check_id: str) -> CheckResult:
