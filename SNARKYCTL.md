@@ -324,15 +324,15 @@ Create the security boundary before adding state-changing API routes.
 sudo useradd --system \
   --home /usr/lib/snarkyctl \
   --shell /usr/sbin/nologin \
-  snarkctl
+  snarkyctl
 ```
 
 Ownership must prevent a compromised web process from modifying executable code or privileged configuration:
 
-- Application code: `root:root`, not writable by `snarkctl`.
-- Privileged wrappers: `root:root`, mode `0755`, never writable by `snarkctl`.
-- Secrets: `root:snarkctl`, mode `0640`.
-- Writable runtime directory, if required: owned by `snarkctl` and narrowly scoped.
+- Application code: `root:root`, not writable by `snarkyctl`.
+- Privileged wrappers: `root:root`, mode `0755`, never writable by `snarkyctl`.
+- Secrets: `root:snarkyctl`, mode `0640`.
+- Writable runtime directory, if required: owned by `snarkyctl` and narrowly scoped.
 - Logs: use the systemd journal unless a separate log directory is necessary.
 
 Do not recursively make the service account owner of `/usr/lib/snarkyctl`.
@@ -364,15 +364,15 @@ Avoid inconsistent duplicate allowlists. The privileged wrapper or its root-owne
 Create `/etc/sudoers.d/snarkyctl` with only the exact commands required. For example:
 
 ```sudoers
-Defaults:snarkctl secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
-snarkctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
+Defaults:snarkyctl secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-connect *
+snarkyctl ALL=(root) NOPASSWD: /usr/libexec/snarkyctl/snark-nordvpn-disconnect
 ```
 
 The wildcard makes strict wrapper-side validation essential. Never grant:
 
 ```text
-snarkctl ALL=(ALL) NOPASSWD: ALL
+snarkyctl ALL=(ALL) NOPASSWD: ALL
 ```
 
 Validate the file:
@@ -427,7 +427,7 @@ For the first browser-based version, use HTTP Basic authentication over HTTPS:
 - There is no user database, login page, session cookie, or server-side session store.
 - Store the username and salted password hash in `/etc/snarkyctl/auth.htpasswd`.
 - Use the standard `htpasswd` format with a modern password hash; never store the plaintext password.
-- Own the file as `root:snarkctl` with mode `0640`, so the service can read but not modify it.
+- Own the file as `root:snarkyctl` with mode `0640`, so the service can read but not modify it.
 - Apply authentication to the dashboard and every API endpoint except narrowly defined liveness checks, if any.
 - Rate-limit or progressively delay failed authentication attempts.
 
@@ -587,8 +587,8 @@ Requires=wg-quick@wg0.service
 
 [Service]
 Type=simple
-User=snarkctl
-Group=snarkctl
+User=snarkyctl
+Group=snarkyctl
 WorkingDirectory=/usr/lib/snarkyctl
 EnvironmentFile=-/etc/snarkyctl/snarkyctl.env
 ExecStart=/usr/lib/snarkyctl/venv/bin/uvicorn app.main:app --host 10.8.0.1 --port 8443
@@ -663,7 +663,7 @@ Test:
 
 ## Privilege tests
 
-From the `snarkctl` account, verify that:
+From the `snarkyctl` account, verify that:
 
 - Approved wrappers work.
 - Unknown aliases and extra arguments fail.
@@ -722,7 +722,7 @@ It produces typed, reliable, partially degradable JSON.
 
 Deliverables:
 
-- Dedicated `snarkctl` account.
+- Dedicated `snarkyctl` account.
 - Root-owned application and wrapper files.
 - Authoritative root-owned target allowlist.
 - Minimal, validated sudo permissions.
