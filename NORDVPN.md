@@ -6,13 +6,14 @@ SnarkyCtl invokes only these forms:
 
 ```text
 /usr/bin/nordvpn status
+/usr/bin/nordvpn settings
 /usr/bin/nordvpn connect <one-root-configured-target>
 /usr/bin/nordvpn disconnect
 ```
 
 Commands use argument arrays with `shell=False`, a fixed absolute executable, a controlled locale, a 45-second timeout, and a 64 KiB output limit. A configured target cannot begin with an option marker or contain shell/control syntax. No browser-supplied value is passed directly to the command.
 
-After `connect` or `disconnect`, the adapter runs `nordvpn status` and returns the observed state rather than inferring success from the mutation command's message.
+After `connect` or `disconnect`, the adapter runs `nordvpn status` and returns the observed state rather than inferring success from the mutation command's message. The daemon reads `nordvpn settings` before disconnection and refuses to disconnect unless both Kill Switch and the NordVPN firewall are verified enabled.
 
 ## Normalized Status
 
@@ -25,6 +26,8 @@ The parser recognizes `Connected`, `Connecting`, `Disconnected`, and `Disconnect
 - Post-quantum setting
 - Transfer counters
 - Uptime
+
+The settings parser separately normalizes Kill Switch, firewall, routing, firewall mark, and technology. It reads these values but never changes them.
 
 When the reported technology is NordLynx, the normalized interface is `nordlynx`. Other technologies do not currently infer an interface name.
 
@@ -45,4 +48,4 @@ Those are deployment configuration or later status-observation concerns. The exi
 
 Missing or non-executable binaries, permission errors, timeouts, excessive output, nonzero exit status, unsafe configured targets, and unrecognized status output are returned as stable `ProviderError` codes. Raw stderr is not exposed to the browser.
 
-The privileged control daemon dispatches `STATUS`, `CONNECT`, and `DISCONNECT` to this adapter. It resolves aliases against the root-owned target allowlist before calling `connect`; an unknown alias never reaches NordVPN. `LOCK` and `DIRECT` remain unavailable until their policy semantics are implemented.
+The privileged control daemon dispatches `STATUS`, `CONNECT`, and guarded `DISCONNECT` to this adapter. It resolves aliases against the root-owned target allowlist before calling `connect`; an unknown alias never reaches NordVPN. It reports `VPN` when connected, `LOCKED` when disconnected with verified leak protection, `DIRECT` when disconnected with verified-disabled leak protection, and `UNKNOWN` otherwise. `DIRECT` remains unavailable as an intentional operation.
