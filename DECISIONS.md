@@ -36,13 +36,13 @@ DIRECT <confirmation-token>
 
 The precise wire representation may be length-delimited JSON, but it must have a size limit, protocol version, request identifier, fixed operation enumeration, strict field validation, bounded execution time, and structured response.
 
-The daemon verifies the connecting process through Unix-socket permissions and Linux peer credentials. It accepts requests only from root or the configured `snarkyctl` UID. It never accepts shell text, executable paths, firewall fragments, filenames, or arbitrary NordVPN targets.
+The daemon verifies the connecting process through Unix-socket permissions and Linux peer credentials. It accepts requests only from root or the configured `snarkyctl` UID. It never accepts shell text, executable paths, firewall fragments, filenames, or arbitrary provider targets.
 
 ## ADR-004: Firewall-enforced fail-closed modes
 
 **Decision:** Locked behaviour is enforced by firewall and forwarding policy, not by periodic health monitoring alone.
 
-- In NordVPN mode, forwarded client traffic is permitted only through the active NordVPN interface.
+- In VPN mode, forwarded client traffic is permitted only through the verified interface reported by the configured provider.
 - If that interface disappears, the forwarding rule no longer matches and traffic is blocked without waiting for the web service or control daemon to react.
 - Direct VPS mode has a separate, explicit public-interface forwarding rule.
 - Locked mode permits neither forwarding path.
@@ -87,7 +87,7 @@ Canonical installed paths include:
 /var/lib/snarkyctl/
 ```
 
-The live WireGuard/NordVPN gateway remains named `snarkypuss`.
+The live WireGuard gateway, currently configured with NordVPN as its upstream provider, remains named `snarkypuss`.
 
 ## ADR-010: Initial activation requires preflight
 
@@ -96,3 +96,14 @@ The live WireGuard/NordVPN gateway remains named `snarkypuss`.
 ## ADR-011: Requirements-baseline tag
 
 **Decision:** The first documentation tag represents a requirements and architecture baseline, not a working application release. Application release versions begin only after buildable code and packaging exist.
+
+
+## ADR-012: Provider-neutral upstream VPN boundary
+
+**Decision:** Core policy, protocol, API, status models, and firewall logic refer to an optional upstream VPN rather than NordVPN.
+
+A fixed compiled registry selects a trusted `VpnProvider` adapter. Configuration may choose a registered provider name but may not load an arbitrary Python module. The first built-in implementation is `NordVpnProvider`; generic WireGuard and OpenVPN adapters may be added later.
+
+Provider adapters own provider-specific command execution and parsing. They return common status models and a verified upstream interface. They do not construct firewall rules. The provider-neutral firewall layer implements VPN, Direct VPS, and Locked modes.
+
+The distributed systemd units have no hard dependency on `nordvpnd.service`. Provider-specific service ordering may be added through an administrator-controlled systemd drop-in.
