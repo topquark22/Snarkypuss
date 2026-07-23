@@ -1,12 +1,14 @@
 # Installing SnarkyCtl
 
-> **Status:** Installation framework for the first implementation. Commands for installing the application itself will be completed as the corresponding code and service files are added.
+> **Status:** Development installation procedure for the implemented application, control
+> daemon, API, and read-only dashboard. Debian packaging and automated upgrades remain to
+> be completed.
 
 ## Scope
 
-This document installs SnarkyCtl on the existing `snarkypuss` gateway. It does not build the underlying WireGuard, upstream VPN, DNS, routing, or firewall configuration from scratch; that is documented in [SNARKYPUSS.md](SNARKYPUSS.md).
+This document installs SnarkyCtl on the existing `snarkypuss` gateway. It does not build the underlying WireGuard, NordVPN, DNS, routing, or firewall configuration from scratch; that is documented in [SNARKYPUSS.md](SNARKYPUSS.md).
 
-The dependency installation below is intentionally non-destructive. It installs packages but does not change routes, firewall rules, WireGuard configuration, upstream-VPN settings, DNS configuration, or service startup policy.
+The dependency installation below is intentionally non-destructive. It installs packages but does not change routes, firewall rules, WireGuard configuration, NordVPN settings, DNS configuration, or service startup policy.
 
 ---
 
@@ -17,7 +19,7 @@ The initial supported server platform is:
 - Ubuntu Server 24.04 LTS
 - A working WireGuard interface named `wg0`
 - WireGuard server address `10.8.0.1`
-- A working installation for the selected upstream-VPN provider
+- A working NordVPN Linux CLI installation
 - `systemd`
 - Administrative access through SSH over WireGuard
 
@@ -33,7 +35,7 @@ Before installation:
 - Confirm that a second administrative session can reach `10.8.0.1` through WireGuard.
 - Take a Linode snapshot or otherwise back up the current gateway configuration.
 - Do not expose TCP port `8443` on the Linode Cloud Firewall or the VPS public firewall.
-- Do not change the upstream VPN, WireGuard, routing, or firewall settings merely to make the dashboard work.
+- Do not change NordVPN, WireGuard, routing, or firewall settings merely to make the dashboard work.
 
 Back up at least:
 
@@ -65,6 +67,7 @@ Some paths may not exist on every installation.
 | `python3` | Runs the SnarkyCtl application. |
 | `python3-pip` | Installs Python application dependencies inside the virtual environment. |
 | `python3-venv` | Creates an isolated Python virtual environment. |
+| `sudo` | Runs installation and service-management commands as an administrator. The `snarkyctl` service account does not receive sudo privileges. |
 | `wireguard-tools` | Supplies `wg` and `wg-quick` status tools. |
 
 The base Ubuntu installation already supplies `systemd` and `systemctl`; they are not installed separately here.
@@ -75,8 +78,8 @@ The following are required by the gateway, but are not installed by the SnarkyCt
 
 | Component | Expected command or service | Notes |
 |---|---|---|
-| Selected upstream provider | Provider-specific | NordVPN is the first supported adapter; its CLI and daemon are required only when `provider: nordvpn` is configured. |
-| WireGuard configuration | `wg0`, `wg-quick@wg0.service` | Must remain reachable independently of the upstream VPN. |
+| NordVPN Linux client | `nordvpn`, `nordvpnd.service` | Installed from NordVPN's repository or installer, not Ubuntu's standard package set. |
+| WireGuard configuration | `wg0`, `wg-quick@wg0.service` | Must remain reachable independently of NordVPN. |
 | Firewall and NAT | `iptables` and/or `nft` | SnarkyCtl must first detect and document the gateway's actual ruleset. |
 | DNS service | `dnsmasq.service` | Optional for the first SnarkyCtl release; existing gateway DNS must continue working. |
 
@@ -111,6 +114,7 @@ sudo apt-get install --yes --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    sudo \
     wireguard-tools
 ```
 
@@ -138,16 +142,15 @@ git --version
 openssl version
 ip -Version
 wg --version
+sudo --version
 ```
 
 Confirm that the existing gateway components are available:
 
 ```bash
 systemctl is-active wg-quick@wg0
-wg show wg0
-
-# Provider-specific example when provider: nordvpn is selected:
 systemctl is-active nordvpnd
+wg show wg0
 nordvpn status
 ip -brief address show wg0
 ```
@@ -158,63 +161,154 @@ The expected WireGuard address is:
 10.8.0.1/24
 ```
 
-Do not continue to remote control implementation if `wg0` is unavailable or if connecting and disconnecting the selected upstream VPN breaks the WireGuard management path.
+Do not continue to remote control implementation if `wg0` is unavailable or if connecting and disconnecting NordVPN breaks the WireGuard management path.
 
 ---
 
-## Planned Installation Stages
+## Python Application Dependencies
 
-The completed installer will follow these stages.
+FastAPI and the other Python libraries are application dependencies, not Ubuntu packages.
+They are declared in `pyproject.toml` and installed together inside the private SnarkyCtl
+virtual environment.
+
+| Python package | Purpose |
+|---|---|
+| `fastapi` | Defines the authenticated dashboard and versioned HTTP API routes. |
+| `uvicorn` | Runs the FastAPI application as the HTTPS ASGI server. |
+| `jinja2` | Renders the initial dashboard HTML template. |
+| `bcrypt` | Verifies password hashes in the local `auth.htpasswd` file. |
+| `pydantic` | Strictly validates configuration, control messages, and API models. |
+| `PyYAML` | Parses the root-owned YAML configuration and target allowlist. |
+
+FastAPI also requires libraries such as Starlette and AnyIO. They are transitive
+dependencies and are installed automatically. Do not install them individually or maintain
+a separate hand-written dependency list.
+
+The project currently constrains Python to version 3.12. Ubuntu 24.04 supplies Python 3.12
+through its standard `python3` packages.
+
+## Build and Install the Python Application
+
+Run these commands from the root of a clean SnarkyCtl repository checkout.
+
+### 1. Build the wheel
+
+Create a temporary build environment owned by the current administrator:
+
+```bash
+python3 -m venv .build-venv
+.build-venv/bin/python -m pip install --upgrade pip
+.build-venv/bin/python -m pip install build
+.build-venv/bin/python -m build
+```
+
+This creates both a wheel and source archive under `dist/`. The wheel contains the Python
+code, dashboard template, CSS, and JavaScript. The build environment is not used to run the
+service.
+
+For development and testing, install the declared development tools instead:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install --editable '.[dev]'
+.venv/bin/pytest
+```
+
+The development extra adds Build, HTTPX, mypy, pytest, coverage support, Ruff, and YAML type
+information. None of these tools is required by the deployed service.
+
+### 2. Create the production virtual environment
+
+The existing systemd units expect the production environment at
+`/usr/lib/snarkyctl/venv`:
+
+```bash
+sudo install -d -o root -g root -m 0755 /usr/lib/snarkyctl
+sudo python3 -m venv /usr/lib/snarkyctl/venv
+sudo /usr/lib/snarkyctl/venv/bin/python -m pip install --upgrade pip
+sudo /usr/lib/snarkyctl/venv/bin/python -m pip install dist/snarkyctl-*.whl
+```
+
+Installing the wheel installs FastAPI, Uvicorn, Jinja2, bcrypt, Pydantic, PyYAML, and their
+required transitive dependencies into that virtual environment. It does not modify
+Ubuntu's system Python.
+
+The wheel and its dependencies are root-owned. The `snarkyctl` service account may execute
+them but must not be able to modify them.
+
+### 3. Verify the Python installation
+
+Run:
+
+```bash
+/usr/lib/snarkyctl/venv/bin/python -m pip check
+/usr/lib/snarkyctl/venv/bin/python -c \
+  "import bcrypt, fastapi, jinja2, pydantic, uvicorn, yaml; print('Python dependencies OK')"
+/usr/lib/snarkyctl/venv/bin/snarkyctl --version
+```
+
+`pip check` must report that no installed packages have broken requirements.
+
+Do not run Uvicorn manually on `0.0.0.0`. The packaged systemd service binds it only to the
+private WireGuard address and supplies the configured TLS certificate and key.
+
+---
+
+## Application Installation Stages
+
+The complete deployment follows these stages.
 
 ### 1. Record the network baseline
 
-Capture interfaces, routes, policy rules, firewall rules, WireGuard state, selected-provider settings, service names, and representative command output. This establishes the control-path invariant before any state-changing endpoint is introduced.
+Capture interfaces, routes, policy rules, firewall rules, WireGuard state, NordVPN settings, service names, and representative command output. This establishes the control-path invariant before any state-changing endpoint is introduced.
 
 ### 2. Obtain the application
 
-The production checkout will live at:
+Build from a clean repository checkout. Installed application files and the production
+virtual environment live under:
 
 ```text
 /usr/lib/snarkyctl
 ```
 
-The final command sequence will clone or update this repository without giving the runtime account ownership of the application code.
+The runtime account does not own or modify the repository, installed wheel, or virtual
+environment.
 
 ### 3. Create the Python environment
 
-The virtual environment will live at:
+The production virtual environment lives at:
 
 ```text
 /usr/lib/snarkyctl/venv
 ```
 
-Python packages will be installed from the repository's pinned dependency file after it is added. Expected application dependencies include FastAPI, Uvicorn, Jinja2, a YAML parser, password-hash verification support, and pytest for development/testing. Exact Python package versions belong in the repository dependency file, not in the `apt-get` command.
+Install the built wheel as described above. Runtime dependency constraints remain
+authoritative in `pyproject.toml`; development tools are not installed in production.
 
 ### 4. Create the service account
 
-Create the non-interactive `snarkyctl` system account. Application and control-daemon code remain owned by `root:root` and are not writable by this account.
+Create the non-interactive `snarkyctl` system account. Application code remains owned by
+`root:root` and is not writable by this account.
 
-### 5. Install the privileged control boundary
+### 5. Install configuration and the privileged daemon
 
-Install the root control daemon, `snarkyctl-control.socket`, and `snarkyctl-control.service`. The Unix socket is created at `/run/snarkyctl/control.sock` with access limited to root and the `snarkyctl` group. No sudoers policy is used by the application.
-
----
+Install the root-owned configuration, authoritative target allowlist, systemd-activated
+control socket, and privileged control daemon. The web service receives no `sudo`
+permission; it communicates with the daemon only through `/run/snarkyctl/control.sock`.
 
 ### 6. Install authentication and certificates
 
 Create the root-controlled `auth.htpasswd` file for HTTP Basic authentication, followed by the private certificate authority and server certificate. Trust the CA on the Windows management computer. The certificate will include the chosen private hostname and, if used directly, `10.8.0.1` as an IP Subject Alternative Name.
 
-### 7. Install the systemd units
+### 7. Install the systemd service
 
-Install the socket-activated root control daemon and the unprivileged HTTPS service. The web service binds Uvicorn only to:
+Install `snarkyctl-control.socket`, `snarkyctl-control.service`, and
+`snarkyctl-web.service`. Bind Uvicorn only to:
 
 ```text
 10.8.0.1:8443
 ```
-
-and loads the configured TLS certificate and key. The web service runs with `NoNewPrivileges=true` and communicates with the root daemon only through the protected Unix socket.
-
----
 
 ### 8. Verify private reachability
 
@@ -224,12 +318,12 @@ Confirm all of the following:
 - Nothing listens on the VPS public address at TCP port `8443`.
 - Authentication is required.
 - The HTTPS certificate is trusted by the Windows browser.
-- Upstream-VPN transitions do not interrupt the management path.
-- Unexpected upstream-VPN failure leaves forwarded traffic Locked rather than exposing the VPS public IP.
+- NordVPN transitions do not interrupt the management path.
+- Unexpected NordVPN failure leaves forwarded traffic Locked rather than exposing the VPS public IP.
 
 ### 9. Enable state-changing controls
 
-Only after the earlier checks pass, enable the restricted upstream-VPN and operating-mode endpoints. Direct VPS mode must require deliberate confirmation and must display a persistent public-IP exposure warning.
+Only after the earlier checks pass, enable the restricted NordVPN and operating-mode endpoints. Direct VPS mode must require deliberate confirmation and must display a persistent public-IP exposure warning.
 
 ---
 
@@ -239,15 +333,16 @@ The planned filesystem locations are:
 
 | Path | Purpose | Ownership |
 |---|---|---|
-| `/usr/lib/snarkyctl` | Application code and virtual environment | `root:root` |
-| `/etc/snarkyctl/` | Configuration, secrets, and authoritative allowlists | `root:snarkyctl` or `root:root`, mode-dependent |
+| `/usr/lib/snarkyctl/` | Installed wheel and production virtual environment | `root:root` |
+| `/etc/snarkyctl/` | Configuration, authentication, TLS, and authoritative allowlists | `root:snarkyctl` or `root:root`, mode-dependent |
 | `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkyctl`, mode `0640` |
-| `/run/snarkyctl/` | Optional runtime lock/state | `snarkyctl:snarkyctl` |
-| `/usr/lib/systemd/system/snarkyctl-web.service` | Unprivileged HTTPS service | `root:root` |
-| `/usr/lib/systemd/system/snarkyctl-control.socket` | Protected Unix socket definition | `root:root` |
-| `/usr/lib/systemd/system/snarkyctl-control.service` | Root control daemon | `root:root` |
+| `/run/snarkyctl/control.sock` | Web-to-daemon control socket | systemd-managed, group `snarkyctl` |
+| `/var/lib/snarkyctl/` | Optional persistent policy state | `root:root` |
+| `/etc/systemd/system/snarkyctl-*.service` | Service definitions | `root:root` |
+| `/etc/systemd/system/snarkyctl-control.socket` | Socket activation definition | `root:root` |
 
-The service account must not be able to modify application code, control-daemon code, systemd units, certificate private keys, or the authoritative target allowlist.
+The service account must not be able to modify application code, daemon code, service
+definitions, certificate private keys, or the authoritative target allowlist.
 
 ---
 
@@ -256,15 +351,9 @@ The service account must not be able to modify application code, control-daemon 
 The following installation pieces will be filled in as their corresponding application components are created:
 
 - Pinned Python dependency file.
-- Application checkout and update commands.
 - Service-account creation script.
-- Configuration templates.
-- Root control daemon and versioned socket protocol.
-- Firewall mode-transition implementation.
-- systemd web, control, and socket units.
 - HTTP Basic auth-file generation and password-change procedure.
 - Private CA and server-certificate generation procedure.
-- systemd unit and hardening configuration.
 - Installation verification script.
 - Upgrade, rollback, and removal procedures.
 
