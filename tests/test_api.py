@@ -28,11 +28,16 @@ def make_runtime(tmp_path: Path) -> WebRuntime:
     )
 
 
-def get(app: object, *, auth: tuple[str, str] | None = None) -> httpx.Response:
+def get(
+    app: object,
+    *,
+    path: str = "/api/v1/status",
+    auth: tuple[str, str] | None = None,
+) -> httpx.Response:
     async def request() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
         async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
-            return await client.get("/api/v1/status", auth=auth)
+            return await client.get(path, auth=auth)
 
     return asyncio.run(request())
 
@@ -43,6 +48,31 @@ def test_status_requires_authentication(tmp_path: Path) -> None:
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == 'Basic realm="SnarkyCtl"'
     assert response.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_interactive_api_documentation_is_disabled(tmp_path: Path, path: str) -> None:
+    response = get(create_app(make_runtime(tmp_path)), path=path)
+
+    assert response.status_code == 404
+
+
+def test_security_headers_are_set_on_success_and_error(tmp_path: Path) -> None:
+    application = create_app(make_runtime(tmp_path))
+
+    for response in (
+        get(application, path="/api/health/live"),
+        get(application),
+    ):
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert response.headers["strict-transport-security"] == "max-age=31536000"
+        assert response.headers["permissions-policy"] == (
+            "camera=(), geolocation=(), microphone=()"
+        )
+        assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
 def test_invalid_credentials_are_rejected(tmp_path: Path) -> None:
