@@ -140,6 +140,8 @@ The versioned YAML schema, example files, validation command, and configuration 
 
 The read-only deployment checks, result states, exit codes, and current safety limitations of `snarkyctl preflight` are documented in [**PREFLIGHT.md**](PREFLIGHT.md).
 
+The implemented NordVPN command boundary, normalized status fields, and delegated networking responsibilities are documented in [**NORDVPN.md**](NORDVPN.md).
+
 ---
 
 # Repository Layout
@@ -152,6 +154,7 @@ DEPLOYMENT.md
 INSTALL.md
 CONFIGURATION.md
 PREFLIGHT.md
+NORDVPN.md
 SNARKYCTL.md
 SNARKYPUSS.md
 pyproject.toml
