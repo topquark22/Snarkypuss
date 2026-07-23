@@ -525,16 +525,250 @@ status with `echo $?` immediately after each command if necessary.
 
 ### 6. Install authentication and certificates
 
-Create the root-controlled `auth.htpasswd` file for HTTP Basic authentication, followed by the private certificate authority and server certificate. Trust the CA on the Windows management computer. The certificate will include the chosen private hostname and, if used directly, `10.8.0.1` as an IP Subject Alternative Name.
+Create the root-controlled `auth.htpasswd` file, followed by the private certificate
+authority and server certificate. SnarkyCtl has no user database, login page, plaintext
+password file, or server-side session store.
+
+#### 6.1 Create the Basic-auth record
+
+The `apache2-utils` package installed earlier supplies `htpasswd`. Create the first
+administrator record interactively:
+
+```bash
+sudo htpasswd -cB -C 12 /etc/snarkyctl/auth.htpasswd snarkadmin
+sudo chown root:snarkyctl /etc/snarkyctl/auth.htpasswd
+sudo chmod 0640 /etc/snarkyctl/auth.htpasswd
+```
+
+`-B` selects bcrypt and `-C 12` selects its work factor. Do not use `htpasswd -b`; that
+option places the plaintext password in the shell command and possibly its history and
+process list.
+
+Verify the password interactively:
+
+```bash
+sudo htpasswd -v /etc/snarkyctl/auth.htpasswd snarkadmin
+sudo -u snarkyctl test -r /etc/snarkyctl/auth.htpasswd
+echo $?
+```
+
+The first command prompts for the password and should report that it is correct. The final
+exit status should be `0`, confirming that the web account can read but not modify the
+file.
+
+To change this user's password later, omit `-c` so that the file is not recreated:
+
+```bash
+sudo htpasswd -B -C 12 /etc/snarkyctl/auth.htpasswd snarkadmin
+```
+
+#### 6.2 Create or supply a private CA
+
+If a suitable private CA already exists, use it and skip the CA-generation command below.
+The following commands create a dedicated CA for the initial deployment in a
+root-only working directory:
+
+```bash
+sudo install -d -o root -g root -m 0700 /root/snarkyctl-ca
+sudo openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
+    -days 3650 \
+    -subj '/CN=SnarkyCtl Private CA' \
+    -keyout /root/snarkyctl-ca/ca.key \
+    -out /root/snarkyctl-ca/ca.crt
+```
+
+The CA private key is used only to sign server certificates. It must not be copied into
+`/etc/snarkyctl`, included in a package, or made readable by the `snarkyctl` account.
+After issuing the certificate, archive the CA key securely away from the VPS if practical.
+Only the CA certificate is imported into Windows.
+
+#### 6.3 Create the server certificate
+
+Generate a private key and certificate request for the dashboard. The following example
+uses the private hostname `snarkypuss` and management address `10.8.0.1`:
+
+```bash
+sudo openssl req -new -newkey rsa:3072 -sha256 -nodes \
+    -subj '/CN=snarkypuss' \
+    -addext 'subjectAltName=DNS:snarkypuss,IP:10.8.0.1' \
+    -keyout /root/snarkyctl-ca/server.key \
+    -out /root/snarkyctl-ca/server.csr
+sudo openssl x509 -req \
+    -in /root/snarkyctl-ca/server.csr \
+    -CA /root/snarkyctl-ca/ca.crt \
+    -CAkey /root/snarkyctl-ca/ca.key \
+    -CAcreateserial \
+    -copy_extensions copy \
+    -sha256 \
+    -days 825 \
+    -out /root/snarkyctl-ca/server.crt
+```
+
+Replace `snarkypuss` if the browser will use a different private DNS name. Keep the IP SAN
+if the dashboard will also be opened as `https://10.8.0.1:8443/`. Modern browsers validate
+the Subject Alternative Name rather than relying on the Common Name.
+
+Install only the server key, server certificate, and public CA certificate:
+
+```bash
+sudo install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl/tls
+sudo install -o root -g snarkyctl -m 0640 \
+    /root/snarkyctl-ca/server.key \
+    /etc/snarkyctl/tls/server.key
+sudo install -o root -g root -m 0644 \
+    /root/snarkyctl-ca/server.crt \
+    /etc/snarkyctl/tls/server.crt
+sudo install -o root -g root -m 0644 \
+    /root/snarkyctl-ca/ca.crt \
+    /etc/snarkyctl/tls/ca.crt
+```
+
+The web service needs read access to `server.key`, but cannot modify it. The CA private key
+remains outside the application directory.
+
+#### 6.4 Verify the certificate installation
+
+Run:
+
+```bash
+sudo openssl verify \
+    -CAfile /etc/snarkyctl/tls/ca.crt \
+    /etc/snarkyctl/tls/server.crt
+sudo openssl x509 \
+    -in /etc/snarkyctl/tls/server.crt \
+    -noout -subject -issuer -dates -ext subjectAltName
+sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.crt
+sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.key
+```
+
+The verification should report `server.crt: OK`. Inspect the output to confirm the intended
+DNS name and `IP Address:10.8.0.1` are present.
+
+Copy `/etc/snarkyctl/tls/ca.crt` to the Windows management computer over the private
+management connection and import it into the Windows **Trusted Root Certification
+Authorities** store. Never copy `ca.key` or `server.key` to Windows merely to trust the
+site.
 
 ### 7. Install the systemd service
 
-Install `snarkyctl-control.socket`, `snarkyctl-control.service`, and
-`snarkyctl-web.service`. Bind Uvicorn only to:
+The control socket and daemon were installed in Section 5. This section installs and starts
+the unprivileged HTTPS service.
+
+#### 7.1 Check the unit's application-specific values
+
+The supplied unit starts:
+
+```bash
+/usr/lib/snarkyctl/venv/bin/uvicorn snarkyctl.main:app \
+    --host 10.8.0.1 \
+    --port 8443 \
+    --ssl-certfile /etc/snarkyctl/tls/server.crt \
+    --ssl-keyfile /etc/snarkyctl/tls/server.key
+```
+
+These values must agree with `/etc/snarkyctl/snarkyctl.yaml`. In particular, the host must
+be the address assigned to `wg0`, never `0.0.0.0` or the VPS public address. If the private
+address, port, or certificate paths differ, update both the configuration and a local copy
+of the unit before installing it.
+
+#### 7.2 Install and verify the web unit
+
+From the repository root, run:
+
+```bash
+sudo install -o root -g root -m 0644 \
+    systemd/snarkyctl-web.service \
+    /usr/lib/systemd/system/snarkyctl-web.service
+sudo systemd-analyze verify \
+    /usr/lib/systemd/system/snarkyctl-web.service
+sudo systemctl daemon-reload
+```
+
+Do not enable the web service yet.
+
+#### 7.3 Run the activation preflight
+
+Run the complete read-only preflight before the web listener occupies port 8443:
+
+```bash
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl preflight \
+    --config /etc/snarkyctl/snarkyctl.yaml
+```
+
+Review every `FAIL`. Do not start the service until failures involving configuration,
+identity, file ownership, TLS, provider safety, or systemd units have been corrected.
+`SKIP` for the separately documented public-exposure observation is expected in the
+current implementation and is not proof that public exposure is impossible.
+
+Preflight checks that the NordVPN Kill Switch and NordVPN firewall are enabled. If either
+is disabled or cannot be verified, correct the provider configuration before continuing.
+
+#### 7.4 Enable the HTTPS service
+
+After preflight completes without a failure:
+
+```bash
+sudo systemctl enable --now snarkyctl-web.service
+sudo systemctl status snarkyctl-web.service --no-pager
+```
+
+The service runs as `snarkyctl`, reads the configuration, password hashes, and TLS key,
+and connects to the root daemon through the Unix socket. It receives no sudo privileges.
+
+#### 7.5 Verify the listener and HTTPS endpoints
+
+Confirm that Uvicorn listens only on the WireGuard address:
+
+```bash
+sudo ss -ltnp | grep ':8443'
+```
+
+The local address must be `10.8.0.1:8443`; output showing `0.0.0.0:8443`, `[::]:8443`, or
+the VPS public address is unsafe. Stop the web service and correct the unit if that occurs.
+
+Test the unauthenticated liveness endpoint:
+
+```bash
+curl --cacert /etc/snarkyctl/tls/ca.crt \
+    https://10.8.0.1:8443/api/health/live
+```
+
+Then test the authenticated status API. Supplying the username without a password causes
+curl to prompt without placing the password in shell history:
+
+```bash
+curl --cacert /etc/snarkyctl/tls/ca.crt \
+    --user snarkadmin \
+    https://10.8.0.1:8443/api/v1/status
+```
+
+Finally, open the dashboard from the Windows computer while its WireGuard tunnel is active:
 
 ```text
-10.8.0.1:8443
+https://snarkypuss:8443/
 ```
+
+The browser should trust the certificate, prompt for the Basic-auth credentials, and show
+the read-only gateway dashboard. If the hostname is not resolvable on Windows, use
+`https://10.8.0.1:8443/` or add the private hostname to the Windows hosts file.
+
+#### 7.6 Diagnose startup failures
+
+If the service does not start or the dashboard is unavailable, collect:
+
+```bash
+sudo systemctl status snarkyctl-web.service --no-pager
+sudo journalctl -u snarkyctl-web.service -n 100 --no-pager
+sudo ss -ltnp | grep ':8443'
+sudo -u snarkyctl test -r /etc/snarkyctl/snarkyctl.yaml
+sudo -u snarkyctl test -r /etc/snarkyctl/targets.yaml
+sudo -u snarkyctl test -r /etc/snarkyctl/auth.htpasswd
+sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.crt
+sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.key
+```
+
+Do not open TCP port 8443 on the public firewall to work around a reachability problem.
+The dashboard is intentionally reachable only through WireGuard.
 
 ### 8. Verify private reachability
 
@@ -564,8 +798,8 @@ The planned filesystem locations are:
 | `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkyctl`, mode `0640` |
 | `/run/snarkyctl/control.sock` | Web-to-daemon control socket | systemd-managed, group `snarkyctl` |
 | `/var/lib/snarkyctl/` | Optional persistent policy state | `root:root` |
-| `/etc/systemd/system/snarkyctl-*.service` | Service definitions | `root:root` |
-| `/etc/systemd/system/snarkyctl-control.socket` | Socket activation definition | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-*.service` | Service definitions | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-control.socket` | Socket activation definition | `root:root` |
 
 The service account must not be able to modify application code, daemon code, service
 definitions, certificate private keys, or the authoritative target allowlist.
@@ -578,8 +812,6 @@ The following installation pieces will be filled in as their corresponding appli
 
 - Pinned Python dependency file.
 - Service-account creation script.
-- HTTP Basic auth-file generation and password-change procedure.
-- Private CA and server-certificate generation procedure.
 - Installation verification script.
 - Upgrade, rollback, and removal procedures.
 
