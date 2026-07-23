@@ -379,9 +379,9 @@ def run_preflight(
     checks.append(_socket_check(config.settings.control.socket_path, group_gid))
     checks.append(
         _result(
-            "firewall.policy",
+            "exposure.policy",
             CheckStatus.SKIP,
-            "firewall policy inspection is not implemented; do not activate forwarding controls",
+            "public-IP exposure observation is not implemented; review provider configuration",
         )
     )
     return PreflightReport(checks=tuple(checks))
