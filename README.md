@@ -138,6 +138,8 @@ Installation prerequisites, Linux package dependencies, and the staged deploymen
 
 The versioned YAML schema, example files, validation command, and configuration security boundaries are documented in [**CONFIGURATION.md**](CONFIGURATION.md).
 
+The read-only deployment checks, result states, exit codes, and current safety limitations of `snarkyctl preflight` are documented in [**PREFLIGHT.md**](PREFLIGHT.md).
+
 ---
 
 # Repository Layout
@@ -149,6 +151,7 @@ DECISIONS.md
 DEPLOYMENT.md
 INSTALL.md
 CONFIGURATION.md
+PREFLIGHT.md
 SNARKYCTL.md
 SNARKYPUSS.md
 pyproject.toml
