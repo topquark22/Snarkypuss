@@ -4,7 +4,7 @@ SnarkyCtl uses two root-owned, versioned YAML documents. Neither file contains a
 
 | File | Purpose |
 |---|---|
-| `/etc/snarkyctl/snarkyctl.yaml` | Interfaces, private HTTPS listener, local control socket, timeouts, provider registry name, and expected upstream interfaces |
+| `/etc/snarkyctl/snarkyctl.yaml` | Interfaces, private HTTPS listener, local control socket, timeouts, verified public-IP endpoint, provider registry name, and expected upstream interfaces |
 | `/etc/snarkyctl/targets.yaml` | Authoritative aliases, display labels, and provider-specific target values |
 
 Examples are supplied as `config/snarkyctl.yaml.example` and `config/targets.yaml.example`.
@@ -35,6 +35,8 @@ Validation is deliberately side-effect free. It does not instantiate the provide
 - The browser and web service use target aliases only. The root-owned target file maps each alias to its provider value.
 - The web listener must equal the address on the private management interface. `0.0.0.0` and the VPS public address cannot pass this relationship check.
 - The management, public, and expected upstream VPN interfaces must be distinct.
+- The public-IP endpoint must use HTTPS without embedded credentials or a URL fragment.
+  Certificate and hostname verification always use the operating system trust store.
 - Configuration parsing alone does not prove ownership or modes. The future root-level preflight check will require appropriate `root:snarkyctl` or `root:root` ownership and reject group/world-writable authoritative files.
 
 ## Schema Evolution
