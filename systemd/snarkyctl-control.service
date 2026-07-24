@@ -10,6 +10,8 @@ Type=simple
 User=root
 Group=root
 SupplementaryGroups=nordvpn
+Environment=HOME=/var/lib/snarkyctl
+Environment=XDG_CONFIG_HOME=/var/lib/snarkyctl/.config
 
 # The daemon must consume the listening socket passed by systemd rather than
 # creating a second socket at /run/snarkyctl/control.sock.
