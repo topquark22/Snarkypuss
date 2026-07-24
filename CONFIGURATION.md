@@ -27,6 +27,18 @@ Success identifies the compiled provider and number of approved targets. Invalid
 
 Validation is deliberately side-effect free. It does not instantiate the provider, contact NordVPN, inspect live interfaces, or alter routing and firewall state. Those live-system checks belong to the later `preflight` command.
 
+## Target Catalogue
+
+Each target entry contains a public alias, a display label, and one private provider
+value. The dashboard retrieves only aliases and labels. Choosing a target sends the alias
+back to the web API; the privileged daemon repeats the authoritative lookup and gives the
+adapter the corresponding provider value.
+
+Changing the order of entries changes their order in the dashboard selector. Adding or
+removing targets requires editing the root-owned file, validating the configuration, and
+restarting `snarkyctl-control.service` so the daemon reloads its immutable catalogue.
+No target choice is persisted by the browser or written back to configuration.
+
 ## Security Properties
 
 - YAML is parsed with the safe loader and each document is limited to 64 KiB.
@@ -37,7 +49,9 @@ Validation is deliberately side-effect free. It does not instantiate the provide
 - The management, public, and expected upstream VPN interfaces must be distinct.
 - The public-IP endpoint must use HTTPS without embedded credentials or a URL fragment.
   Certificate and hostname verification always use the operating system trust store.
-- Configuration parsing alone does not prove ownership or modes. The future root-level preflight check will require appropriate `root:snarkyctl` or `root:root` ownership and reject group/world-writable authoritative files.
+- Configuration parsing alone does not prove ownership or modes. The root-level preflight
+  check requires appropriate `root:snarkyctl` or `root:root` ownership and rejects
+  group/world-writable authoritative files.
 
 ## Schema Evolution
 

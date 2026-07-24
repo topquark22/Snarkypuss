@@ -21,23 +21,26 @@ FastAPI application
       └── Python status and control logic
                     │
                     ▼
+       Protected Unix control socket
+                    │
+                    ▼
        Privileged control daemon
                     │
                     ▼
-       Configured upstream VPN and selected Linux services
+       NordVPN and selected Linux services
 ```
 
 ---
 
 ## Python 3
 
-Python contains the application logic. It will:
+Python contains the application logic. It:
 
-- Read WireGuard status and request upstream-VPN status through the configured provider adapter.
+- Runs provider status and settings commands through the compiled adapter.
 - Interpret their output.
-- Decide whether the gateway is in VPN, Direct VPS, or Locked mode.
+- Decide whether the gateway is in NordVPN, Direct VPS, or Locked mode.
 - Return structured status information.
-- Request narrowly defined privileged operations through the local control daemon.
+- Sends and receives typed messages across the protected Unix socket.
 
 For example, Python might convert:
 
@@ -71,20 +74,22 @@ from fastapi import FastAPI
 app = FastAPI()
 
 
-@app.get("/api/status")
+@app.get("/api/v2/status")
 def get_status():
     return {
-        "vpn": "connected",
-        "provider": "nordvpn",
-        "mode": "vpn",
-        "exit_ip": "2.56.190.136",
+        "vpn_status": {
+            "provider": "nordvpn",
+            "state": "CONNECTED",
+            "gateway_mode": "VPN",
+            "target": "dallas",
+        }
     }
 ```
 
 When the browser requests:
 
 ```text
-GET /api/status
+GET /api/v2/status
 ```
 
 FastAPI calls `get_status()` and converts the returned Python object into JSON.
@@ -95,7 +100,7 @@ FastAPI also provides:
 - Request validation.
 - JSON serialization.
 - HTTP error handling.
-- Automatic API documentation during development.
+- Typed response validation.
 - Integration with authentication and middleware.
 
 FastAPI does not listen for network connections itself. That is Uvicorn's job.
@@ -121,9 +126,7 @@ FastAPI = request-handling application
 The command:
 
 ```bash
-uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 \
-    --ssl-certfile /etc/snarkyctl/tls/server.crt \
-    --ssl-keyfile /etc/snarkyctl/tls/server.key
+uvicorn app.main:app --host 10.8.0.1 --port 8443
 ```
 
 means:
@@ -184,14 +187,14 @@ Jinja2 produces HTML from a template. For example:
 <p>Current mode: {{ mode }}</p>
 ```
 
-If Python supplies `mode="VPN"`, the browser receives:
+If Python supplies `mode="NordVPN"`, the browser receives:
 
 ```html
 <h1>SnarkyCtl</h1>
-<p>Current mode: VPN</p>
+<p>Current mode: NordVPN</p>
 ```
 
-SnarkyCtl will probably use Jinja2 only to deliver the initial dashboard page. HTTP Basic authentication is handled before the template is served. After the dashboard loads, its JavaScript will call the API periodically and update the displayed information.
+SnarkyCtl uses Jinja2 only to deliver the initial dashboard page. HTTP Basic authentication is handled before the template is served. After the dashboard loads, its JavaScript polls status, retrieves the approved target catalogue, and sends provider-neutral connect requests.
 
 ---
 
@@ -206,7 +209,7 @@ The dashboard uses standard browser technologies:
 For example:
 
 ```javascript
-const response = await fetch("/api/status");
+const response = await fetch("/api/v2/status");
 const status = await response.json();
 ```
 
@@ -221,14 +224,18 @@ Using plain JavaScript avoids React, Node.js, npm, frontend build pipelines, and
 YAML is a human-readable configuration format:
 
 ```yaml
-servers:
-  dallas:
+schema_version: 1
+targets:
+  - alias: dallas
     label: Dallas, United States
-  prague:
+    provider_target: us
+  - alias: prague
     label: Prague, Czechia
+    provider_target: cz
 ```
 
-The application-side configuration provides approved choices and display labels. The security-sensitive mapping used by privileged commands remains root-owned.
+The browser receives only aliases and display labels. The security-sensitive
+`provider_target` mapping remains root-owned and is resolved by the privileged daemon.
 
 JSON would work equally well. YAML is easier for a human to edit, particularly when comments are useful.
 
@@ -260,22 +267,25 @@ The systemd service runs the Uvicorn executable from this environment:
 
 ## systemd
 
-`systemd` is Ubuntu's service manager. SnarkyCtl installs three coordinated units:
+`systemd` is Ubuntu's service manager. It already manages services such as WireGuard and NordVPN.
 
-- `snarkyctl-web.service`: the HTTPS FastAPI/Uvicorn process running as `snarkyctl`.
-- `snarkyctl-control.socket`: the protected Unix-domain socket at `/run/snarkyctl/control.sock`.
-- `snarkyctl-control.service`: the deliberately small root control daemon, activated through the socket.
+For SnarkyCtl it will:
 
-The web service can use `NoNewPrivileges=true` because it never calls `sudo` or otherwise attempts to gain privileges. The control daemon begins with the privilege it needs and exposes only the fixed local protocol.
+- Activate the root control daemon through its protected Unix socket.
+- Start the dashboard after boot.
+- Run the web service as the `snarkyctl` account.
+- Restart it if it crashes.
+- Capture its logs.
+- Apply operating-system security restrictions.
 
-Administrative commands include:
+The principal administrative commands are:
 
 ```bash
-sudo systemctl start snarkyctl-control.socket snarkyctl-web.service
-sudo systemctl stop snarkyctl-web.service snarkyctl-control.socket
-sudo systemctl status snarkyctl-web.service snarkyctl-control.service
-sudo journalctl -u snarkyctl-web.service
-sudo journalctl -u snarkyctl-control.service
+sudo systemctl start snarkyctl-control.socket
+sudo systemctl start snarkyctl-web.service
+sudo systemctl status snarkyctl-control.socket snarkyctl-control.service
+sudo systemctl status snarkyctl-web.service
+sudo journalctl -u snarkyctl-control.service -u snarkyctl-web.service
 ```
 
 ---
@@ -288,91 +298,47 @@ It:
 
 - Cannot log in interactively.
 - Does not know the root password.
-- Cannot modify the application or privileged scripts.
+- Cannot modify the application or root-owned configuration.
 - Runs the web server.
-- Can invoke only specifically authorized operations.
+- Can submit only typed protocol operations through the protected control socket.
 
 If the web application has a vulnerability, an attacker initially obtains only the limited powers of `snarkyctl`, not unrestricted root access.
 
 ---
 
-## Upstream VPN Provider Abstraction
-
-The private client-to-VPS tunnel remains WireGuard. A separate optional **upstream VPN** carries forwarded Internet traffic beyond the VPS.
-
-The root control daemon selects a trusted adapter through a fixed compiled registry:
-
-```text
-VpnProvider
-├── NordVpnProvider
-├── WireGuardProvider (future)
-└── OpenVpnProvider (future)
-```
-
-Every adapter implements the same provider-neutral operations:
-
-```python
-status() -> VpnStatus
-connect(target: VpnTarget) -> VpnStatus
-disconnect() -> VpnStatus
-```
-
-Common states are `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`, `FAILED`, and `UNKNOWN`. Provider-specific fields may appear only in a bounded details map; core policy does not depend on them.
-
-Configuration selects a registry key such as `nordvpn`. It may not name an arbitrary Python module. Provider adapters execute inside the root daemon and are therefore trusted code shipped by the package.
-
-The provider reports connection state and a verified upstream interface. It does not generate firewall rules. Firewall policy remains an independent core component.
-
----
-
 ## Privileged Control Daemon
 
-The web application never executes privileged network commands directly. It sends a small, schema-validated request over:
+FastAPI does not run provider commands and the web service has no sudo privilege. It sends
+strictly validated, versioned requests to:
 
 ```text
 /run/snarkyctl/control.sock
 ```
 
-The socket is owned by `root:snarkyctl` with mode `0660`. The control daemon also verifies Linux peer credentials and accepts only root or the configured `snarkyctl` UID.
+The root control daemon verifies the connecting Unix peer, accepts only fixed protocol
+operations, and performs a second authoritative target lookup. For example, the browser
+and web process submit the alias `dallas`; only the daemon can resolve that alias to the
+provider-specific command argument.
 
-The protocol exposes a fixed operation enumeration, for example:
+This creates three validation boundaries:
 
-```text
-STATUS
-LOCK
-CONNECT dallas
-DISCONNECT
-DIRECT <confirmation-token>
-```
+1. FastAPI rejects malformed browser requests and aliases.
+2. The versioned control protocol rejects unknown operations and extra fields.
+3. The privileged daemon rejects unknown aliases before invoking the adapter.
 
-It never accepts shell source, executable names, command-line fragments, firewall rules, filenames, or arbitrary provider targets. Requests have a protocol version, request identifier, strict size limit, validated fields, and bounded execution time.
+Provider commands use fixed executable paths, argument arrays, bounded timeouts, and
+`shell=False`. The protocol cannot carry executable names, shell text, environment
+assignments, or raw provider targets.
 
-The daemon:
+---
 
-- Runs as root in its own systemd service.
-- Owns all mode-changing operations.
-- Serializes concurrent operations.
-- Validates aliases against root-owned configuration.
-- Invokes commands with argument arrays and `shell=False`.
-- Applies firewall changes atomically.
-- Returns a structured result rather than raw command output.
-- Logs security-relevant operations to the systemd journal.
+## Serialized Operations
 
-The root daemon is intentionally much smaller than the network-facing application. It contains no HTML, templates, static files, HTTP server, authentication UI, or general command runner.
-
-## Firewall-Enforced Modes
-
-Locked behaviour is a property of the firewall rules, not merely a state remembered by Python:
-
-- VPN mode permits forwarded client traffic only through the verified interface reported by the configured provider.
-- If that interface disappears, the rule ceases to match and traffic is blocked immediately.
-- Direct VPS mode uses a separate explicit rule for the configured public interface.
-- Locked mode permits neither forwarding path.
-- WireGuard management traffic remains permitted in every mode.
-
-The public interface is explicitly configured and validated during preflight. It is never silently guessed while changing modes.
-
-The control daemon applies each transition atomically. Boot begins Locked, and Direct VPS mode is never automatically restored.
+The daemon handles local socket connections concurrently so status and target-catalogue
+reads remain available during a provider transition. A non-blocking operation lock admits
+only one connect or disconnect mutation at a time. Competing mutations receive
+`OPERATION_IN_PROGRESS`, which the HTTP API maps to `409 Conflict`. The lock is released
+in a `finally` block after success, timeout, provider failure, or an unexpected exception.
 
 ---
 
@@ -421,7 +387,11 @@ This allows the service account to verify credentials without allowing it to cha
 
 HTTP Basic authentication must never be used over plaintext HTTP because its credentials are encoded, not encrypted. HTTPS supplies the necessary transport encryption, while WireGuard provides an additional private network boundary.
 
-State-changing endpoints will also require same-origin requests with JSON content and a dedicated request header. Cross-origin requests are rejected and CORS is not enabled. This prevents another website from using the browser's cached Basic credentials to trigger a control operation.
+State-changing endpoints require JSON content and
+`X-SnarkyCtl-Request: 1`. Browser requests must also carry same-origin Fetch Metadata and
+an `Origin` matching the service when that header is present. Cross-origin requests are
+rejected and CORS is not enabled. This prevents another website from using the browser's
+cached Basic credentials to trigger a control operation.
 
 Changing the password means generating a new hash in the auth file. Because browsers cache Basic credentials, fully clearing an authenticated browser state may require closing the browser or using a private browsing window.
 
@@ -434,14 +404,14 @@ Pytest is the testing framework. It allows parsers and policy decisions to be te
 For example:
 
 ```python
-def test_failed_vpn_connection_locks_forwarding():
+def test_failed_nordvpn_connection_locks_forwarding():
     status = handle_connection_failure()
 
     assert status.actual_mode == "locked"
     assert status.forwarding_allowed is False
 ```
 
-Saved samples of real command output allow the parser to be tested repeatedly without requiring a real upstream VPN to connect during every test.
+Saved samples of real command output allow the parser to be tested repeatedly without requiring NordVPN to connect during every test.
 
 ---
 
@@ -451,19 +421,19 @@ The architecture distinguishes policy from observed connectivity:
 
 | Mode | Behaviour |
 |---|---|
-| **VPN** | Forwarded traffic exits through the configured upstream provider. If it fails, traffic becomes Locked. |
+| **NordVPN** | Forwarded traffic exits through NordVPN. If NordVPN fails, traffic becomes Locked. |
 | **Direct VPS** | Forwarded traffic deliberately exits through the VPS public IP after explicit confirmation. |
 | **Locked** | Forwarded Internet traffic is blocked while WireGuard management remains available. |
 
-An observed upstream-VPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
+An observed NordVPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
 
 The status API therefore keeps desired and actual state separate:
 
 ```json
 {
-  "desired_mode": "vpn",
+  "desired_mode": "nordvpn",
   "actual_mode": "locked",
-  "vpn": { "provider": "nordvpn", "state": "DISCONNECTED" },
+  "nordvpn_state": "disconnected",
   "forwarding_allowed": false,
   "exit_ip": null
 }
@@ -484,4 +454,6 @@ The first version does not need:
 - Redis or a job queue.
 - A cloud authentication provider.
 
-The resulting system remains a small Python HTTPS service, one HTML template, a little JavaScript, a deliberately small root control daemon, and three coordinated systemd units. FastAPI and Uvicorn provide structure without turning SnarkyCtl into a large web-development project.
+The resulting system remains a small Python application, one HTML template, a little
+JavaScript, a privileged control daemon, and three systemd units. FastAPI and Uvicorn
+provide structure without turning SnarkyCtl into a large web-development project.

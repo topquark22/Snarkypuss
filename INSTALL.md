@@ -1,7 +1,7 @@
 # Installing SnarkyCtl
 
 > **Status:** Development installation procedure for the implemented application, control
-> daemon, API, and read-only dashboard. A development Debian package is now available;
+> daemon, status/control API, and provider-neutral dashboard. A development Debian package is now available;
 > clean-host lifecycle testing and reproducible dependency locking remain to be completed.
 
 ## Scope
@@ -940,7 +940,7 @@ https://snarkypuss:8443/
 ```
 
 The browser should trust the certificate, prompt for the Basic-auth credentials, and show
-the read-only gateway dashboard. If the hostname is not resolvable on Windows, use
+the gateway status plus its approved VPN-target selector. If the hostname is not resolvable on Windows, use
 `https://10.8.0.1:8443/` or add the private hostname to the Windows hosts file.
 
 #### 7.6 Diagnose startup failures
@@ -972,6 +972,15 @@ curl.exe --cacert .\ca.crt --user snarkadmin https://10.8.0.1:8443/api/v1/status
 
 The first command should report `TcpTestSucceeded : True`. `curl.exe` prompts for the
 password.
+
+Retrieve the same provider-neutral target catalogue used by the dashboard:
+
+```powershell
+curl.exe --cacert .\ca.crt --user snarkadmin `
+    https://10.8.0.1:8443/api/v2/vpn/targets
+```
+
+The response must contain only target aliases and labels, not `provider_target` values.
 
 Then disconnect WireGuard on Windows and repeat only the connectivity test:
 
@@ -1011,8 +1020,26 @@ The final installation should satisfy all of the following:
 There is no additional switch to enable in the current release.
 
 The local `snarkyctl connect ALIAS` and `snarkyctl disconnect` commands are implemented and
-always pass through the privileged daemon. The web dashboard and HTTP API remain
-read-only. Web Connect and Disconnect endpoints have not yet been implemented.
+always pass through the privileged daemon. The dashboard target selector and
+`POST /api/v2/vpn/connect` can connect or switch using an alias from
+`/etc/snarkyctl/targets.yaml`. Raw provider targets are never accepted from the browser.
+Web disconnect has not yet been implemented.
+
+For a direct API test, keep a second management session open and use an alias actually
+present in the target catalogue:
+
+```bash
+curl --cacert /etc/snarkyctl/tls/ca.crt \
+    --user snarkadmin \
+    --header 'Content-Type: application/json' \
+    --header 'X-SnarkyCtl-Request: 1' \
+    --data '{"target":"dallas"}' \
+    https://10.8.0.1:8443/api/v2/vpn/connect
+```
+
+The request marker is mandatory for every state-changing API call. Browser requests are
+additionally restricted to the dashboard's exact origin. If another VPN mutation is
+already running, the API returns HTTP `409` with `OPERATION_IN_PROGRESS`.
 
 The protocol reserves `LOCK` and `DIRECT`, but the daemon currently returns
 `NOT_IMPLEMENTED` for both operations. Do not add firewall exceptions or invoke provider

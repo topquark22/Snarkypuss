@@ -247,8 +247,13 @@ The endpoint returns:
 - HTTP 504 for provider or control-daemon timeouts.
 
 This endpoint does not accept raw NordVPN country codes or server names. Cross-origin
-request protection for browser use is added separately before dashboard controls are
-enabled.
+browser requests cannot pass the required request-marker, Fetch Metadata, and Origin
+checks. SnarkyCtl does not enable CORS.
+
+The privileged daemon serializes connect and disconnect operations with one non-blocking
+operation lock. Read-only status and target-catalogue requests remain available while a
+mutation runs. A competing mutation fails immediately instead of waiting behind the
+provider command.
 
 Errors use one stable envelope:
 

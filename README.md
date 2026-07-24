@@ -4,7 +4,7 @@
 
 The project turns a Linux VPS into a remotely managed network appliance that is accessible **only through a private WireGuard tunnel**. It provides a secure control plane for monitoring and controlling an optional upstream VPN, WireGuard, DNS services, and selected system functions without exposing any management interface to the public Internet.
 
-SnarkyCtl is not tied to one VPN technology or commercial provider. Its provider-adapter interface can support command-line VPN clients, WireGuard-based services, OpenVPN-based services, or other VPN implementations. NordVPN is the first planned adapter, not an architectural requirement.
+SnarkyCtl is not tied to one VPN technology or commercial provider. Its provider-adapter interface can support command-line VPN clients, WireGuard-based services, OpenVPN-based services, or other VPN implementations. NordVPN is the first implemented adapter, not an architectural requirement.
 
 ---
 
@@ -48,7 +48,7 @@ The project is designed to:
 
 ---
 
-# Planned Features
+# Current Features
 
 ## Dashboard
 
@@ -65,7 +65,7 @@ The project is designed to:
 - Display normalized connection state and provider-specific details
 - Support additional VPN technologies without changing the web API, control protocol, or firewall policy
 
-The initial release will include a NordVPN adapter. Future adapters may support other command-line clients, WireGuard configurations, OpenVPN configurations, or commercial VPN services. An adapter must be compiled into the trusted package registry; configuration cannot load arbitrary modules or executables.
+The development release includes a NordVPN adapter. Future adapters may support other command-line clients, WireGuard configurations, OpenVPN configurations, or commercial VPN services. An adapter must be compiled into the trusted package registry; configuration cannot load arbitrary modules or executables.
 
 ## DNS Status
 
@@ -103,7 +103,7 @@ The application binds only to the WireGuard interface and is additionally protec
 
 # Technology
 
-Current planned stack:
+Current stack:
 
 - Python 3
 - FastAPI
@@ -139,8 +139,8 @@ The read-only deployment checks, result states, exit codes, and current safety l
 
 The implemented NordVPN command boundary, normalized status fields, and delegated networking responsibilities are documented in [**NORDVPN.md**](NORDVPN.md).
 
-The authenticated, read-only HTTPS status API and its stable response schema are documented
-in [**API.md**](API.md).
+The authenticated HTTPS status and VPN-target API, browser request protection, and stable
+response schemas are documented in [**API.md**](API.md).
 
 The local administration CLI communicates exclusively with the privileged daemon:
 
@@ -167,7 +167,7 @@ INSTALL.md
 CONFIGURATION.md
 PREFLIGHT.md
 NORDVPN.md
-SNARKYCTL.md
+SNARKYCTL.revised.md
 SNARKYPUSS.md
 pyproject.toml
 src/snarkyctl/
@@ -185,12 +185,14 @@ debian/
 2. Implement the root control daemon and versioned Unix-socket protocol.
 3. Delegate routing and leak protection to the configured VPN provider.
 4. Establish the unprivileged `snarkyctl` account and systemd socket/service units.
-5. Build the authenticated, HTTPS-only read-only API.
-6. Build the status dashboard.
-7. Enable serialized CLI controls through the control daemon.
+5. Build the authenticated, HTTPS-only status and control API.
+6. Build the status dashboard and provider-neutral target selector.
+7. Enable serialized CLI and dashboard controls through the control daemon.
 8. Complete Debian packaging, preflight, hardening, and operational tests.
 
-Detailed implementation requirements are contained in [**SNARKYCTL.md**](SNARKYCTL.md), with settled architectural choices in [**DECISIONS.md**](DECISIONS.md).
+Detailed implementation requirements are contained in
+[**SNARKYCTL.revised.md**](SNARKYCTL.revised.md), with settled architectural choices in
+[**DECISIONS.md**](DECISIONS.md).
 
 ---
 

@@ -63,7 +63,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 | Component | Contents | Runtime privilege | Package treatment |
 |---|---|---|---|
 | Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkyctl` | Built as a wheel and installed in the packaged virtual environment |
-| Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, read-only | Included as Python package data |
+| Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, unprivileged | Included as Python package data |
 | Privileged control daemon | Fixed provider operations and status collection | Root, reached only through the authenticated Unix socket | Included in the Python application and started by systemd socket activation |
 | Service integration | Control socket, privileged daemon, and unprivileged web units | System | Installed by the `.deb` but not enabled or started automatically |
 | Administrator configuration | General settings and approved target labels | Read by `snarkyctl` | Installed as examples, then copied and edited locally |
@@ -71,6 +71,12 @@ The package must be self-contained: installing it on the VPS must not contact Py
 | TLS identity | Server certificate and private key | Read by service as narrowly permitted | Generated or installed locally |
 | Runtime state | Control socket and transient status | systemd and `snarkyctl` | Created under `/run/snarkyctl` |
 | Persistent state | Provider CLI home and minimal state, if required | Root daemon or `snarkyctl`, as applicable | Stored under `/var/lib/snarkyctl`; no database |
+
+The dashboard may request a connection using an approved alias, but it cannot execute a
+provider command itself. The unprivileged web process validates authentication,
+same-origin request metadata, and the public alias before sending a typed request through
+the Unix socket. The root daemon performs the authoritative alias lookup and serializes
+provider mutations.
 
 ---
 
@@ -83,7 +89,7 @@ snarkyctl/
 ├── ARCHITECTURE.md
 ├── DEPLOYMENT.md
 ├── INSTALL.md
-├── SNARKYCTL.md
+├── SNARKYCTL.revised.md
 │
 ├── src/
 │   └── snarkyctl/
@@ -159,10 +165,12 @@ Example entry-point definition:
 snarkyctl = "snarkyctl.cli:main"
 ```
 
-Planned administrative and diagnostic commands include:
+Administrative and diagnostic commands include:
 
 ```bash
 snarkyctl status
+snarkyctl connect dallas
+snarkyctl disconnect
 snarkyctl validate-config
 snarkyctl preflight
 ```
