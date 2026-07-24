@@ -189,6 +189,22 @@ debian/
 6. Build the status dashboard and provider-neutral target selector.
 7. Enable serialized CLI and dashboard controls through the control daemon.
 8. Complete Debian packaging, preflight, hardening, and operational tests.
+9. Add provider-neutral target administration through the dashboard.
+10. Add further trusted adapters, beginning with OpenVPN-compatible configurations and
+    Mullvad.
+
+Target administration will remain separate from ordinary connection requests. The
+connection API will continue to accept aliases only. An authenticated administrative
+operation may create, edit, or remove a target by sending fields defined by the installed
+adapter's declarative target schema. The privileged daemon will validate those fields,
+write the root-owned catalogue atomically, preserve a rollback copy, and never interpret
+target data as shell syntax.
+
+Additional providers will be installed as reviewed application adapters with normalized
+capabilities, status, target validation, and leak-protection behavior. The dashboard may
+select among installed adapters, but it will not upload Python modules, executable paths,
+shell commands, or provider plugins. Adding executable provider support remains a package
+installation or software-upgrade operation.
 
 Detailed implementation requirements are contained in
 [**SNARKYCTL.revised.md**](SNARKYCTL.revised.md), with settled architectural choices in
