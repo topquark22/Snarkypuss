@@ -1,10 +1,6 @@
 # SnarkyCtl Configuration
 
-SnarkyCtl uses a root-owned main YAML document and one explicitly selected target
-catalogue backend. Existing installations continue using the root-owned `targets.yaml`;
-SQLite is available for the managed catalogue but is never selected merely because a
-database file exists. None of these files contains a login password or can select arbitrary
-Python code or shell commands.
+SnarkyCtl uses a root-owned main YAML document and one explicitly selected target catalogue backend. Existing installations continue using the root-owned `targets.yaml`; SQLite is never selected merely because a database file exists. None of these files contains a login password or can select arbitrary Python code or shell commands.
 
 | File | Purpose |
 |---|---|
@@ -34,27 +30,123 @@ Validation is deliberately side-effect free. It does not instantiate the provide
 
 ## Target Catalogue
 
-### Existing YAML backend
+The target catalogue is provider-neutral at its public boundary and provider-specific only
+inside its root-owned mapping. Every entry has exactly three fields:
 
-Each target entry contains a public alias, a display label, and one private provider
-value. The dashboard retrieves only aliases and labels. Choosing a target sends the alias
-back to the web API; the privileged daemon repeats the authoritative lookup and gives the
-adapter the corresponding provider value.
+| Field | Audience | Meaning |
+|---|---|---|
+| `alias` | Browser, API, CLI, daemon | Stable provider-neutral identifier such as `dallas` |
+| `label` | Browser and human operators | Descriptive text such as `Dallas, United States` |
+| `provider_target` | Privileged adapter only | Opaque value understood by the selected provider, such as `Dallas` for NordVPN |
 
-Changing the order of entries changes their order in the dashboard selector. Adding or
-removing targets requires editing the root-owned file, validating the configuration, and
-restarting `snarkyctl-control.service` so the daemon reloads its immutable catalogue.
-No target choice is persisted by the browser or written back to configuration.
+For example:
 
-The target catalogue also reports provider capabilities. The dashboard enables its
-advanced gateway modes only when the compiled adapter supports connect, disconnect, and
-leak-protection configuration as required. Capabilities cannot be enabled through YAML.
+```yaml
+schema_version: 1
 
-### SQLite backend
+targets:
+  - alias: dallas
+    label: Dallas, United States
+    provider_target: Dallas
 
-SQLite catalogues contain ordered aliases, labels, and structured selectors scoped by
-provider. Only the privileged daemon opens this database. The web process reaches it only
-through the bounded Unix-socket protocol.
+  - alias: prague
+    label: Prague, Czechia
+    provider_target: Prague
+```
+
+The dashboard receives only `alias` and `label`. When a user selects `dallas`, the
+browser sends that alias; the privileged daemon repeats the authoritative lookup and passes
+the corresponding `provider_target` to the compiled adapter. The browser cannot submit a
+provider command, server name, or arbitrary argument.
+
+The catalogue is therefore generic even though its values are not interchangeable between
+providers. An OpenVPN, WireGuard, or future provider adapter may interpret
+`provider_target` as a profile identifier, endpoint name, or another constrained value.
+Changing providers requires reviewing every provider target; the aliases and labels may
+remain stable when they still describe the same user-visible destination.
+
+### Catalogue rules
+
+- Aliases must be unique, begin with a lowercase letter, and contain only lowercase letters,
+  digits, underscores, or hyphens. They are API identifiers, so avoid changing them casually.
+- Labels must be nonempty and no longer than 100 characters.
+- Provider targets must be nonempty and no longer than 200 characters. An adapter may impose
+  a narrower syntax.
+- The catalogue must contain between 1 and 100 entries.
+- Entry order is dashboard order.
+- A label must describe the actual scope of its provider target. A country selector such as
+  `us` must not be labelled `Dallas`, because the provider may choose another US city.
+- Target selection is not a startup or auto-connect policy. For example, NordVPN's bare
+  recommended-server auto-connect remains NordVPN configuration rather than a catalogue
+  entry.
+- No browser choice is written back to this file.
+
+### Add, change, reorder, or remove targets
+
+First make a root-only backup:
+
+```bash
+sudo cp -a /etc/snarkyctl/targets.yaml \
+    /etc/snarkyctl/targets.yaml.bak
+```
+
+Use the installed provider's own read-only discovery commands or documentation to determine
+the exact value it accepts. Do not guess a city, country, profile, or server identifier.
+Then edit the authoritative file:
+
+```bash
+sudoedit /etc/snarkyctl/targets.yaml
+```
+
+Add an entry, edit its label or provider value, reorder entries, or remove an entry. Preserve
+`schema_version: 1` and the `targets:` list. Restore the required protection and validate
+both configuration documents before reloading anything:
+
+```bash
+sudo chown root:snarkyctl /etc/snarkyctl/targets.yaml
+sudo chmod 0640 /etc/snarkyctl/targets.yaml
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl validate-config \
+    --config /etc/snarkyctl/snarkyctl.yaml
+```
+
+Validation is read-only. If it fails, correct the file or restore the backup:
+
+```bash
+sudo cp -a /etc/snarkyctl/targets.yaml.bak \
+    /etc/snarkyctl/targets.yaml
+```
+
+After successful validation, restart the privileged daemon so it reloads its immutable
+catalogue:
+
+```bash
+sudo systemctl restart snarkyctl-control.service
+sudo systemctl --no-pager --full status snarkyctl-control.service
+```
+
+The socket and web service do not need to be restarted. The dashboard requests the catalogue
+from the daemon, so refresh the page after the daemon restart. Verify the sanitized API
+response if desired:
+
+```bash
+curl --cacert /etc/snarkyctl/tls/ca.crt \
+    --user snarkadmin \
+    https://10.8.0.1:8443/api/v2/vpn/targets
+```
+
+The response must show the new aliases and labels but never the provider targets. Test a new
+destination only while independent VPS console access and a second WireGuard management
+session are available. Removing the currently selected alias is allowed, but after the reload
+the dashboard cannot associate the provider's existing connection with that removed alias.
+
+The daemon remembers the last alias successfully selected through SnarkyCtl only for its
+process lifetime. After a daemon restart, or when the provider was changed outside
+SnarkyCtl, the alias is deliberately unknown and the dashboard shows **Select a target…**
+instead of claiming that the first configured entry is active.
+
+## SQLite Target Backend
+
+SQLite catalogues contain ordered aliases, labels, and structured selectors scoped by provider. Only the privileged daemon opens this database; the web process reaches it only through the bounded Unix-socket protocol.
 
 Migration is an explicit root operation:
 
@@ -63,13 +155,7 @@ sudo snarkyctl targets-db migrate \
     --config /etc/snarkyctl/snarkyctl.yaml
 ```
 
-This validates both YAML files, validates every legacy provider value through the compiled
-adapter, backs up `targets.yaml`, backs up an existing empty database, writes the catalogue
-as one transaction, and runs an integrity check. It refuses a database containing an
-existing catalogue. The resulting catalogue begins at revision 1.
-
-Migration does **not** change `snarkyctl.yaml`. YAML therefore remains authoritative until
-the administrator replaces:
+This validates both YAML files, validates every legacy provider value through the compiled adapter, backs up `targets.yaml`, backs up an existing empty database, writes the catalogue as one transaction, and runs an integrity check. It refuses a database containing an existing catalogue. Migration does **not** change `snarkyctl.yaml`, so YAML remains authoritative until the administrator explicitly replaces:
 
 ```yaml
 upstream_vpn:
@@ -97,10 +183,7 @@ sudo snarkyctl targets-db check
 sudo systemctl restart snarkyctl-control.service
 ```
 
-The old YAML form remains the rollback path: restore `targets_file`, validate, and restart.
-Do not configure both forms simultaneously.
-
-Administrative lifecycle commands are:
+The old YAML form remains the rollback path. Do not configure both forms simultaneously. Administrative lifecycle commands are:
 
 ```bash
 sudo snarkyctl targets-db initialize
@@ -108,16 +191,13 @@ sudo snarkyctl targets-db check
 sudo snarkyctl targets-db backup --output /root/targets.db.backup
 ```
 
-The production directory and database are root-owned with modes `0700` and `0600`.
-SQLite sidecar journal files inherit the protection of the root-only directory.
+The production directory and database are root-owned with modes `0700` and `0600`. SQLite sidecar journal files inherit the protection of the root-only directory.
 
 ## Security Properties
 
 - YAML is parsed with the safe loader and each document is limited to 64 KiB.
-- SQLite catalogue changes use complete transactional replacement and optimistic revisions;
-  stale writers cannot silently overwrite a newer catalogue.
-- Provider selectors are validated and interpreted only by compiled adapters and are always
-  passed to provider commands as fixed argument arrays.
+- SQLite catalogue changes use complete transactional replacement and optimistic revisions; stale writers cannot silently overwrite a newer catalogue.
+- Provider selectors are validated and interpreted only by compiled adapters and are passed to provider commands as fixed argument arrays.
 - The final configuration path may not be a symbolic link and must identify a regular file.
 - The provider value is a key in SnarkyCtl's fixed compiled registry. It is not a module or executable name.
 - The browser and web service use target aliases only. The root-owned target file maps each alias to its provider value.
@@ -131,7 +211,4 @@ SQLite sidecar journal files inherit the protection of the root-only directory.
 
 ## Schema Evolution
 
-The YAML documents currently require `schema_version: 1`; the SQLite repository has its own
-schema version. SnarkyCtl rejects an unsupported version rather than guessing or rewriting
-administrator data. Database schema migrations are explicit, transactional administrative
-operations.
+The YAML documents currently require `schema_version: 1`; the SQLite repository has its own schema version. SnarkyCtl rejects an unsupported version rather than guessing or rewriting administrator data. Database schema migrations are explicit, transactional administrative operations.
