@@ -6,6 +6,90 @@ This is the technical implementation reference for the **Snarkypuss** private VP
 For the project overview, safety model, and the relationship between Snarkypuss and its
 SnarkyCtl management utility, begin with [README.md](README.md).
 
+## Quick start: read-only gateway checks
+
+The repository includes two provider-neutral scripts for inspecting the VPS without changing
+it. They do not install packages, write configuration, change routes or firewall rules,
+start services, or enable forwarding.
+
+Run both scripts from the root of a Snarkypuss source checkout:
+
+```bash
+cd ~/snarkyctl
+```
+
+Use `--help` to see every option:
+
+```bash
+scripts/snarkypuss-preflight.sh --help
+scripts/snarkypuss-verify.sh --help
+```
+
+### Before configuring the gateway
+
+Run the preflight on a new VPS before following the manual installation sections:
+
+```bash
+sudo scripts/snarkypuss-preflight.sh \
+    --tunnel-interface wg0 \
+    --client-cidr 10.8.0.0/24 \
+    --listen-port 51820
+```
+
+Running as root is recommended so service and firewall inspection is complete, but the
+script remains read-only. It reports the operating system, required and optional commands,
+systemd, the default route, interface-name availability, current forwarding state, UDP-port
+use, SSH, and the DNS service unit.
+
+Missing packages that a later installation step can supply are warnings. A missing core host
+capability is a failure. The final warning to confirm VPS console access is intentional:
+future configuration increments will make network changes that could interrupt SSH.
+
+### After configuring the gateway
+
+After completing this reference guide, run:
+
+```bash
+sudo scripts/snarkypuss-verify.sh \
+    --tunnel-interface wg0 \
+    --client-cidr 10.8.0.0/24 \
+    --vps-public-ip VPS_PUBLIC_IPV4_ADDRESS
+```
+
+Replace `VPS_PUBLIC_IPV4_ADDRESS` with the VPS's real public address. Supplying it lets the
+verifier issue a prominent warning when observed egress clearly exposes that address. The
+address is used only for comparison and is not stored or transmitted separately.
+
+The verifier checks:
+
+- The tunnel interface, state, and IPv4 address.
+- IPv4 forwarding.
+- WireGuard recognition and peer handshakes.
+- DNS service and UDP listener state.
+- Observable firewall and NAT references.
+- The default route.
+- Public egress through a certificate-verified HTTPS request.
+
+### Reading the result
+
+Both scripts print `PASS`, `INFO`, `WARN`, and `FAIL` records:
+
+| Exit status | Meaning |
+|---|---|
+| `0` | No structural check failed; warnings may still require attention. |
+| `1` | At least one structural gateway check failed. |
+| `2` | The command-line arguments were invalid. |
+
+Read the individual records; do not treat exit status 0 as proof that the entire client path
+is private. The verifier's public-IP request originates on the VPS. A different IP is
+consistent with upstream VPN egress but does not prove the forwarded client path, while a
+failed request may mean Locked mode or an unrelated connectivity problem.
+
+Complete the client-side external-IP and DNS-leak tests in Sections 11 and 12 before trusting
+the gateway. Never use `curl -k` to suppress a certificate failure.
+
+---
+
 The reference deployment routes traffic as follows:
 
 ```text
@@ -36,50 +120,6 @@ This guide assumes:
 * Ubuntu 24.04 LTS VPS.
 * Linode VPS.
 * NordVPN subscription.
-
-## Read-only setup checks
-
-The repository includes two provider-neutral helper scripts for inspecting a gateway without
-changing it. They do not install packages, write configuration, change routes or firewall
-rules, start services, or enable forwarding.
-
-Before configuring a new VPS, run:
-
-```bash
-sudo scripts/snarkypuss-preflight.sh \
-    --tunnel-interface wg0 \
-    --client-cidr 10.8.0.0/24 \
-    --listen-port 51820
-```
-
-The preflight reports the operating system, required and optional commands, systemd, the
-default route, interface-name availability, current forwarding state, UDP-port use, SSH, and
-the DNS service unit. Missing packages that a later installation increment can supply are
-warnings. A missing core host capability is a failure.
-
-After manually completing this reference guide, run:
-
-```bash
-sudo scripts/snarkypuss-verify.sh \
-    --tunnel-interface wg0 \
-    --client-cidr 10.8.0.0/24 \
-    --vps-public-ip VPS_PUBLIC_IPV4_ADDRESS
-```
-
-The verifier checks the tunnel interface and address, IPv4 forwarding, WireGuard recognition
-and handshakes, DNS service and listener state, observable firewall/NAT references, the
-default route, and HTTPS public-IP lookup. Supplying the known VPS public IP lets it issue a
-prominent warning when observed egress is clearly using the VPS address.
-
-Both scripts print `PASS`, `INFO`, `WARN`, and `FAIL` records. Exit status 0 means no
-structural check failed, although warnings may remain; status 1 means at least one structural
-failure; status 2 means invalid command-line usage. Use `--help` for all options.
-
-The verifier's public-IP request originates on the VPS. A different IP is consistent with an
-upstream VPN but does not prove the forwarded client path, and a failed request may mean
-Locked mode or an unrelated connectivity problem. Complete the client-side external-IP and
-DNS-leak tests in Sections 11 and 12 before trusting the gateway. Never use `curl -k` to make
-a certificate failure disappear.
 
 ---
 
