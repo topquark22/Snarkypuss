@@ -1,6 +1,7 @@
 """Tests for the read-only HTTP API."""
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID
@@ -13,8 +14,23 @@ from snarkyctl.control.client import ControlClientError
 from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.main import WebRuntime, create_app
 from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
+from snarkyctl.status import ComponentFailure, DnsStatus, GatewayStatus, SystemStatus
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
+
+
+def status_response(vpn_status: VpnStatus) -> ControlResponse:
+    return ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="ok",
+        gateway_status=GatewayStatus(
+            checked_at=datetime.now(UTC),
+            vpn_status=vpn_status,
+            dns=None,
+            system=None,
+        ),
+    )
 
 
 def make_runtime(tmp_path: Path) -> WebRuntime:
@@ -69,6 +85,8 @@ def test_dashboard_is_read_only_and_uses_external_assets(tmp_path: Path) -> None
     assert "<form" not in response.text
     assert 'src="/static/dashboard.js"' in response.text
     assert 'href="/static/dashboard.css"' in response.text
+    assert "DNS" in response.text
+    assert "VPS health" in response.text
     assert "<script>" not in response.text
     assert "<style>" not in response.text
 
@@ -156,15 +174,12 @@ def test_runtime_is_loaded_from_configuration(
             ),
         )
     )
-    control_response = ControlResponse(
-        request_id=REQUEST_ID,
-        success=True,
-        message="ok",
-        vpn_status=VpnStatus(
+    control_response = status_response(
+        VpnStatus(
             state=VpnState.CONNECTED,
             provider="nordvpn",
             gateway_mode=GatewayMode.VPN,
-        ),
+        )
     )
     monkeypatch.setattr("snarkyctl.main.load_config", lambda _path: loaded)
     monkeypatch.setattr("snarkyctl.main.ControlClient.status", lambda _self: control_response)
@@ -179,15 +194,12 @@ def test_runtime_is_loaded_from_configuration(
 def test_direct_mode_warns_about_public_ip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    control_response = ControlResponse(
-        request_id=REQUEST_ID,
-        success=True,
-        message="ok",
-        vpn_status=VpnStatus(
+    control_response = status_response(
+        VpnStatus(
             state=VpnState.DISCONNECTED,
             provider="nordvpn",
             gateway_mode=GatewayMode.DIRECT,
-        ),
+        )
     )
     monkeypatch.setattr("snarkyctl.main.ControlClient.status", lambda _self: control_response)
 
@@ -199,15 +211,12 @@ def test_direct_mode_warns_about_public_ip(
 
 
 def test_vpn_mode_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    control_response = ControlResponse(
-        request_id=REQUEST_ID,
-        success=True,
-        message="ok",
-        vpn_status=VpnStatus(
+    control_response = status_response(
+        VpnStatus(
             state=VpnState.CONNECTED,
             provider="nordvpn",
             gateway_mode=GatewayMode.VPN,
-        ),
+        )
     )
     monkeypatch.setattr("snarkyctl.main.ControlClient.status", lambda _self: control_response)
 
@@ -216,6 +225,92 @@ def test_vpn_mode_is_not_exposed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert response.status_code == 200
     assert response.json()["public_ip_exposed"] is False
     assert response.json()["exposure_warning"] is None
+
+
+def test_v2_status_returns_local_components_and_partial_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control_response = ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="ok",
+        gateway_status=GatewayStatus(
+            checked_at=datetime(2026, 7, 24, 15, 30, tzinfo=UTC),
+            vpn_status=VpnStatus(
+                state=VpnState.CONNECTED,
+                provider="nordvpn",
+                gateway_mode=GatewayMode.VPN,
+            ),
+            dns=DnsStatus(
+                service="dnsmasq.service",
+                load_state="loaded",
+                active_state="active",
+                sub_state="running",
+            ),
+            system=SystemStatus(
+                uptime_seconds=120,
+                load_average=(0.1, 0.2, 0.3),
+                memory_total_bytes=2000,
+                memory_available_bytes=1000,
+                root_disk_total_bytes=4000,
+                root_disk_free_bytes=3000,
+            ),
+            partial_failures=(
+                ComponentFailure(
+                    component="vpn_settings",
+                    code="PROVIDER_TIMEOUT",
+                    message="settings timed out",
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr("snarkyctl.main.ControlClient.status", lambda _self: control_response)
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/status",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["version"] == 2
+    assert response.json()["dns"]["active_state"] == "active"
+    assert response.json()["system"]["uptime_seconds"] == 120
+    assert response.json()["partial_failures"][0]["component"] == "vpn_settings"
+
+
+def test_v2_status_survives_missing_vpn_component(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control_response = ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="partial",
+        gateway_status=GatewayStatus(
+            checked_at=datetime.now(UTC),
+            vpn_status=None,
+            dns=None,
+            system=None,
+            partial_failures=(
+                ComponentFailure(
+                    component="vpn",
+                    code="PROVIDER_TIMEOUT",
+                    message="provider timed out",
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr("snarkyctl.main.ControlClient.status", lambda _self: control_response)
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/status",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["vpn_status"] is None
+    assert response.json()["public_ip_exposed"] is None
 
 
 def test_daemon_failure_is_structured(
@@ -268,11 +363,8 @@ def test_invalid_daemon_results_are_structured(
 def test_unknown_mode_reports_indeterminate_exposure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    control_response = ControlResponse(
-        request_id=REQUEST_ID,
-        success=True,
-        message="ok",
-        vpn_status=VpnStatus(state=VpnState.UNKNOWN, provider="nordvpn"),
+    control_response = status_response(
+        VpnStatus(state=VpnState.UNKNOWN, provider="nordvpn")
     )
     monkeypatch.setattr("snarkyctl.main.ControlClient.status", lambda _self: control_response)
 
