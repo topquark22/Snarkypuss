@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import StrEnum
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -49,6 +49,26 @@ class VpnTarget(BaseModel):
     alias: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     label: str = Field(min_length=1, max_length=100)
     provider_target: str = Field(min_length=1, max_length=200)
+
+
+class VpnTargetSummary(BaseModel):
+    """Provider-neutral target information safe to expose to clients."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    alias: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    label: str = Field(min_length=1, max_length=100)
+
+
+class VpnTargetCatalog(BaseModel):
+    """Sanitized target catalogue and capabilities for the active provider."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[2] = 2
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    capabilities: ProviderCapabilities
+    targets: tuple[VpnTargetSummary, ...]
 
 
 class VpnStatus(BaseModel):

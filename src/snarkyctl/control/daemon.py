@@ -21,6 +21,7 @@ from snarkyctl.control.protocol import (
     LockRequest,
     ProtocolError,
     StatusRequest,
+    TargetsRequest,
     encode_message,
     parse_request,
     receive_frame,
@@ -33,6 +34,8 @@ from snarkyctl.providers.base import (
     VpnState,
     VpnStatus,
     VpnTarget,
+    VpnTargetCatalog,
+    VpnTargetSummary,
 )
 from snarkyctl.providers.registry import create_provider
 from snarkyctl.status import (
@@ -89,6 +92,21 @@ class ControlService:
 
     def dispatch(self, request: ControlRequest) -> ControlResponse:
         """Execute one already validated request."""
+        if isinstance(request, TargetsRequest):
+            catalog = VpnTargetCatalog(
+                provider=self._provider.name,
+                capabilities=self._provider.capabilities,
+                targets=tuple(
+                    VpnTargetSummary(alias=target.alias, label=target.label)
+                    for target in self._targets.values()
+                ),
+            )
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Configured VPN targets retrieved.",
+                target_catalog=catalog,
+            )
         if isinstance(request, StatusRequest):
             failures: list[ComponentFailure] = []
             status: VpnStatus | None

@@ -139,6 +139,43 @@ corresponding object `null`; the endpoint still returns HTTP 200 when a valid pa
 snapshot is available. A missing VPN component produces an indeterminate exposure state,
 never a false assertion that the public IP is protected.
 
+## `GET /api/v2/vpn/targets`
+
+Returns the provider-neutral capabilities and root-approved connection targets for the
+configured upstream VPN:
+
+```json
+{
+  "version": 2,
+  "provider": "nordvpn",
+  "capabilities": {
+    "connect": true,
+    "disconnect": true,
+    "target_selection": true,
+    "server_details": true
+  },
+  "targets": [
+    {
+      "alias": "dallas",
+      "label": "Dallas, United States"
+    },
+    {
+      "alias": "prague",
+      "label": "Prague, Czechia"
+    }
+  ]
+}
+```
+
+The web process obtains this catalogue from the privileged daemon. It does not read or
+return the provider-specific target value. Consequently, neither the browser nor this API
+can discover that an alias maps to a NordVPN country code, server name, or another
+provider's private command argument.
+
+The capabilities allow future dashboard controls to adapt to the configured provider
+without embedding provider names or assumptions in JavaScript. This endpoint is
+authenticated and read-only; it does not connect or disconnect the VPN.
+
 Errors use one stable envelope:
 
 ```json

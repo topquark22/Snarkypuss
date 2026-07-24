@@ -13,7 +13,14 @@ import pytest
 from snarkyctl.control.client import ControlClientError
 from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.main import WebRuntime, create_app
-from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
+from snarkyctl.providers.base import (
+    GatewayMode,
+    ProviderCapabilities,
+    VpnState,
+    VpnStatus,
+    VpnTargetCatalog,
+    VpnTargetSummary,
+)
 from snarkyctl.status import (
     ComponentFailure,
     DnsStatus,
@@ -322,6 +329,102 @@ def test_v2_status_survives_missing_vpn_component(
     assert response.status_code == 200
     assert response.json()["vpn_status"] is None
     assert response.json()["public_ip_exposed"] is None
+
+
+def test_target_catalogue_requires_authentication(tmp_path: Path) -> None:
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/targets",
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_target_catalogue_is_provider_neutral(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    control_response = ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="ok",
+        target_catalog=VpnTargetCatalog(
+            provider="nordvpn",
+            capabilities=ProviderCapabilities(
+                connect=True,
+                disconnect=True,
+                target_selection=True,
+                server_details=True,
+            ),
+            targets=(
+                VpnTargetSummary(alias="dallas", label="Dallas, United States"),
+                VpnTargetSummary(alias="prague", label="Prague, Czechia"),
+            ),
+        ),
+    )
+    monkeypatch.setattr("snarkyctl.main.ControlClient.targets", lambda _self: control_response)
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/targets",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "version": 2,
+        "provider": "nordvpn",
+        "capabilities": {
+            "connect": True,
+            "disconnect": True,
+            "target_selection": True,
+            "server_details": True,
+        },
+        "targets": [
+            {"alias": "dallas", "label": "Dallas, United States"},
+            {"alias": "prague", "label": "Prague, Czechia"},
+        ],
+    }
+    assert "provider_target" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("control_response", "expected_code"),
+    [
+        (
+            ControlResponse(
+                request_id=REQUEST_ID,
+                success=False,
+                error_code="CATALOGUE_ERROR",
+                message="catalogue unavailable",
+            ),
+            "CATALOGUE_ERROR",
+        ),
+        (
+            ControlResponse(request_id=REQUEST_ID, success=True, message="missing catalogue"),
+            "INVALID_RESPONSE",
+        ),
+    ],
+)
+def test_invalid_target_catalogue_results_are_structured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    control_response: ControlResponse,
+    expected_code: str,
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.targets",
+        lambda _self: control_response,
+    )
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/targets",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == expected_code
 
 
 def test_daemon_failure_is_structured(

@@ -19,7 +19,7 @@ from snarkyctl.auth import AuthFileError, verify_credentials
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, load_config
 from snarkyctl.control.client import ControlClient, ControlClientError
 from snarkyctl.control.protocol import ControlResponse
-from snarkyctl.providers.base import GatewayMode, VpnStatus
+from snarkyctl.providers.base import GatewayMode, VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
 
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
@@ -225,6 +225,36 @@ def create_app(
             public_ip_exposed=exposed,
             exposure_warning=warning,
         )
+
+    @application.get(
+        "/api/v2/vpn/targets",
+        response_model=VpnTargetCatalog,
+        responses={401: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    )
+    def vpn_targets(
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> VpnTargetCatalog:
+        """Return provider-neutral configured targets and capabilities."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        client = ControlClient(
+            socket_path=active_runtime.control_socket,
+            timeout_seconds=active_runtime.control_timeout_seconds,
+        )
+        try:
+            response = client.targets()
+        except ControlClientError as exc:
+            raise ApiError(502, exc.code, str(exc)) from exc
+        if not response.success:
+            raise ApiError(
+                502,
+                response.error_code or "CONTROL_ERROR",
+                response.message,
+            )
+        if response.target_catalog is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no target catalogue")
+        return response.target_catalog
 
     return application
 

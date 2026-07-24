@@ -11,11 +11,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 
-from snarkyctl.providers.base import VpnStatus
+from snarkyctl.providers.base import VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
 
 PROTOCOL_VERSION: Final = 2
-MAX_MESSAGE_SIZE = 4096
+# Matches the maximum accepted configuration size so a sanitized catalogue of
+# every validated target can cross the authenticated local control boundary.
+MAX_MESSAGE_SIZE = 64 * 1024
 _FRAME_HEADER = struct.Struct("!I")
 
 type RequestId = UUID
@@ -37,6 +39,7 @@ class Operation(StrEnum):
     """Operations recognized by the privileged control daemon."""
 
     STATUS = "STATUS"
+    TARGETS = "TARGETS"
     LOCK = "LOCK"
     CONNECT = "CONNECT"
     DISCONNECT = "DISCONNECT"
@@ -52,6 +55,10 @@ class _RequestBase(BaseModel):
 
 class StatusRequest(_RequestBase):
     operation: Literal[Operation.STATUS]
+
+
+class TargetsRequest(_RequestBase):
+    operation: Literal[Operation.TARGETS]
 
 
 class LockRequest(_RequestBase):
@@ -73,7 +80,12 @@ class DirectRequest(_RequestBase):
 
 
 type ControlRequest = Annotated[
-    StatusRequest | LockRequest | ConnectRequest | DisconnectRequest | DirectRequest,
+    StatusRequest
+    | TargetsRequest
+    | LockRequest
+    | ConnectRequest
+    | DisconnectRequest
+    | DirectRequest,
     Field(discriminator="operation"),
 ]
 
@@ -92,6 +104,7 @@ class ControlResponse(BaseModel):
     message: str
     vpn_status: VpnStatus | None = None
     gateway_status: GatewayStatus | None = None
+    target_catalog: VpnTargetCatalog | None = None
 
 
 def parse_request(payload: bytes) -> ControlRequest:

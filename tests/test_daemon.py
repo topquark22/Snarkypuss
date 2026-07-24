@@ -19,6 +19,7 @@ from snarkyctl.control.protocol import (
     Operation,
     PROTOCOL_VERSION,
     StatusRequest,
+    TargetsRequest,
     encode_message,
     receive_frame,
 )
@@ -264,6 +265,25 @@ def test_control_service_connects_only_configured_alias() -> None:
     assert response.success
     assert provider.connected_target is not None
     assert provider.connected_target.provider_target == "us9167"
+
+
+def test_control_service_returns_sanitized_target_catalogue() -> None:
+    request = TargetsRequest(
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.TARGETS,
+    )
+
+    response = control_service().dispatch(request)
+
+    assert response.success
+    assert response.target_catalog is not None
+    assert response.target_catalog.provider == "fake"
+    assert response.target_catalog.capabilities.target_selection
+    assert response.target_catalog.targets[0].alias == "dallas"
+    assert response.target_catalog.targets[0].label == "Dallas, United States"
+    assert "provider_target" not in response.target_catalog.model_dump_json()
+    assert "us9167" not in response.target_catalog.model_dump_json()
 
 
 def test_control_service_rejects_unknown_alias_without_provider_call() -> None:

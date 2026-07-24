@@ -63,6 +63,20 @@ def test_status_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert request.operation is Operation.STATUS
 
 
+def test_targets_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = FakeSocket(
+        ControlResponse(request_id=REQUEST_ID, success=True, message="ok")
+    )
+    monkeypatch.setattr("snarkyctl.control.client.uuid4", lambda: REQUEST_ID)
+    monkeypatch.setattr(socket, "socket", lambda *_args: fake)
+
+    response = ControlClient().targets()
+
+    assert response.success
+    request = parse_request(fake.sent[4:])
+    assert request.operation is Operation.TARGETS
+
+
 def test_mismatched_response_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeSocket(
         ControlResponse(

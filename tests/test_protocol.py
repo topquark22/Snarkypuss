@@ -16,12 +16,19 @@ from snarkyctl.control.protocol import (
     Operation,
     ProtocolError,
     StatusRequest,
+    TargetsRequest,
     encode_message,
     parse_request,
     parse_response,
     receive_frame,
 )
-from snarkyctl.providers.base import VpnState, VpnStatus
+from snarkyctl.providers.base import (
+    ProviderCapabilities,
+    VpnState,
+    VpnStatus,
+    VpnTargetCatalog,
+    VpnTargetSummary,
+)
 from snarkyctl.status import GatewayStatus
 
 REQUEST_ID = "0de2718e-98b1-43a0-879f-867d87b81a75"
@@ -42,6 +49,13 @@ def test_parse_status_request() -> None:
 
     assert isinstance(request, StatusRequest)
     assert request.operation is Operation.STATUS
+
+
+def test_parse_targets_request() -> None:
+    request = parse_request(request_bytes("TARGETS"))
+
+    assert isinstance(request, TargetsRequest)
+    assert request.operation is Operation.TARGETS
 
 
 def test_parse_connect_request_with_approved_alias_shape() -> None:
@@ -102,6 +116,31 @@ def test_size_prefixed_response_round_trip() -> None:
     assert decoded["vpn_status"]["state"] == "DISCONNECTED"
     assert decoded["gateway_status"]["vpn_status"]["provider"] == "nordvpn"
     assert parse_response(payload) == response
+
+
+def test_maximum_configured_target_catalogue_fits_control_frame() -> None:
+    response = ControlResponse(
+        request_id=UUID(REQUEST_ID),
+        success=True,
+        message="ok",
+        target_catalog=VpnTargetCatalog(
+            provider="provider",
+            capabilities=ProviderCapabilities(
+                connect=True,
+                disconnect=True,
+                target_selection=True,
+                server_details=True,
+            ),
+            targets=tuple(
+                VpnTargetSummary(alias=f"target_{index:03}", label="x" * 100)
+                for index in range(100)
+            ),
+        ),
+    )
+
+    encoded = encode_message(response)
+
+    assert len(encoded) <= MAX_MESSAGE_SIZE + 4
 
 
 @pytest.mark.parametrize("payload", [b"", b"[]", b"not json", b'{"version":2}'])

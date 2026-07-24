@@ -15,6 +15,7 @@ from snarkyctl.control.protocol import (
     Operation,
     ProtocolError,
     StatusRequest,
+    TargetsRequest,
     encode_message,
     parse_response,
     receive_frame,
@@ -47,6 +48,16 @@ class ControlClient:
         """Request current provider and gateway status."""
         return self.request(
             StatusRequest(version=PROTOCOL_VERSION, request_id=uuid4(), operation=Operation.STATUS)
+        )
+
+    def targets(self) -> ControlResponse:
+        """Request the sanitized configured target catalogue."""
+        return self.request(
+            TargetsRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.TARGETS,
+            )
         )
 
     def connect(self, target: str) -> ControlResponse:
