@@ -44,6 +44,61 @@ The adapter does not:
 
 Those are deployment configuration or later status-observation concerns. The existing WireGuard management bypass remains an administrator-managed prerequisite.
 
+## NordVPN target discovery and mapping
+
+The target catalogue remains provider-neutral because users select aliases, not NordVPN
+arguments. The root-owned mapping is where a SnarkyCtl alias becomes one NordVPN destination:
+
+```yaml
+targets:
+  - alias: dallas
+    label: Dallas, United States
+    provider_target: Dallas
+  - alias: prague
+    label: Prague, Czechia
+    provider_target: Prague
+```
+
+For the installed NordVPN CLI, discover available values with:
+
+```bash
+nordvpn countries
+nordvpn cities united_states
+nordvpn cities czech_republic
+nordvpn groups
+```
+
+Use `nordvpn help` or `man nordvpn` to confirm the syntax supported by that installed
+version. NordVPN can accept selectors at different scopes, including a country, city,
+specialty group, or particular server. The label must state the scope honestly:
+
+```yaml
+- alias: usa
+  label: United States (recommended server)
+  provider_target: us
+
+- alias: dallas
+  label: Dallas, United States
+  provider_target: Dallas
+
+- alias: dedicated_us
+  label: United States dedicated server
+  provider_target: us4955
+```
+
+The final example is illustrative; a particular server identifier must come from the
+administrator's own NordVPN account and installed client. Never copy a server identifier
+blindly from this document.
+
+A bare `nordvpn set autoconnect on` tells NordVPN to select its recommended server during
+provider startup. That is separate from SnarkyCtl's destination catalogue. Editing
+`targets.yaml` does not alter NordVPN auto-connect, and changing auto-connect does not add
+or reorder dashboard choices.
+
+Follow [CONFIGURATION.md](CONFIGURATION.md) to edit the catalogue safely. After validation,
+restart `snarkyctl-control.service` and refresh the dashboard. The web application exposes
+only aliases and labels; the NordVPN values remain inside the privileged daemon.
+
 ## Kill Switch Blocking WireGuard Management
 
 ### Symptom

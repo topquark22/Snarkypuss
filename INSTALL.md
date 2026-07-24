@@ -541,21 +541,28 @@ schema_version: 1
 targets:
   - alias: dallas
     label: Dallas, United States
-    provider_target: us
+    provider_target: Dallas
 
   - alias: prague
     label: Prague, Czechia
-    provider_target: cz
+    provider_target: Prague
 ```
 
 Aliases may contain lowercase letters, digits, underscores, and hyphens, and must begin
 with a letter. The browser and CLI submit only the alias. The root-owned file determines
 the provider target, preventing a web request from supplying arbitrary command arguments.
 
-The example `provider_target` values are broad country selectors. If an alias is intended
-to select a particular city or server, replace the value with the exact provider argument
-already accepted by the installed VPN client. SnarkyCtl passes that one configured value
-as one argument; it does not interpret shell quoting, spaces, or additional options.
+The example values are NordVPN city selectors. `provider_target` is nevertheless an opaque,
+adapter-specific value rather than part of the public SnarkyCtl API. Confirm that the
+installed provider accepts it, and ensure the label describes its real scope. For example,
+the broad NordVPN country selector `us` should be labelled `United States (recommended)`,
+not `Dallas`. SnarkyCtl passes the configured value as one argument; it does not interpret
+shell quoting, spaces, or additional options.
+
+For the complete add, edit, reorder, remove, validate, reload, and recovery procedure, see
+[CONFIGURATION.md](CONFIGURATION.md). A catalogue change requires a successful
+`validate-config` followed by a restart of `snarkyctl-control.service`; it does not require
+a web-service restart.
 
 Restore the required ownership and permissions after editing:
 
