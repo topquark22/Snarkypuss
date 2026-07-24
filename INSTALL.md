@@ -112,6 +112,7 @@ sudo apt-get install --yes --no-install-recommends \
     iproute2 \
     openssl \
     python3 \
+    python3-build \
     python3-pip \
     python3-venv \
     sudo \
