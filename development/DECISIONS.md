@@ -327,6 +327,13 @@ Therefore:
 
 ### Operational and development consequences
 
+- `scripts/snarkypuss-migrate.py` provides an audit-first, file-transactional path from
+  the original manual gateway to managed configuration. It preserves the existing server
+  private key and client peer, records checksums and original file modes in a root-only
+  backup, and never changes live networking.
+- Migration preparation omits legacy WireGuard lifecycle hooks and hands generation to the
+  canonical configuration tool. Runtime cutover remains a separate rollback-protected
+  activation; file restoration and runtime rollback are deliberately distinct operations.
 - `scripts/snarkypuss-configure.py` renders `tunnel_fwmark` but no firewall hooks.
 - `scripts/snarkypuss-activate.py` owns provisional activation and confirmation.
 - `scripts/snarkypuss-rollback.py` owns automatic and forced restoration.

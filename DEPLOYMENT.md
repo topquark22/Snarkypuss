@@ -115,6 +115,7 @@ snarkyctl/
 │   ├── snarkypuss-activate.py
 │   ├── snarkypuss-configure.py
 │   ├── snarkypuss-install.sh
+│   ├── snarkypuss-migrate.py
 │   ├── snarkypuss-rollback.py
 │   ├── snarkypuss-preflight.sh
 │   └── snarkypuss-verify.sh
@@ -158,6 +159,7 @@ snarkyctl/
 │   ├── test_config.py
 │   ├── test_daemon.py
 │   ├── test_gateway_scripts.py
+│   ├── test_migration_script.py
 │   ├── test_package.py
 │   ├── test_preflight.py
 │   ├── test_protocol.py

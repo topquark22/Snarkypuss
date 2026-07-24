@@ -76,6 +76,7 @@ def read_activation_config(path: Path) -> dict[str, str]:
         "dns_upstreams",
         "protected_egress_interface",
         "tunnel_fwmark",
+        "persistent_keepalive",
     }
     unknown = set(section) - allowed
     if unknown:

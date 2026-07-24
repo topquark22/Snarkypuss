@@ -16,6 +16,7 @@ protected_egress_interface = nordlynx
 # its management transport from provider policy routing. The provider must be
 # configured consistently. Set an appropriate value for that provider.
 tunnel_fwmark = 0xe1f1
+persistent_keepalive = 25
 
 # Store the client's WireGuard public key as a single line in this file.
 # Never put a private key here.

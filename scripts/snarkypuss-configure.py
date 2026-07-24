@@ -29,6 +29,7 @@ ALLOWED_OPTIONS = {
     "dns_upstreams",
     "protected_egress_interface",
     "tunnel_fwmark",
+    "persistent_keepalive",
 }
 
 
@@ -46,6 +47,7 @@ class GatewayConfig:
     dns_upstreams: tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]
     protected_egress_interface: str
     tunnel_fwmark: int
+    persistent_keepalive: int
 
 
 def parser() -> argparse.ArgumentParser:
@@ -133,6 +135,12 @@ def read_setup(path: Path) -> GatewayConfig:
         raise ConfigurationError("tunnel_fwmark must be a decimal or 0x-prefixed integer") from exc
     if not 0 <= tunnel_fwmark <= 0xFFFFFFFF:
         raise ConfigurationError("tunnel_fwmark must fit in an unsigned 32-bit integer")
+    try:
+        persistent_keepalive = int(section["persistent_keepalive"])
+    except ValueError as exc:
+        raise ConfigurationError("persistent_keepalive must be an integer") from exc
+    if not 0 <= persistent_keepalive <= 65535:
+        raise ConfigurationError("persistent_keepalive must be between 0 and 65535")
 
     try:
         server = ipaddress.IPv4Interface(section["server_address"].strip())
@@ -177,6 +185,7 @@ def read_setup(path: Path) -> GatewayConfig:
         dns_upstreams=dns,
         protected_egress_interface=egress_interface,
         tunnel_fwmark=tunnel_fwmark,
+        persistent_keepalive=persistent_keepalive,
     )
 
 
@@ -220,6 +229,7 @@ def render_wireguard(config: GatewayConfig, private_key: str) -> str:
         "[Peer]\n"
         f"PublicKey = {config.client_public_key}\n"
         f"AllowedIPs = {config.client_interface}\n"
+        f"PersistentKeepalive = {config.persistent_keepalive}\n"
     )
 
 

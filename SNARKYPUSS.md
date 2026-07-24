@@ -193,6 +193,61 @@ sections to understand and verify their contents.
 
 ---
 
+## Migrate an existing manually configured gateway
+
+Do not reconstruct an existing gateway by hand. The migration tool reads the current
+WireGuard and dnsmasq files, preserves the server identity and single client peer, and
+prepares the managed files used by the generator.
+
+First perform a read-only audit. The protected egress interface is explicit because silently
+guessing it could weaken the provider leak-protection policy:
+
+```bash
+sudo scripts/snarkypuss-migrate.py \
+    --audit \
+    --tunnel-interface wg0 \
+    --protected-egress-interface nordlynx
+```
+
+The audit reports the settings it can preserve and any legacy WireGuard lifecycle hooks. It
+validates the private key but never prints it. If literal dnsmasq `server=` entries cannot be
+discovered, supply them explicitly with, for example,
+`--dns-upstreams 1.1.1.1,1.0.0.1`.
+
+Prepare the migration only after reviewing the audit:
+
+```bash
+sudo scripts/snarkypuss-migrate.py \
+    --prepare \
+    --tunnel-interface wg0 \
+    --protected-egress-interface nordlynx
+```
+
+Preparation creates a mode-`0700` backup below
+`/var/backups/snarkypuss/migration-<UTC timestamp>/`, including a checksummed manifest
+and an `iptables-save` snapshot when available. It then separates the existing server
+private key, stores the client public key, creates `/etc/snarkypuss-setup.conf`, and runs the
+normal generator. Existing `PostUp`, `PostDown`, `PreUp`, and `PreDown` commands are
+reported but deliberately omitted from the managed WireGuard file.
+
+Preparation does not stop or start a service and does not change live forwarding, routes,
+firewall rules, sysctl values, or provider state. The currently loaded gateway therefore
+continues running until the separate activation procedure below. If generation fails, the
+tool automatically restores the captured files.
+
+Before activation, inspect the backup and generated files. A file-only restoration is:
+
+```bash
+sudo scripts/snarkypuss-migrate.py \
+    --restore /var/backups/snarkypuss/migration-YYYYMMDDTHHMMSSZ
+```
+
+Restore does not change live services or networking. If activation has already occurred, use
+the activation token and `snarkypuss-rollback.py` for runtime rollback before restoring
+files.
+
+---
+
 ## Activate forwarding with automatic rollback
 
 Activation is deliberately separate from configuration generation. Before continuing:
