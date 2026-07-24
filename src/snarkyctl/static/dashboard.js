@@ -15,6 +15,7 @@
     target: document.querySelector("#target"),
     server: document.querySelector("#server"),
     interface: document.querySelector("#interface"),
+    publicIp: document.querySelector("#public-ip"),
     leakProtection: document.querySelector("#leak-protection"),
     lastRefreshed: document.querySelector("#last-refreshed"),
     dnsService: document.querySelector("#dns-service"),
@@ -86,6 +87,7 @@
     fields.target.textContent = display(status?.target);
     fields.server.textContent = display(status?.display_name);
     fields.interface.textContent = display(status?.interface);
+    fields.publicIp.textContent = display(payload.public_ip?.address);
     fields.leakProtection.textContent = leakProtection(status?.leak_protection_active);
     fields.lastRefreshed.textContent = new Date(payload.checked_at).toLocaleTimeString();
 
@@ -126,6 +128,13 @@
     exposureAlert.hidden = false;
     exposureMessage.textContent =
       "Gateway safety cannot be confirmed until status communication is restored.";
+    fields.publicIp.textContent = "Unavailable";
+    fields.dnsService.textContent = "Unavailable";
+    fields.dnsState.textContent = "Unavailable";
+    fields.systemUptime.textContent = "Unavailable";
+    fields.systemLoad.textContent = "Unavailable";
+    fields.systemMemory.textContent = "Unavailable";
+    fields.systemDisk.textContent = "Unavailable";
     fields.lastRefreshed.textContent = new Date().toLocaleTimeString();
     partialFailures.hidden = true;
   }
