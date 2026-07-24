@@ -88,6 +88,110 @@ failed request may mean Locked mode or an unrelated connectivity problem.
 Complete the client-side external-IP and DNS-leak tests in Sections 11 and 12 before trusting
 the gateway. Never use `curl -k` to suppress a certificate failure.
 
+## Install packages and generate base configuration
+
+After the read-only preflight succeeds, iteration 2 can install the base gateway packages and
+generate configuration files. These tools remain provider-neutral: they do not install,
+authenticate, connect, or configure NordVPN or another upstream VPN provider.
+
+### Install the base packages
+
+Review the fixed package command without changing the VPS:
+
+```bash
+scripts/snarkypuss-install.sh --dry-run
+```
+
+Then install the packages:
+
+```bash
+sudo scripts/snarkypuss-install.sh
+```
+
+The installer runs `apt-get update` followed by a noninteractive installation of the
+reviewed package list. Use `--skip-update` only when the apt metadata is already current.
+To avoid exposing a default DNS listener, a newly installed `dnsmasq` unit is stopped and
+disabled until configuration is ready. If dnsmasq was already installed, its existing service
+state is preserved. The installer does not write Snarkypuss configuration or activate gateway
+routing.
+
+The supported platform is Ubuntu 24.04. The `--allow-unsupported` option exists for an
+administrator who has independently reviewed the package names; it is not a claim of support
+for another distribution.
+
+### Prepare the non-secret setup input
+
+The generator reads an INI file containing only known fields. Copy the example:
+
+```bash
+sudo install -m 0600 \
+    config/snarkypuss-setup.conf.example \
+    /etc/snarkypuss-setup.conf
+sudoedit /etc/snarkypuss-setup.conf
+```
+
+The setup file contains the interface name, server and client tunnel addresses, UDP listen
+port, DNS upstream IP addresses, and the path to a file containing the **client's public
+WireGuard key**. It must never contain either the client or server private key.
+
+Generate the client key in the WireGuard client application, copy only its public key, and
+place that single line on the VPS:
+
+```bash
+sudo install -m 0600 /dev/null /root/snarkypuss-client.pub
+sudoedit /root/snarkypuss-client.pub
+```
+
+The default example expects that path. Absolute paths are required, unknown settings are
+rejected, DNS hostnames are rejected in favor of literal IP addresses, and the client address
+must belong to the server tunnel network.
+
+### Preview and generate the files
+
+Always validate with a dry run first:
+
+```bash
+sudo scripts/snarkypuss-configure.py \
+    --config /etc/snarkypuss-setup.conf \
+    --dry-run
+```
+
+The dry run validates all input and lists its intended files without generating a key,
+creating a directory, or writing anything. Apply the reviewed plan explicitly:
+
+```bash
+sudo scripts/snarkypuss-configure.py \
+    --config /etc/snarkypuss-setup.conf \
+    --apply
+```
+
+A fresh apply generates and reports the server WireGuard public key, then creates:
+
+| File | Mode | Purpose |
+|---|---:|---|
+| `/etc/wireguard/wg0.private.key` | `0600` | Persistent generated server private key |
+| `/etc/wireguard/wg0.conf` | `0600` | Server interface and client peer |
+| `/etc/dnsmasq.d/snarkypuss.conf` | `0644` | Tunnel-bound DNS listener and upstreams |
+| `/etc/sysctl.d/90-snarkypuss.conf` | `0644` | Persistent IPv4-forwarding setting |
+
+The exact WireGuard filenames follow `tunnel_interface`. The private-key directory is mode
+`0700`. Repeated application preserves the existing server key and leaves identical files
+unchanged. Before replacing a changed file, the generator creates a timestamped
+`.bak.YYYYMMDDTHHMMSSZ` copy in the same directory.
+
+If an existing WireGuard configuration is found without the separately managed private-key
+file, the generator refuses to continue rather than silently rotating the server identity.
+This is particularly important on an existing manually configured gateway: use
+`--dry-run`, inspect the result, and plan key migration before applying it.
+
+Configuration generation does **not** load the sysctl file, start or enable WireGuard or
+dnsmasq, add routes, create NAT or firewall rules, or change upstream VPN state. Those
+activation and rollback operations belong to iteration 3. When using generated files, do not
+overwrite them with the manual file-creation examples later in this reference; use those
+sections to understand and verify their contents.
+
+---
+
 ---
 
 The reference deployment routes traffic as follows:

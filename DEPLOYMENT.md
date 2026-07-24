@@ -101,6 +101,7 @@ snarkyctl/
 │
 ├── config/
 │   ├── snarkyctl.yaml.example
+│   ├── snarkypuss-setup.conf.example
 │   └── targets.yaml.example
 │
 ├── development/
@@ -111,6 +112,8 @@ snarkyctl/
 ├── scripts/
 │   ├── build-deb.sh
 │   ├── reinstall-deb.sh
+│   ├── snarkypuss-configure.py
+│   ├── snarkypuss-install.sh
 │   ├── snarkypuss-preflight.sh
 │   └── snarkypuss-verify.sh
 │

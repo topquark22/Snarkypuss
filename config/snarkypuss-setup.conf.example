@@ -1,0 +1,15 @@
+# Non-secret input for scripts/snarkypuss-configure.py.
+# Copy this file outside the repository and edit it for the gateway.
+
+[gateway]
+tunnel_interface = wg0
+server_address = 10.8.0.1/24
+listen_port = 51820
+client_address = 10.8.0.2/32
+
+# Store the client's WireGuard public key as a single line in this file.
+# Never put a private key here.
+client_public_key_file = /root/snarkypuss-client.pub
+
+# Comma-separated IP addresses. Hostnames are deliberately rejected.
+dns_upstreams = 1.1.1.1, 1.0.0.1
