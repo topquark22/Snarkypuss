@@ -38,6 +38,13 @@ def test_debian_package_installs_all_systemd_units_inactive() -> None:
     assert "dh_installsystemd --no-enable --no-start" in rules
 
 
+def test_builtin_venv_does_not_receive_virtualenv_only_options() -> None:
+    rules = Path("debian/rules").read_text(encoding="utf-8")
+
+    assert "--builtin-venv" in rules
+    assert "--setuptools" not in rules
+
+
 def test_debian_postinst_has_no_network_or_service_activation() -> None:
     postinst = Path("debian/postinst").read_text(encoding="utf-8")
 

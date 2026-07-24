@@ -10,8 +10,7 @@ override_dh_virtualenv:
 	dh_virtualenv \
 		--builtin-venv \
 		--python /usr/bin/python3 \
-		--install-suffix venv \
-		--setuptools
+		--install-suffix venv
 
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start
