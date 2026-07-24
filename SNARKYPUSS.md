@@ -230,6 +230,38 @@ sections to understand and verify their contents.
 
 ---
 
+## Verify service persistence before closing the VPS console
+
+A successful manual `systemctl start` does not mean a service will return after reboot.
+Systemd enables ordinary services by creating symbolic links from a boot target's
+`*.wants/` directory to the installed unit. For SnarkyCtl, verify:
+
+```bash
+systemctl is-enabled ssh.service \
+    snarkyctl-control.socket \
+    snarkyctl-web.service
+
+ls -l /etc/systemd/system/sockets.target.wants/snarkyctl-control.socket
+ls -l /etc/systemd/system/multi-user.target.wants/snarkyctl-web.service
+```
+
+If the SnarkyCtl units report enabled but their links are missing or they remained inactive
+after reboot, recreate the links and start them:
+
+```bash
+sudo systemctl reenable snarkyctl-control.socket
+sudo systemctl reenable snarkyctl-web.service
+sudo systemctl daemon-reload
+sudo systemctl start snarkyctl-control.socket
+sudo systemctl start snarkyctl-web.service
+```
+
+Do not enable `snarkyctl-control.service`; the control socket starts it on demand. Keep
+independent VPS console access available until SSH, the control socket, the HTTPS service,
+WireGuard, and dnsmasq have all passed a reboot test.
+
+---
+
 ## Migrate an existing manually configured gateway
 
 Do not reconstruct an existing gateway by hand. The migration tool reads the current
