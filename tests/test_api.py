@@ -94,6 +94,29 @@ def post(
     return asyncio.run(request())
 
 
+def request(
+    app: object,
+    *,
+    method: str,
+    path: str,
+    content: bytes | None = None,
+    auth: tuple[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    async def send() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+            return await client.request(
+                method,
+                path,
+                content=content,
+                auth=auth,
+                headers=headers,
+            )
+
+    return asyncio.run(send())
+
+
 def test_status_requires_authentication(tmp_path: Path) -> None:
     response = get(create_app(make_runtime(tmp_path)))
 
@@ -479,6 +502,48 @@ def test_connect_requires_authentication(tmp_path: Path) -> None:
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_connect_rejects_cors_preflight(tmp_path: Path) -> None:
+    response = request(
+        create_app(make_runtime(tmp_path)),
+        method="OPTIONS",
+        path="/api/v2/vpn/connect",
+        headers={
+            "Origin": "https://attacker.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-snarkyctl-request",
+        },
+    )
+
+    assert response.status_code == 405
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_connect_rejects_non_json_content_before_daemon_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden(_self: object, _target: str) -> ControlResponse:
+        raise AssertionError("non-JSON request must not reach the control daemon")
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.connect", forbidden)
+
+    response = request(
+        create_app(make_runtime(tmp_path)),
+        method="POST",
+        path="/api/v2/vpn/connect",
+        content=b'{"target":"dallas"}',
+        auth=("admin", "secret"),
+        headers={
+            "Content-Type": "text/plain",
+            "Origin": "https://test",
+            "Sec-Fetch-Site": "same-origin",
+            "X-SnarkyCtl-Request": "1",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
 
 
 @pytest.mark.parametrize(

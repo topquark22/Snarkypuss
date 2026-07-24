@@ -306,14 +306,25 @@ def test_control_service_rejects_competing_mutation_but_allows_status() -> None:
 
         competing = service.dispatch(disconnect_request)
         status = service.dispatch(status_request)
+        targets = service.dispatch(
+            TargetsRequest(
+                version=PROTOCOL_VERSION,
+                request_id=UUID("adcc4b91-7676-48d9-a68c-d519f05f1351"),
+                operation=Operation.TARGETS,
+            )
+        )
         release.set()
         completed = first.result(timeout=2)
+        followup = service.dispatch(disconnect_request)
 
     assert not competing.success
     assert competing.error_code == "OPERATION_IN_PROGRESS"
     assert status.success
     assert status.gateway_status is not None
+    assert targets.success
+    assert targets.target_catalog is not None
     assert completed.success
+    assert followup.success
 
 
 def test_control_service_releases_operation_lock_after_provider_failure() -> None:
