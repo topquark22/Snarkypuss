@@ -26,6 +26,7 @@ from snarkyctl.providers.base import (
 NORDVPN_EXECUTABLE = Path("/usr/bin/nordvpn")
 DEFAULT_TIMEOUT_SECONDS = 45.0
 MAX_OUTPUT_LENGTH = 64 * 1024
+MAX_ERROR_DETAIL_LENGTH = 512
 MAX_FIELD_LENGTH = 256
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._#-]{0,99}$")
 
@@ -40,6 +41,20 @@ class CommandResult:
 
 
 type CommandRunner = Callable[[Path, Sequence[str], float], CommandResult]
+
+
+def _error_detail(result: CommandResult) -> str | None:
+    """Return bounded, single-line diagnostic text from a failed command."""
+    output = result.stderr.strip() or result.stdout.strip()
+    if not output:
+        return None
+    printable = "".join(character if character.isprintable() else " " for character in output)
+    detail = " ".join(printable.split())
+    if not detail:
+        return None
+    if len(detail) > MAX_ERROR_DETAIL_LENGTH:
+        return detail[: MAX_ERROR_DETAIL_LENGTH - 3] + "..."
+    return detail
 
 
 def run_command(executable: Path, arguments: Sequence[str], timeout: float) -> CommandResult:
@@ -185,9 +200,12 @@ class NordVpnProvider(VpnProvider):
     def _run(self, *arguments: str) -> CommandResult:
         result = self._runner(self._executable, arguments, self._timeout_seconds)
         if result.returncode != 0:
+            message = f"NordVPN command failed with exit status {result.returncode}"
+            if detail := _error_detail(result):
+                message = f"{message}: {detail}"
             raise ProviderError(
                 "PROVIDER_COMMAND_FAILED",
-                f"NordVPN command failed with exit status {result.returncode}",
+                message,
             )
         return result
 
