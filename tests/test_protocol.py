@@ -3,6 +3,7 @@
 import json
 import socket
 import struct
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -21,6 +22,7 @@ from snarkyctl.control.protocol import (
     receive_frame,
 )
 from snarkyctl.providers.base import VpnState, VpnStatus
+from snarkyctl.status import GatewayStatus
 
 REQUEST_ID = "0de2718e-98b1-43a0-879f-867d87b81a75"
 
@@ -56,7 +58,7 @@ def test_parse_connect_request_with_approved_alias_shape() -> None:
         request_bytes("CONNECT", target="Dallas, United States"),
         request_bytes("CONNECT", target="../../bin/sh"),
         request_bytes("STATUS", unexpected=True),
-        request_bytes("STATUS").replace(b'"version": 1', b'"version": 2'),
+        request_bytes("STATUS").replace(b'"version": 2', b'"version": 1'),
         b"[]",
         b"not json",
         b"",
@@ -79,6 +81,12 @@ def test_size_prefixed_response_round_trip() -> None:
         error_code="NOT_IMPLEMENTED",
         message="Not implemented.",
         vpn_status=VpnStatus(state=VpnState.DISCONNECTED, provider="nordvpn"),
+        gateway_status=GatewayStatus(
+            checked_at=datetime.now(UTC),
+            vpn_status=VpnStatus(state=VpnState.DISCONNECTED, provider="nordvpn"),
+            dns=None,
+            system=None,
+        ),
     )
     sender, receiver = socket.socketpair()
     try:
@@ -92,6 +100,7 @@ def test_size_prefixed_response_round_trip() -> None:
     assert decoded["request_id"] == REQUEST_ID
     assert decoded["error_code"] == "NOT_IMPLEMENTED"
     assert decoded["vpn_status"]["state"] == "DISCONNECTED"
+    assert decoded["gateway_status"]["vpn_status"]["provider"] == "nordvpn"
     assert parse_response(payload) == response
 
 
