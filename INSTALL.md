@@ -519,6 +519,19 @@ sudo systemd-analyze verify \
 Warnings about other unrelated units can be reviewed separately. Errors naming either
 SnarkyCtl unit must be corrected before continuing.
 
+The control daemon runs as a capability-restricted root service. Its supplementary
+`nordvpn` group grants access to the NordVPN daemon socket without restoring broad
+root filesystem privileges. `HOME` and `XDG_CONFIG_HOME` point to the writable
+`/var/lib/snarkyctl` state directory so that the NordVPN CLI does not try to create
+configuration under `/root`, which is intentionally blocked by `ProtectHome=true`.
+Confirm that the installed control service contains:
+
+```ini
+SupplementaryGroups=nordvpn
+Environment=HOME=/var/lib/snarkyctl
+Environment=XDG_CONFIG_HOME=/var/lib/snarkyctl/.config
+```
+
 #### 5.7 Start socket activation
 
 The canonical socket path is:
@@ -530,7 +543,7 @@ The canonical socket path is:
 It is `control.sock`, not `snarkyctl.sock`. The `/run/snarkyctl` directory normally does
 not exist yet. `/run` is volatile and is recreated at boot, so do not create this directory
 as permanent installation state. When the socket unit starts, systemd creates the parent
-directory using `DirectoryMode=0750`, then creates the socket as
+directory using `DirectoryMode=0755`, then creates the socket as
 `root:snarkyctl` with mode `0660`.
 
 Reload systemd, enable the socket for future boots, and start it for the current boot:
@@ -568,7 +581,7 @@ ListenStream=/run/snarkyctl/control.sock
 SocketUser=root
 SocketGroup=snarkyctl
 SocketMode=0660
-DirectoryMode=0750
+DirectoryMode=0755
 ```
 
 Verify the socket:
