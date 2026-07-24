@@ -70,7 +70,7 @@ footer {
   font-size: 0.75rem;
 }
 
-.read-only-badge,
+.control-badge,
 .state-pill {
   border: 1px solid #38534c;
   border-radius: 999px;
@@ -92,6 +92,7 @@ footer {
 
 .mode-panel,
 .details-panel,
+.vpn-control-panel,
 .status-card {
   border: 1px solid #233b35;
   border-radius: 24px;
@@ -157,6 +158,90 @@ h2 {
 .details-panel {
   grid-row: span 2;
   padding: 34px;
+}
+
+.vpn-control-panel {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 32px;
+  align-items: center;
+  padding: 28px 34px;
+}
+
+.control-description {
+  max-width: 34rem;
+  margin: 12px 0 0;
+  color: #8ca59d;
+  line-height: 1.55;
+}
+
+.target-control label {
+  display: block;
+  margin-bottom: 9px;
+  color: #a7bbb4;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.target-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.target-action select,
+.target-action button {
+  min-height: 46px;
+  border: 1px solid #38534c;
+  border-radius: 12px;
+  font: inherit;
+}
+
+.target-action select {
+  width: 100%;
+  padding: 0 42px 0 14px;
+  background: #0b1916;
+  color: #e2eee9;
+}
+
+.target-action button {
+  padding: 0 20px;
+  background: #2bb58d;
+  color: #03110d;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.target-action button:hover:not(:disabled) {
+  background: #54d5ae;
+}
+
+.target-action select:focus-visible,
+.target-action button:focus-visible {
+  outline: 3px solid rgb(97 221 184 / 35%);
+  outline-offset: 2px;
+}
+
+.target-action select:disabled,
+.target-action button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.control-message {
+  min-height: 1.3em;
+  margin: 9px 0 0;
+  color: #8ca59d;
+  font-size: 0.82rem;
+}
+
+.control-message[data-state="error"] {
+  color: #ff8c87;
+}
+
+.control-message[data-state="success"] {
+  color: #61ddb8;
 }
 
 .local-status {
@@ -315,6 +400,14 @@ footer {
 
   .details-panel {
     grid-row: auto;
+  }
+
+  .vpn-control-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .target-action {
+    grid-template-columns: 1fr;
   }
 
   .details-grid {

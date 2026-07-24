@@ -32,11 +32,21 @@ Every HTTP response, including authentication and daemon errors, carries:
 Dashboard scripts and styles must therefore be served as separate same-origin static files.
 Inline scripts and inline styles are not permitted.
 
-## Read-only dashboard
+## Dashboard
 
-The authenticated `/` route serves the initial status dashboard. Its HTML contains no
-state-changing controls and no inline scripts or styles. A small same-origin JavaScript
-client polls `GET /api/v2/status` every five seconds.
+The authenticated `/` route serves the status and VPN-target dashboard. It contains no
+inline scripts or styles. A small same-origin JavaScript client polls
+`GET /api/v2/status` every five seconds.
+
+The target selector is populated from `GET /api/v2/vpn/targets` and is enabled only when
+the provider advertises both connect and target-selection capabilities. Selecting
+**Connect / switch** sends only the chosen public alias to `POST /api/v2/vpn/connect`.
+Provider command arguments and other provider-specific target details remain in the
+privileged service and are never sent to the browser. The control is disabled while a
+request is in progress and reports success or sanitized API errors in place.
+
+> Development note: do not deploy the target control until the planned same-origin
+> request protection (Step 3) has been completed.
 
 The dashboard gives the gateway mode visual priority. `DIRECT` mode uses a red state panel
 and a separate public-IP exposure alert. `UNKNOWN` and communication failures warn that

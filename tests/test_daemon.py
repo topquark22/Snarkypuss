@@ -60,7 +60,7 @@ class FakeProvider(VpnProvider):
 
     def connect(self, target: VpnTarget) -> VpnStatus:
         self.connected_target = target
-        return VpnStatus(state=VpnState.CONNECTED, provider="fake", target=target.alias)
+        return VpnStatus(state=VpnState.CONNECTED, provider="fake")
 
     def disconnect(self) -> VpnStatus:
         self.connected_target = None
@@ -265,6 +265,8 @@ def test_control_service_connects_only_configured_alias() -> None:
     assert response.success
     assert provider.connected_target is not None
     assert provider.connected_target.provider_target == "us9167"
+    assert response.vpn_status is not None
+    assert response.vpn_status.target == "dallas"
 
 
 def test_control_service_returns_sanitized_target_catalogue() -> None:

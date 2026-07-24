@@ -173,6 +173,7 @@ class ControlService:
                     message="The requested target alias is not configured.",
                 )
             status = self._provider.connect(target)
+            status = status.model_copy(update={"target": target.alias})
             try:
                 settings = self._provider.settings()
             except ProviderError:

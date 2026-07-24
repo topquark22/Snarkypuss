@@ -17,7 +17,7 @@
           <small>Private gateway</small>
         </span>
       </a>
-      <span class="read-only-badge">Read-only</span>
+      <span class="control-badge">VPN control</span>
     </header>
 
     <main class="dashboard" data-mode="LOADING">
@@ -78,6 +78,29 @@
             <dd id="last-refreshed">—</dd>
           </div>
         </dl>
+      </section>
+
+      <section class="vpn-control-panel" aria-labelledby="vpn-control-heading">
+        <div>
+          <p class="eyebrow">Approved destinations</p>
+          <h2 id="vpn-control-heading">VPN target</h2>
+          <p class="control-description">
+            Choose a configured target alias. Provider-specific connection details remain
+            on the privileged service.
+          </p>
+        </div>
+        <div class="target-control">
+          <label for="vpn-target">Connection target</label>
+          <div class="target-action">
+            <select id="vpn-target" name="target" disabled>
+              <option value="">Loading approved targets…</option>
+            </select>
+            <button id="vpn-connect" type="button" disabled>Connect / switch</button>
+          </div>
+          <p id="vpn-control-message" class="control-message" role="status" aria-live="polite">
+            Loading provider capabilities.
+          </p>
+        </div>
       </section>
 
       <section class="local-status" aria-label="Local gateway status">

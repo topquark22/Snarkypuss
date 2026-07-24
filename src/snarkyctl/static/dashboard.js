@@ -9,6 +9,13 @@
   const connectionState = document.querySelector("#connection-state");
   const partialFailures = document.querySelector("#partial-failures");
   const partialFailureList = document.querySelector("#partial-failure-list");
+  const targetSelect = document.querySelector("#vpn-target");
+  const connectButton = document.querySelector("#vpn-connect");
+  const controlMessage = document.querySelector("#vpn-control-message");
+
+  let catalogueAvailable = false;
+  let operationInProgress = false;
+  let currentTarget = null;
 
   const fields = {
     provider: document.querySelector("#provider"),
@@ -76,6 +83,23 @@
       .join(" ");
   }
 
+  function setControlMessage(message, state = "") {
+    controlMessage.textContent = message;
+    if (state) {
+      controlMessage.dataset.state = state;
+    } else {
+      delete controlMessage.dataset.state;
+    }
+  }
+
+  function syncTargetControl() {
+    const selectedTarget = targetSelect.value;
+    targetSelect.disabled = !catalogueAvailable || operationInProgress;
+    connectButton.disabled = !catalogueAvailable || operationInProgress || !selectedTarget;
+    connectButton.textContent =
+      selectedTarget && selectedTarget === currentTarget ? "Reconnect" : "Connect / switch";
+  }
+
   function applyStatus(payload) {
     const status = payload.vpn_status;
     const mode = status?.gateway_mode || "UNKNOWN";
@@ -90,6 +114,11 @@
     fields.publicIp.textContent = display(payload.public_ip?.address);
     fields.leakProtection.textContent = leakProtection(status?.leak_protection_active);
     fields.lastRefreshed.textContent = new Date(payload.checked_at).toLocaleTimeString();
+    currentTarget = status?.target || null;
+    if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
+      targetSelect.value = currentTarget;
+    }
+    syncTargetControl();
 
     fields.dnsService.textContent = display(payload.dns?.service);
     fields.dnsState.textContent = payload.dns
@@ -139,6 +168,98 @@
     partialFailures.hidden = true;
   }
 
+  async function loadTargets() {
+    try {
+      const response = await fetch("/api/v2/vpn/targets", {
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          payload.error?.message || `Target catalogue request failed (${response.status})`,
+        );
+      }
+
+      targetSelect.replaceChildren();
+      for (const target of payload.targets || []) {
+        const option = document.createElement("option");
+        option.value = target.alias;
+        option.textContent = target.label;
+        targetSelect.append(option);
+      }
+
+      catalogueAvailable =
+        payload.capabilities?.connect === true &&
+        payload.capabilities?.target_selection === true &&
+        targetSelect.options.length > 0;
+
+      if (!catalogueAvailable) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Target selection is unavailable";
+        targetSelect.replaceChildren(option);
+        setControlMessage("The configured provider does not support target selection.");
+      } else {
+        if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
+          targetSelect.value = currentTarget;
+        }
+        setControlMessage(`${targetSelect.options.length} approved target(s) available.`);
+      }
+    } catch (error) {
+      catalogueAvailable = false;
+      targetSelect.replaceChildren();
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Targets unavailable";
+      targetSelect.append(option);
+      setControlMessage(
+        error instanceof Error ? error.message : "Target catalogue request failed.",
+        "error",
+      );
+    }
+    syncTargetControl();
+  }
+
+  async function connectSelectedTarget() {
+    const target = targetSelect.value;
+    if (!catalogueAvailable || operationInProgress || !target) {
+      return;
+    }
+
+    operationInProgress = true;
+    setControlMessage("Requesting VPN connection…");
+    syncTargetControl();
+    try {
+      const response = await fetch("/api/v2/vpn/connect", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ target }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message || `Connection request failed (${response.status})`);
+      }
+      currentTarget = payload.vpn_status?.target || target;
+      setControlMessage(payload.message || "VPN connection completed.", "success");
+      await refresh();
+    } catch (error) {
+      setControlMessage(
+        error instanceof Error ? error.message : "Connection request failed.",
+        "error",
+      );
+    } finally {
+      operationInProgress = false;
+      syncTargetControl();
+    }
+  }
+
   async function refresh() {
     try {
       const response = await fetch("/api/v2/status", {
@@ -156,6 +277,9 @@
     }
   }
 
+  targetSelect.addEventListener("change", syncTargetControl);
+  connectButton.addEventListener("click", connectSelectedTarget);
   refresh();
+  loadTargets();
   window.setInterval(refresh, 5000);
 })();

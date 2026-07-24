@@ -101,15 +101,20 @@ def test_dashboard_requires_authentication(tmp_path: Path) -> None:
     assert response.headers["www-authenticate"] == 'Basic realm="SnarkyCtl"'
 
 
-def test_dashboard_is_read_only_and_uses_external_assets(tmp_path: Path) -> None:
+def test_dashboard_has_provider_neutral_controls_and_external_assets(
+    tmp_path: Path,
+) -> None:
     application = create_app(make_runtime(tmp_path))
 
     response = get(application, path="/", auth=("admin", "secret"))
 
     assert response.status_code == 200
     assert "SnarkyCtl Gateway" in response.text
-    assert "Read-only" in response.text
-    assert "<button" not in response.text
+    assert "VPN control" in response.text
+    assert 'id="vpn-target"' in response.text
+    assert 'id="vpn-connect"' in response.text
+    assert "Connect / switch" in response.text
+    assert "provider_target" not in response.text
     assert "<form" not in response.text
     assert 'src="/static/dashboard.js"' in response.text
     assert 'href="/static/dashboard.css"' in response.text
@@ -133,6 +138,20 @@ def test_dashboard_assets_are_packaged(
 
     assert response.status_code == 200
     assert content_type in response.headers["content-type"]
+
+
+def test_dashboard_script_uses_target_alias_api_only(tmp_path: Path) -> None:
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/static/dashboard.js",
+    )
+
+    assert response.status_code == 200
+    assert 'fetch("/api/v2/vpn/targets"' in response.text
+    assert 'fetch("/api/v2/vpn/connect"' in response.text
+    assert "JSON.stringify({ target })" in response.text
+    assert "capabilities?.target_selection" in response.text
+    assert "provider_target" not in response.text
 
 
 @pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
