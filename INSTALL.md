@@ -533,13 +533,18 @@ as permanent installation state. When the socket unit starts, systemd creates th
 directory using `DirectoryMode=0750`, then creates the socket as
 `root:snarkyctl` with mode `0660`.
 
-Reload systemd and enable the socket:
+Reload systemd, enable the socket for future boots, and start it for the current boot:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable snarkyctl-control.socket
+sudo systemctl start snarkyctl-control.socket
 sudo systemctl status snarkyctl-control.socket --no-pager
 ```
+
+`systemctl enable` alone does not start an inactive unit; it only arranges for it to start
+on subsequent boots. The separate `systemctl start` command is therefore required during
+this manual installation. The status should report `Active: active (listening)`.
 
 Do not start `snarkyctl-control.service` directly. The socket unit creates
 `/run/snarkyctl/control.sock`; the first client request then starts the privileged daemon
@@ -801,7 +806,8 @@ is disabled or cannot be verified, correct the provider configuration before con
 After preflight completes without a failure:
 
 ```bash
-sudo systemctl enable --now snarkyctl-web.service
+sudo systemctl enable snarkyctl-web.service
+sudo systemctl start snarkyctl-web.service
 sudo systemctl status snarkyctl-web.service --no-pager
 ```
 
