@@ -49,6 +49,7 @@ upstream_vpn:
 def test_load_valid_config(tmp_path: Path) -> None:
     loaded = load_config(write_config(tmp_path))
     assert loaded.settings.upstream_vpn.provider == "nordvpn"
+    assert loaded.settings.status.public_ip_url == "https://api.ipify.org"
     assert loaded.targets.targets[0].alias == "dallas"
 
 
@@ -64,6 +65,30 @@ def test_public_bind_address_is_rejected(tmp_path: Path) -> None:
     )
     path.write_text(text, encoding="utf-8")
     with pytest.raises(ConfigError, match="bind_address"):
+        load_config(path)
+
+
+def test_insecure_public_ip_url_is_rejected(tmp_path: Path) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "upstream_vpn:",
+        "status:\n  public_ip_url: http://api.ipify.org\n\nupstream_vpn:",
+    )
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="HTTPS URL"):
+        load_config(path)
+
+
+def test_public_ip_url_with_invalid_port_is_rejected(tmp_path: Path) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "upstream_vpn:",
+        "status:\n  public_ip_url: https://api.ipify.org:bad\n\nupstream_vpn:",
+    )
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="invalid port"):
         load_config(path)
 
 
