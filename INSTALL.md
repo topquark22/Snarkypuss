@@ -114,6 +114,7 @@ sudo apt-get install --yes --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    python3-build \
     sudo \
     wireguard-tools
 ```
