@@ -45,9 +45,6 @@ Provider command arguments and other provider-specific target details remain in 
 privileged service and are never sent to the browser. The control is disabled while a
 request is in progress and reports success or sanitized API errors in place.
 
-> Development note: do not deploy the target control until the planned same-origin
-> request protection (Step 3) has been completed.
-
 The dashboard gives the gateway mode visual priority. `DIRECT` mode uses a red state panel
 and a separate public-IP exposure alert. `UNKNOWN` and communication failures warn that
 gateway safety cannot be confirmed. `VPN` and `LOCKED` are displayed as non-exposing
@@ -202,6 +199,19 @@ socket. The privileged daemon performs the authoritative lookup and passes the a
 private `provider_target` to the configured adapter. Arbitrary provider values, command
 options, executable names, and extra request fields are rejected.
 
+Every state-changing request must include:
+
+```http
+X-SnarkyCtl-Request: 1
+```
+
+This non-simple header forces a cross-origin browser to perform a CORS preflight, which
+SnarkyCtl does not permit. Browser requests are also rejected unless `Sec-Fetch-Site`
+identifies them as same-origin and any supplied `Origin` exactly matches the service
+origin. Non-browser API clients may omit `Origin` and `Sec-Fetch-Site`, but must still
+send the request marker. These checks are applied after Basic authentication and before
+the privileged daemon is contacted.
+
 A successful response contains normalized provider status:
 
 ```json
@@ -229,6 +239,7 @@ The endpoint returns:
 
 - HTTP 400 with `INVALID_REQUEST` for a malformed body or alias.
 - HTTP 401 for missing or invalid Basic authentication.
+- HTTP 403 with `CROSS_ORIGIN_REQUEST` for a missing request marker or an origin mismatch.
 - HTTP 404 with `UNKNOWN_TARGET` when the alias is not root-approved.
 - HTTP 502 for provider failures or invalid daemon responses.
 - HTTP 504 for provider or control-daemon timeouts.

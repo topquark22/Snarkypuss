@@ -77,11 +77,19 @@ def post(
     path: str,
     json: object,
     auth: tuple[str, str] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     async def request() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
         async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
-            return await client.post(path, json=json, auth=auth)
+            request_headers = {
+                "Origin": "https://test",
+                "Sec-Fetch-Site": "same-origin",
+                "X-SnarkyCtl-Request": "1",
+            }
+            if headers is not None:
+                request_headers = headers
+            return await client.post(path, json=json, auth=auth, headers=request_headers)
 
     return asyncio.run(request())
 
@@ -150,6 +158,7 @@ def test_dashboard_script_uses_target_alias_api_only(tmp_path: Path) -> None:
     assert 'fetch("/api/v2/vpn/targets"' in response.text
     assert 'fetch("/api/v2/vpn/connect"' in response.text
     assert "JSON.stringify({ target })" in response.text
+    assert '"X-SnarkyCtl-Request": "1"' in response.text
     assert "capabilities?.target_selection" in response.text
     assert "provider_target" not in response.text
 
@@ -470,6 +479,74 @@ def test_connect_requires_authentication(tmp_path: Path) -> None:
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Origin": "https://test", "Sec-Fetch-Site": "same-origin"},
+        {
+            "Origin": "https://attacker.example",
+            "Sec-Fetch-Site": "cross-site",
+            "X-SnarkyCtl-Request": "1",
+        },
+        {
+            "Origin": "https://attacker.example",
+            "Sec-Fetch-Site": "same-origin",
+            "X-SnarkyCtl-Request": "1",
+        },
+    ],
+)
+def test_connect_rejects_cross_origin_requests_before_daemon_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+) -> None:
+    def forbidden(_self: object, _target: str) -> ControlResponse:
+        raise AssertionError("cross-origin request must not reach the control daemon")
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.connect", forbidden)
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json={"target": "dallas"},
+        auth=("admin", "secret"),
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "CROSS_ORIGIN_REQUEST"
+
+
+def test_connect_allows_non_browser_client_with_request_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.connect",
+        lambda _self, target: ControlResponse(
+            request_id=REQUEST_ID,
+            success=True,
+            message=f"Connected using target alias {target}.",
+            vpn_status=VpnStatus(
+                state=VpnState.CONNECTED,
+                provider="fake",
+                gateway_mode=GatewayMode.VPN,
+                target=target,
+            ),
+        ),
+    )
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json={"target": "dallas"},
+        auth=("admin", "secret"),
+        headers={"X-SnarkyCtl-Request": "1"},
+    )
+
+    assert response.status_code == 200
 
 
 def test_connect_passes_only_target_alias_to_control_daemon(

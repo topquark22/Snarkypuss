@@ -239,6 +239,7 @@
         headers: {
           Accept: "application/json",
           "Content-Type": "application/json",
+          "X-SnarkyCtl-Request": "1",
         },
         body: JSON.stringify({ target }),
       });

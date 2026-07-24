@@ -26,6 +26,8 @@ from snarkyctl.status import GatewayStatus
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
 UNKNOWN_WARNING = "The gateway's public-IP exposure state cannot be determined."
 _BASIC_AUTH = HTTPBasic(auto_error=False)
+REQUEST_MARKER_HEADER: Final[str] = "X-SnarkyCtl-Request"
+REQUEST_MARKER_VALUE: Final[str] = "1"
 SECURITY_HEADERS: Final[dict[str, str]] = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": (
@@ -309,6 +311,7 @@ def create_app(
         """Connect the configured provider using one approved target alias."""
         active_runtime = _get_runtime(request)
         _authenticate(active_runtime.auth_file, credentials)
+        _require_same_origin(request)
         client = ControlClient(
             socket_path=active_runtime.control_socket,
             timeout_seconds=active_runtime.control_timeout_seconds,
@@ -340,6 +343,33 @@ def create_app(
         )
 
     return application
+
+
+def _require_same_origin(request: Request) -> None:
+    """Reject browser-forgeable state changes before contacting the daemon."""
+    if request.headers.get(REQUEST_MARKER_HEADER) != REQUEST_MARKER_VALUE:
+        raise ApiError(
+            403,
+            "CROSS_ORIGIN_REQUEST",
+            f"state-changing requests require {REQUEST_MARKER_HEADER}: {REQUEST_MARKER_VALUE}",
+        )
+
+    fetch_site = request.headers.get("Sec-Fetch-Site")
+    if fetch_site is not None and fetch_site != "same-origin":
+        raise ApiError(
+            403,
+            "CROSS_ORIGIN_REQUEST",
+            "state-changing browser requests must originate from this service",
+        )
+
+    origin = request.headers.get("Origin")
+    expected_origin = f"{request.url.scheme}://{request.url.netloc}"
+    if origin is not None and origin != expected_origin:
+        raise ApiError(
+            403,
+            "CROSS_ORIGIN_REQUEST",
+            "request Origin does not match this service",
+        )
 
 
 def _get_runtime(request: Request) -> WebRuntime:
