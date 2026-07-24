@@ -7,6 +7,7 @@ import stat
 from ipaddress import IPv4Address, IPv4Interface, IPv4Network
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -78,6 +79,33 @@ class ControlConfig(BaseModel):
         return value
 
 
+class StatusConfig(BaseModel):
+    """Read-only external status sources and their limits."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    public_ip_url: str = "https://api.ipify.org"
+    public_ip_timeout_seconds: float = Field(default=5, gt=0, le=15)
+
+    @field_validator("public_ip_url")
+    @classmethod
+    def require_safe_https_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        try:
+            parsed.port
+        except ValueError as exc:
+            raise ValueError("public_ip_url contains an invalid port") from exc
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise ValueError("public_ip_url must be an HTTPS URL without credentials or a fragment")
+        return value
+
+
 class UpstreamVpnConfig(BaseModel):
     """Trusted adapter selection and its root-owned target document."""
 
@@ -125,6 +153,7 @@ class SnarkyCtlConfig(BaseModel):
     network: NetworkConfig
     web: WebConfig
     control: ControlConfig
+    status: StatusConfig = StatusConfig()
     upstream_vpn: UpstreamVpnConfig
 
     @model_validator(mode="after")
