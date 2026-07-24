@@ -114,7 +114,6 @@ sudo apt-get install --yes --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
-    python3-build \
     sudo \
     wireguard-tools
 ```
@@ -421,6 +420,10 @@ web:
 control:
   socket_path: /run/snarkyctl/control.sock
 
+status:
+  public_ip_url: https://api.ipify.org
+  public_ip_timeout_seconds: 5
+
 upstream_vpn:
   provider: nordvpn
   expected_interfaces:
@@ -430,6 +433,11 @@ upstream_vpn:
 
 Replace `eth0` if the default route reports a different public interface. Do not change
 `web.bind_address` to `0.0.0.0` or to the public address.
+
+`status.public_ip_url` must be an HTTPS endpoint that returns only the caller's IPv4
+address as plain text. SnarkyCtl verifies the server certificate using the operating
+system trust store; there is no option to disable verification. It skips the external
+request in `LOCKED` and indeterminate gateway modes.
 
 If NordVPN is configured to use a technology with an interface other than `nordlynx`,
 record the actual expected interface instead. This is an allowlist, not a command.
@@ -678,9 +686,7 @@ root-only working directory:
 
 ```bash
 sudo install -d -o root -g root -m 0700 /root/snarkyctl-ca
-sudo openssl req \
-    -provider default \
-    -x509 -newkey rsa:3072 -sha256 -nodes \
+sudo openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
     -days 3650 \
     -subj '/CN=SnarkyCtl Private CA' \
     -keyout /root/snarkyctl-ca/ca.key \
