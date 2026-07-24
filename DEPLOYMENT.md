@@ -80,56 +80,89 @@ provider mutations.
 
 ---
 
-## Proposed Source Layout
+## Current Source Layout
+
+The following tree reflects the tracked source and documentation at release 0.9.0.
+Generated build directories, Python caches, and Debian build artifacts are not shown.
 
 ```text
 snarkyctl/
-├── pyproject.toml
-├── README.md
+├── API.md
 ├── ARCHITECTURE.md
+├── CONFIGURATION.md
 ├── DEPLOYMENT.md
 ├── INSTALL.md
-├── development/
-│   ├── README.md
-│   ├── SNARKYCTL.md
-│   └── DECISIONS.md
-│
-├── src/
-│   └── snarkyctl/
-│       ├── __init__.py
-│       ├── main.py
-│       ├── api.py
-│       ├── auth.py
-│       ├── commands.py
-│       ├── config.py
-│       ├── models.py
-│       ├── operations.py
-│       ├── policy.py
-│       ├── static/
-│       │   ├── dashboard.js
-│       │   └── style.css
-│       └── templates/
-│           └── index.html
+├── NORDVPN.md
+├── PREFLIGHT.md
+├── README.md
+├── SNARKYPUSS.md
+├── deploy.sh
+├── pyproject.toml
 │
 ├── config/
 │   ├── snarkyctl.yaml.example
 │   └── targets.yaml.example
 │
+├── development/
+│   ├── README.md
+│   ├── SNARKYCTL.md
+│   └── DECISIONS.md
+│
+├── scripts/
+│   ├── build-deb.sh
+│   └── reinstall-deb.sh
+│
+├── src/
+│   └── snarkyctl/
+│       ├── __init__.py
+│       ├── auth.py
+│       ├── cli.py
+│       ├── config.py
+│       ├── main.py
+│       ├── preflight.py
+│       ├── status.py
+│       ├── control/
+│       │   ├── __init__.py
+│       │   ├── client.py
+│       │   ├── daemon.py
+│       │   └── protocol.py
+│       ├── providers/
+│       │   ├── __init__.py
+│       │   ├── base.py
+│       │   ├── nordvpn.py
+│       │   ├── placeholder.py
+│       │   └── registry.py
+│       ├── static/
+│       │   ├── dashboard.css
+│       │   └── dashboard.js
+│       └── templates/
+│           └── dashboard.html
+│
 ├── systemd/
-│   ├── snarkyctl-control.socket
 │   ├── snarkyctl-control.service
+│   ├── snarkyctl-control.socket
 │   └── snarkyctl-web.service
 │
 ├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── fixtures/
+│   ├── test_api.py
+│   ├── test_auth.py
+│   ├── test_cli.py
+│   ├── test_client.py
+│   ├── test_config.py
+│   ├── test_daemon.py
+│   ├── test_package.py
+│   ├── test_preflight.py
+│   ├── test_protocol.py
+│   ├── test_providers.py
+│   └── test_status.py
 │
 └── debian/
+    ├── README.Debian
     ├── changelog
     ├── control
-    ├── rules
+    ├── copyright
     ├── postinst
+    ├── rules
     ├── snarkyctl.install
     ├── snarkyctl.links
     ├── source/
@@ -139,7 +172,10 @@ snarkyctl/
         └── smoke
 ```
 
-The `src/` layout prevents tests and development commands from accidentally importing Python modules directly from the repository root instead of the built package.
+The `src/` layout prevents tests and development commands from accidentally importing
+Python modules directly from the repository root instead of the built package. The
+`scripts/` helpers provide the guarded Debian build and reinstall workflows documented
+under [Build and Deployment Helper Scripts](#build-and-deployment-helper-scripts).
 
 ---
 
