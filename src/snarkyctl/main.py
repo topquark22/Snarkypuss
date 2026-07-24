@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Final, Literal
+from typing import Any, Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -80,6 +80,14 @@ class VpnConnectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     target: TargetAlias
+
+
+class DirectModeRequest(BaseModel):
+    """Explicit acknowledgement required before exposing the VPS public IP."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    confirmation: Literal["EXPOSE VPS IP"]
 
 
 class VpnOperationResponse(BaseModel):
@@ -313,38 +321,109 @@ def create_app(
         active_runtime = _get_runtime(request)
         _authenticate(active_runtime.auth_file, credentials)
         _require_same_origin(request)
-        client = ControlClient(
-            socket_path=active_runtime.control_socket,
-            timeout_seconds=active_runtime.control_timeout_seconds,
+        return _vpn_operation(
+            active_runtime,
+            lambda client: client.connect(connect_request.target),
         )
-        try:
-            response = client.connect(connect_request.target)
-        except ControlClientError as exc:
-            status_code = 504 if exc.code == "DAEMON_TIMEOUT" else 502
-            raise ApiError(status_code, exc.code, str(exc)) from exc
-        if not response.success:
-            error_code = response.error_code or "CONTROL_ERROR"
-            status_code = {
-                "UNKNOWN_TARGET": 404,
-                "OPERATION_IN_PROGRESS": 409,
-                "PROVIDER_TIMEOUT": 504,
-            }.get(error_code, 502)
-            raise ApiError(
-                status_code,
-                error_code,
-                response.message,
-            )
-        if response.vpn_status is None:
-            raise ApiError(502, "INVALID_RESPONSE", "control response has no VPN status")
-        exposed, warning = _exposure(response.vpn_status.gateway_mode)
-        return VpnOperationResponse(
-            message=response.message,
-            vpn_status=response.vpn_status,
-            public_ip_exposed=exposed,
-            exposure_warning=warning,
+
+    @application.post(
+        "/api/v2/mode/protected",
+        response_model=VpnOperationResponse,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def protected_mode(
+        connect_request: VpnConnectRequest,
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> VpnOperationResponse:
+        """Enable leak protection and connect to an approved target."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        _require_same_origin(request)
+        return _vpn_operation(
+            active_runtime,
+            lambda client: client.protected(connect_request.target),
+        )
+
+    @application.post(
+        "/api/v2/mode/locked",
+        response_model=VpnOperationResponse,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def locked_mode(
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> VpnOperationResponse:
+        """Enable leak protection and disconnect the upstream VPN."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        _require_same_origin(request)
+        return _vpn_operation(active_runtime, lambda client: client.lock())
+
+    @application.post(
+        "/api/v2/mode/direct",
+        response_model=VpnOperationResponse,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def direct_mode(
+        direct_request: DirectModeRequest,
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> VpnOperationResponse:
+        """Disable leak protection and expose the VPS public connection."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        _require_same_origin(request)
+        return _vpn_operation(
+            active_runtime,
+            lambda client: client.direct(direct_request.confirmation),
         )
 
     return application
+
+
+_OPERATION_ERROR_RESPONSES: Final[dict[int | str, dict[str, Any]]] = {
+    400: {"model": ErrorResponse},
+    401: {"model": ErrorResponse},
+    403: {"model": ErrorResponse},
+    404: {"model": ErrorResponse},
+    409: {"model": ErrorResponse},
+    415: {"model": ErrorResponse},
+    502: {"model": ErrorResponse},
+    504: {"model": ErrorResponse},
+}
+
+
+def _vpn_operation(
+    runtime: WebRuntime,
+    operation: Callable[[ControlClient], ControlResponse],
+) -> VpnOperationResponse:
+    client = ControlClient(
+        socket_path=runtime.control_socket,
+        timeout_seconds=runtime.control_timeout_seconds,
+    )
+    try:
+        response = operation(client)
+    except ControlClientError as exc:
+        status_code = 504 if exc.code == "DAEMON_TIMEOUT" else 502
+        raise ApiError(status_code, exc.code, str(exc)) from exc
+    if not response.success:
+        error_code = response.error_code or "CONTROL_ERROR"
+        status_code = {
+            "UNKNOWN_TARGET": 404,
+            "OPERATION_IN_PROGRESS": 409,
+            "PROVIDER_TIMEOUT": 504,
+        }.get(error_code, 502)
+        raise ApiError(status_code, error_code, response.message)
+    if response.vpn_status is None:
+        raise ApiError(502, "INVALID_RESPONSE", "control response has no VPN status")
+    exposed, warning = _exposure(response.vpn_status.gateway_mode)
+    return VpnOperationResponse(
+        message=response.message,
+        vpn_status=response.vpn_status,
+        public_ip_exposed=exposed,
+        exposure_warning=warning,
+    )
 
 
 def _require_same_origin(request: Request) -> None:
@@ -354,6 +433,14 @@ def _require_same_origin(request: Request) -> None:
             403,
             "CROSS_ORIGIN_REQUEST",
             f"state-changing requests require {REQUEST_MARKER_HEADER}: {REQUEST_MARKER_VALUE}",
+        )
+
+    media_type = request.headers.get("Content-Type", "").partition(";")[0].strip().lower()
+    if media_type != "application/json":
+        raise ApiError(
+            415,
+            "INVALID_CONTENT_TYPE",
+            "state-changing requests require Content-Type: application/json",
         )
 
     fetch_site = request.headers.get("Sec-Fetch-Site")

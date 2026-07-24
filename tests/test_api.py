@@ -145,6 +145,11 @@ def test_dashboard_has_provider_neutral_controls_and_external_assets(
     assert 'id="vpn-target"' in response.text
     assert 'id="vpn-connect"' in response.text
     assert "Connect / switch" in response.text
+    assert 'class="danger-zone"' in response.text
+    assert 'id="mode-protected"' in response.text
+    assert 'id="mode-locked"' in response.text
+    assert 'id="mode-direct"' in response.text
+    assert "EXPOSE VPS IP" in response.text
     assert "provider_target" not in response.text
     assert "<form" not in response.text
     assert 'src="/static/dashboard.js"' in response.text
@@ -182,9 +187,13 @@ def test_dashboard_script_uses_target_alias_api_only(tmp_path: Path) -> None:
     assert 'fetch("/api/v2/vpn/connect"' in response.text
     assert "JSON.stringify({ target })" in response.text
     assert '"X-SnarkyCtl-Request": "1"' in response.text
+    assert '"/api/v2/mode/protected"' in response.text
+    assert '"/api/v2/mode/locked"' in response.text
+    assert '"/api/v2/mode/direct"' in response.text
     assert 'placeholder.textContent = "Select a target…"' in response.text
     assert "targetSelect.value = currentTarget" in response.text
     assert "capabilities?.target_selection" in response.text
+    assert "capabilities?.leak_protection_configuration" in response.text
     assert "provider_target" not in response.text
 
 
@@ -423,6 +432,7 @@ def test_target_catalogue_is_provider_neutral(
                 disconnect=True,
                 target_selection=True,
                 server_details=True,
+                leak_protection_configuration=True,
             ),
             targets=(
                 VpnTargetSummary(alias="dallas", label="Dallas, United States"),
@@ -447,6 +457,7 @@ def test_target_catalogue_is_provider_neutral(
             "disconnect": True,
             "target_selection": True,
             "server_details": True,
+            "leak_protection_configuration": True,
         },
         "targets": [
             {"alias": "dallas", "label": "Dallas, United States"},
@@ -780,6 +791,128 @@ def test_connect_transport_timeout_returns_gateway_timeout(
 
     assert response.status_code == 504
     assert response.json()["error"]["code"] == "DAEMON_TIMEOUT"
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "body", "mode", "exposed"),
+    [
+        (
+            "/api/v2/mode/protected",
+            "protected",
+            {"target": "dallas"},
+            GatewayMode.VPN,
+            False,
+        ),
+        (
+            "/api/v2/mode/locked",
+            "lock",
+            {},
+            GatewayMode.LOCKED,
+            False,
+        ),
+        (
+            "/api/v2/mode/direct",
+            "direct",
+            {"confirmation": "EXPOSE VPS IP"},
+            GatewayMode.DIRECT,
+            True,
+        ),
+    ],
+)
+def test_gateway_mode_endpoints_return_exposure_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    method: str,
+    body: dict[str, str],
+    mode: GatewayMode,
+    exposed: bool,
+) -> None:
+    received: list[tuple[object, ...]] = []
+
+    def operation(_self: object, *arguments: object) -> ControlResponse:
+        received.append(arguments)
+        return ControlResponse(
+            request_id=REQUEST_ID,
+            success=True,
+            message=f"{mode.value} enabled.",
+            vpn_status=VpnStatus(
+                state=(
+                    VpnState.CONNECTED
+                    if mode is GatewayMode.VPN
+                    else VpnState.DISCONNECTED
+                ),
+                provider="fake",
+                gateway_mode=mode,
+                leak_protection_active=mode is not GatewayMode.DIRECT,
+                target="dallas" if mode is GatewayMode.VPN else None,
+            ),
+        )
+
+    monkeypatch.setattr(f"snarkyctl.main.ControlClient.{method}", operation)
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path=path,
+        json=body,
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["vpn_status"]["gateway_mode"] == mode.value
+    assert response.json()["public_ip_exposed"] is exposed
+    assert received
+
+
+def test_direct_mode_requires_exact_confirmation_before_daemon_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden(_self: object, _confirmation: str) -> ControlResponse:
+        raise AssertionError("invalid confirmation must not reach the daemon")
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.direct", forbidden)
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/mode/direct",
+        json={"confirmation": "yes"},
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_mode_endpoint_requires_same_origin_marker(tmp_path: Path) -> None:
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/mode/locked",
+        json={},
+        auth=("admin", "secret"),
+        headers={},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "CROSS_ORIGIN_REQUEST"
+
+
+def test_bodyless_mode_endpoint_still_requires_json_content_type(
+    tmp_path: Path,
+) -> None:
+    response = request(
+        create_app(make_runtime(tmp_path)),
+        method="POST",
+        path="/api/v2/mode/locked",
+        auth=("admin", "secret"),
+        headers={
+            "Origin": "https://test",
+            "Sec-Fetch-Site": "same-origin",
+            "X-SnarkyCtl-Request": "1",
+        },
+    )
+
+    assert response.status_code == 415
+    assert response.json()["error"]["code"] == "INVALID_CONTENT_TYPE"
 
 
 def test_daemon_failure_is_structured(

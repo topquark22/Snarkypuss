@@ -152,6 +152,27 @@ def test_nordvpn_disconnect_then_reads_status() -> None:
     assert calls == [("disconnect",), ("status",)]
 
 
+@pytest.mark.parametrize(("enabled", "value"), [(True, "on"), (False, "off")])
+def test_nordvpn_configures_kill_switch(enabled: bool, value: str) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
+        args = tuple(arguments)  # type: ignore[arg-type]
+        calls.append(args)
+        output = (
+            f"Kill Switch: {'enabled' if enabled else 'disabled'}\n"
+            "Firewall: enabled\n"
+            if args == ("settings",)
+            else "Setting updated\n"
+        )
+        return CommandResult(0, output, "")
+
+    settings = NordVpnProvider(runner=runner).set_leak_protection(enabled)
+
+    assert calls == [("set", "killswitch", value), ("settings",)]
+    assert settings.leak_protection_enabled is enabled
+
+
 def test_nordvpn_rejects_option_like_target() -> None:
     invalid = VpnTarget(alias="bad", label="Bad", provider_target="--group Double_VPN")
     with pytest.raises(ProviderError) as error:

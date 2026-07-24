@@ -25,12 +25,6 @@ type TargetAlias = Annotated[
     str,
     StringConstraints(pattern=r"^[a-z][a-z0-9_-]{0,31}$"),
 ]
-type ConfirmationToken = Annotated[
-    str,
-    StringConstraints(min_length=16, max_length=128),
-]
-
-
 class ProtocolError(ValueError):
     """Raised when a control-protocol message is invalid."""
 
@@ -41,6 +35,7 @@ class Operation(StrEnum):
     STATUS = "STATUS"
     TARGETS = "TARGETS"
     LOCK = "LOCK"
+    PROTECTED = "PROTECTED"
     CONNECT = "CONNECT"
     DISCONNECT = "DISCONNECT"
     DIRECT = "DIRECT"
@@ -65,6 +60,11 @@ class LockRequest(_RequestBase):
     operation: Literal[Operation.LOCK]
 
 
+class ProtectedRequest(_RequestBase):
+    operation: Literal[Operation.PROTECTED]
+    target: TargetAlias
+
+
 class ConnectRequest(_RequestBase):
     operation: Literal[Operation.CONNECT]
     target: TargetAlias
@@ -76,13 +76,14 @@ class DisconnectRequest(_RequestBase):
 
 class DirectRequest(_RequestBase):
     operation: Literal[Operation.DIRECT]
-    confirmation_token: ConfirmationToken
+    confirmation_token: Literal["EXPOSE VPS IP"]
 
 
 type ControlRequest = Annotated[
     StatusRequest
     | TargetsRequest
     | LockRequest
+    | ProtectedRequest
     | ConnectRequest
     | DisconnectRequest
     | DirectRequest,

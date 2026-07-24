@@ -103,6 +103,51 @@
         </div>
       </section>
 
+      <details class="danger-zone">
+        <summary>
+          <span>
+            <strong>Advanced gateway modes</strong>
+            <small>Danger zone</small>
+          </span>
+        </summary>
+        <div class="danger-zone-content">
+          <p class="danger-zone-warning">
+            Direct VPS mode exposes the VPS public IP. These controls change both leak
+            protection and the upstream VPN connection.
+          </p>
+          <div class="mode-options">
+            <article class="mode-option">
+              <h2>Protected VPN</h2>
+              <p>Enable leak protection, then connect using the selected approved target.</p>
+              <button id="mode-protected" type="button" disabled>Enable Protected VPN</button>
+            </article>
+            <article class="mode-option">
+              <h2>Locked</h2>
+              <p>Enable leak protection, then disconnect the VPN and block public forwarding.</p>
+              <button id="mode-locked" type="button" disabled>Enable Locked mode</button>
+            </article>
+            <article class="mode-option mode-option-direct">
+              <h2>Direct VPS</h2>
+              <p>Disable leak protection and disconnect the VPN, exposing the VPS public IP.</p>
+              <label for="direct-confirmation">
+                Type <code>EXPOSE VPS IP</code> to confirm
+              </label>
+              <input
+                id="direct-confirmation"
+                name="direct-confirmation"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+              >
+              <button id="mode-direct" type="button" disabled>Enable Direct VPS</button>
+            </article>
+          </div>
+          <p id="mode-control-message" class="control-message" role="status" aria-live="polite">
+            Advanced controls are disabled until provider capabilities are loaded.
+          </p>
+        </div>
+      </details>
+
       <section class="local-status" aria-label="Local gateway status">
         <article class="status-card">
           <p class="eyebrow">Local service</p>

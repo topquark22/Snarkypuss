@@ -13,8 +13,10 @@ from snarkyctl.control.protocol import (
     PROTOCOL_VERSION,
     ConnectRequest,
     ControlResponse,
+    DirectRequest,
     Operation,
     ProtocolError,
+    ProtectedRequest,
     StatusRequest,
     TargetsRequest,
     encode_message,
@@ -65,12 +67,24 @@ def test_parse_connect_request_with_approved_alias_shape() -> None:
     assert request.target == "dallas"
 
 
+def test_parse_protected_and_confirmed_direct_requests() -> None:
+    protected = parse_request(request_bytes("PROTECTED", target="dallas"))
+    direct = parse_request(
+        request_bytes("DIRECT", confirmation_token="EXPOSE VPS IP")
+    )
+
+    assert isinstance(protected, ProtectedRequest)
+    assert protected.target == "dallas"
+    assert isinstance(direct, DirectRequest)
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         request_bytes("SHELL", command="id"),
         request_bytes("CONNECT", target="Dallas, United States"),
         request_bytes("CONNECT", target="../../bin/sh"),
+        request_bytes("DIRECT", confirmation_token="yes"),
         request_bytes("STATUS", unexpected=True),
         request_bytes("STATUS").replace(b'"version": 2', b'"version": 1'),
         b"[]",

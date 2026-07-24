@@ -175,4 +175,15 @@ exception in place if the fail-closed test shows that it permits direct public f
 
 Missing or non-executable binaries, permission errors, timeouts, excessive output, nonzero exit status, unsafe configured targets, and unrecognized status output are returned as stable `ProviderError` codes. Raw stderr is not exposed to the browser.
 
-The privileged control daemon dispatches `STATUS`, `CONNECT`, and guarded `DISCONNECT` to this adapter. It resolves aliases against the root-owned target allowlist before calling `connect`; an unknown alias never reaches NordVPN. It reports `VPN` when connected, `LOCKED` when disconnected with verified leak protection, `DIRECT` when disconnected with verified-disabled leak protection, and `UNKNOWN` otherwise. `DIRECT` remains unavailable as an intentional operation.
+The privileged control daemon dispatches status, connection, and gateway-mode operations
+to this adapter. It resolves aliases against the root-owned target allowlist before
+calling `connect`; an unknown alias never reaches NordVPN. For mode transitions, the
+adapter maps provider-neutral leak protection to
+`nordvpn set killswitch on|off`. Protected mode enables the Kill Switch before connecting;
+Locked mode enables it before disconnecting; Direct VPS mode disables it before
+disconnecting and requires explicit confirmation. If Direct mode fails after disabling
+the Kill Switch, the daemon attempts to turn it back on.
+
+The resulting observed modes are `VPN` when connected, `LOCKED` when disconnected with
+verified leak protection, `DIRECT` when disconnected with verified-disabled leak
+protection, and `UNKNOWN` otherwise.

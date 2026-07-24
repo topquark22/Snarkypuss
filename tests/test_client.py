@@ -77,6 +77,32 @@ def test_targets_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert request.operation is Operation.TARGETS
 
 
+@pytest.mark.parametrize(
+    ("method", "arguments", "operation"),
+    [
+        ("protected", ("dallas",), Operation.PROTECTED),
+        ("lock", (), Operation.LOCK),
+        ("direct", ("EXPOSE VPS IP",), Operation.DIRECT),
+    ],
+)
+def test_mode_operation_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    arguments: tuple[str, ...],
+    operation: Operation,
+) -> None:
+    fake = FakeSocket(
+        ControlResponse(request_id=REQUEST_ID, success=True, message="ok")
+    )
+    monkeypatch.setattr("snarkyctl.control.client.uuid4", lambda: REQUEST_ID)
+    monkeypatch.setattr(socket, "socket", lambda *_args: fake)
+
+    getattr(ControlClient(), method)(*arguments)
+
+    request = parse_request(fake.sent[4:])
+    assert request.operation is operation
+
+
 def test_mismatched_response_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     fake = FakeSocket(
         ControlResponse(

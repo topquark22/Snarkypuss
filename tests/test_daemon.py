@@ -16,10 +16,12 @@ from snarkyctl.control.daemon import ActivationError
 from snarkyctl.control.protocol import (
     ConnectRequest,
     ControlResponse,
+    DirectRequest,
     DisconnectRequest,
     LockRequest,
     Operation,
     PROTOCOL_VERSION,
+    ProtectedRequest,
     StatusRequest,
     TargetsRequest,
     encode_message,
@@ -43,11 +45,16 @@ REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
 class FakeProvider(VpnProvider):
     name = "fake"
     capabilities = ProviderCapabilities(
-        connect=True, disconnect=True, target_selection=True, server_details=True
+        connect=True,
+        disconnect=True,
+        target_selection=True,
+        server_details=True,
+        leak_protection_configuration=True,
     )
 
     def __init__(self) -> None:
         self.connected_target: VpnTarget | None = None
+        self.protection_enabled = True
 
     def status(self) -> VpnStatus:
         state = VpnState.CONNECTED if self.connected_target else VpnState.DISCONNECTED
@@ -56,7 +63,7 @@ class FakeProvider(VpnProvider):
     def settings(self) -> VpnSettings:
         return VpnSettings(
             provider="fake",
-            leak_protection_enabled=True,
+            leak_protection_enabled=self.protection_enabled,
             firewall_enabled=True,
         )
 
@@ -67,6 +74,10 @@ class FakeProvider(VpnProvider):
     def disconnect(self) -> VpnStatus:
         self.connected_target = None
         return VpnStatus(state=VpnState.DISCONNECTED, provider="fake")
+
+    def set_leak_protection(self, enabled: bool) -> VpnSettings:
+        self.protection_enabled = enabled
+        return self.settings()
 
 
 def control_service(
@@ -434,13 +445,98 @@ def test_control_service_refuses_unsafe_disconnect() -> None:
     assert response.error_code == "UNSAFE_DISCONNECT"
 
 
-def test_policy_operations_remain_unavailable() -> None:
+def test_protected_mode_enables_protection_before_connecting() -> None:
+    calls: list[str] = []
+
+    class RecordingProvider(FakeProvider):
+        def set_leak_protection(self, enabled: bool) -> VpnSettings:
+            calls.append(f"protection:{enabled}")
+            return super().set_leak_protection(enabled)
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            calls.append("connect")
+            return super().connect(target)
+
+    request = ProtectedRequest(
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.PROTECTED,
+        target="dallas",
+    )
+    response = control_service(RecordingProvider()).dispatch(request)
+
+    assert response.success
+    assert calls == ["protection:True", "connect"]
+    assert response.vpn_status is not None
+    assert response.vpn_status.gateway_mode is GatewayMode.VPN
+
+
+def test_locked_mode_enables_protection_before_disconnecting() -> None:
+    calls: list[str] = []
+
+    class RecordingProvider(FakeProvider):
+        def set_leak_protection(self, enabled: bool) -> VpnSettings:
+            calls.append(f"protection:{enabled}")
+            return super().set_leak_protection(enabled)
+
+        def disconnect(self) -> VpnStatus:
+            calls.append("disconnect")
+            return super().disconnect()
+
     request = LockRequest(
         version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.LOCK
     )
-    response = control_service().dispatch(request)
-    assert not response.success
-    assert response.error_code == "NOT_IMPLEMENTED"
+    response = control_service(RecordingProvider()).dispatch(request)
+
+    assert response.success
+    assert calls == ["protection:True", "disconnect"]
+    assert response.vpn_status is not None
+    assert response.vpn_status.gateway_mode is GatewayMode.LOCKED
+
+
+def test_direct_mode_disables_protection_before_disconnecting() -> None:
+    calls: list[str] = []
+
+    class RecordingProvider(FakeProvider):
+        def set_leak_protection(self, enabled: bool) -> VpnSettings:
+            calls.append(f"protection:{enabled}")
+            return super().set_leak_protection(enabled)
+
+        def disconnect(self) -> VpnStatus:
+            calls.append("disconnect")
+            return super().disconnect()
+
+    request = DirectRequest(
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.DIRECT,
+        confirmation_token="EXPOSE VPS IP",
+    )
+    response = control_service(RecordingProvider()).dispatch(request)
+
+    assert response.success
+    assert calls == ["protection:False", "disconnect"]
+    assert response.vpn_status is not None
+    assert response.vpn_status.gateway_mode is GatewayMode.DIRECT
+
+
+def test_direct_mode_restores_protection_when_disconnect_fails() -> None:
+    class FailingProvider(FakeProvider):
+        def disconnect(self) -> VpnStatus:
+            raise ProviderError("PROVIDER_COMMAND_FAILED", "disconnect failed")
+
+    provider = FailingProvider()
+    request = DirectRequest(
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.DIRECT,
+        confirmation_token="EXPOSE VPS IP",
+    )
+
+    with pytest.raises(ProviderError, match="disconnect failed"):
+        control_service(provider).dispatch(request)
+
+    assert provider.protection_enabled
 
 
 def test_unauthorized_peer_is_rejected() -> None:

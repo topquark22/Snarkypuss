@@ -184,6 +184,7 @@ class NordVpnProvider(VpnProvider):
         disconnect=True,
         target_selection=True,
         server_details=True,
+        leak_protection_configuration=True,
     )
 
     def __init__(
@@ -229,3 +230,7 @@ class NordVpnProvider(VpnProvider):
     def disconnect(self) -> VpnStatus:
         self._run("disconnect")
         return self.status()
+
+    def set_leak_protection(self, enabled: bool) -> VpnSettings:
+        self._run("set", "killswitch", "on" if enabled else "off")
+        return self.settings()

@@ -12,8 +12,14 @@
   const targetSelect = document.querySelector("#vpn-target");
   const connectButton = document.querySelector("#vpn-connect");
   const controlMessage = document.querySelector("#vpn-control-message");
+  const protectedButton = document.querySelector("#mode-protected");
+  const lockedButton = document.querySelector("#mode-locked");
+  const directButton = document.querySelector("#mode-direct");
+  const directConfirmation = document.querySelector("#direct-confirmation");
+  const modeControlMessage = document.querySelector("#mode-control-message");
 
   let catalogueAvailable = false;
+  let modeControlsAvailable = false;
   let operationInProgress = false;
   let currentTarget = null;
 
@@ -92,12 +98,38 @@
     }
   }
 
+  function setModeControlMessage(message, state = "") {
+    modeControlMessage.textContent = message;
+    if (state) {
+      modeControlMessage.dataset.state = state;
+    } else {
+      delete modeControlMessage.dataset.state;
+    }
+  }
+
   function syncTargetControl() {
     const selectedTarget = targetSelect.value;
     targetSelect.disabled = !catalogueAvailable || operationInProgress;
     connectButton.disabled = !catalogueAvailable || operationInProgress || !selectedTarget;
     connectButton.textContent =
       selectedTarget && selectedTarget === currentTarget ? "Reconnect" : "Connect / switch";
+  }
+
+  function syncModeControls() {
+    const selectedTarget = targetSelect.value;
+    protectedButton.disabled =
+      !modeControlsAvailable || operationInProgress || !selectedTarget;
+    lockedButton.disabled = !modeControlsAvailable || operationInProgress;
+    directConfirmation.disabled = !modeControlsAvailable || operationInProgress;
+    directButton.disabled =
+      !modeControlsAvailable ||
+      operationInProgress ||
+      directConfirmation.value !== "EXPOSE VPS IP";
+  }
+
+  function syncControls() {
+    syncTargetControl();
+    syncModeControls();
   }
 
   function applyStatus(payload) {
@@ -118,7 +150,7 @@
     if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
       targetSelect.value = currentTarget;
     }
-    syncTargetControl();
+    syncControls();
 
     fields.dnsService.textContent = display(payload.dns?.service);
     fields.dnsState.textContent = payload.dns
@@ -200,6 +232,9 @@
         payload.capabilities?.connect === true &&
         payload.capabilities?.target_selection === true &&
         targetSelect.options.length > 1;
+      modeControlsAvailable =
+        payload.capabilities?.disconnect === true &&
+        payload.capabilities?.leak_protection_configuration === true;
 
       if (!catalogueAvailable) {
         const option = document.createElement("option");
@@ -213,8 +248,14 @@
         }
         setControlMessage(`${targetSelect.options.length - 1} approved target(s) available.`);
       }
+      setModeControlMessage(
+        modeControlsAvailable
+          ? "Choose a mode. Direct VPS requires explicit confirmation."
+          : "The configured provider cannot change leak-protection policy.",
+      );
     } catch (error) {
       catalogueAvailable = false;
+      modeControlsAvailable = false;
       targetSelect.replaceChildren();
       const option = document.createElement("option");
       option.value = "";
@@ -224,8 +265,9 @@
         error instanceof Error ? error.message : "Target catalogue request failed.",
         "error",
       );
+      setModeControlMessage("Advanced gateway modes are unavailable.", "error");
     }
-    syncTargetControl();
+    syncControls();
   }
 
   async function connectSelectedTarget() {
@@ -236,7 +278,7 @@
 
     operationInProgress = true;
     setControlMessage("Requesting VPN connection…");
-    syncTargetControl();
+    syncControls();
     try {
       const response = await fetch("/api/v2/vpn/connect", {
         method: "POST",
@@ -264,8 +306,74 @@
       );
     } finally {
       operationInProgress = false;
-      syncTargetControl();
+      syncControls();
     }
+  }
+
+  async function requestMode(path, body, pendingMessage) {
+    if (!modeControlsAvailable || operationInProgress) {
+      return;
+    }
+
+    operationInProgress = true;
+    setModeControlMessage(pendingMessage);
+    syncControls();
+    try {
+      const response = await fetch(path, {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-SnarkyCtl-Request": "1",
+        },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message || `Mode request failed (${response.status})`);
+      }
+      currentTarget = payload.vpn_status?.target || currentTarget;
+      setModeControlMessage(payload.message || "Gateway mode changed.", "success");
+      directConfirmation.value = "";
+      await refresh();
+    } catch (error) {
+      setModeControlMessage(
+        error instanceof Error ? error.message : "Gateway mode request failed.",
+        "error",
+      );
+    } finally {
+      operationInProgress = false;
+      syncControls();
+    }
+  }
+
+  function enableProtectedMode() {
+    const target = targetSelect.value;
+    if (!target) {
+      return;
+    }
+    requestMode(
+      "/api/v2/mode/protected",
+      { target },
+      "Enabling leak protection and connecting…",
+    );
+  }
+
+  function enableLockedMode() {
+    requestMode("/api/v2/mode/locked", {}, "Enabling leak protection and disconnecting…");
+  }
+
+  function enableDirectMode() {
+    if (directConfirmation.value !== "EXPOSE VPS IP") {
+      return;
+    }
+    requestMode(
+      "/api/v2/mode/direct",
+      { confirmation: directConfirmation.value },
+      "Disabling leak protection and disconnecting…",
+    );
   }
 
   async function refresh() {
@@ -285,8 +393,12 @@
     }
   }
 
-  targetSelect.addEventListener("change", syncTargetControl);
+  targetSelect.addEventListener("change", syncControls);
   connectButton.addEventListener("click", connectSelectedTarget);
+  protectedButton.addEventListener("click", enableProtectedMode);
+  lockedButton.addEventListener("click", enableLockedMode);
+  directConfirmation.addEventListener("input", syncModeControls);
+  directButton.addEventListener("click", enableDirectMode);
   refresh();
   loadTargets();
   window.setInterval(refresh, 5000);

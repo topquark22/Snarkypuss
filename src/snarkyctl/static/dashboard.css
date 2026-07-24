@@ -93,6 +93,7 @@ footer {
 .mode-panel,
 .details-panel,
 .vpn-control-panel,
+.danger-zone,
 .status-card {
   border: 1px solid #233b35;
   border-radius: 24px;
@@ -242,6 +243,145 @@ h2 {
 
 .control-message[data-state="success"] {
   color: #61ddb8;
+}
+
+.danger-zone {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border-color: #653536;
+  background: rgb(39 15 16 / 88%);
+}
+
+.danger-zone summary {
+  display: flex;
+  align-items: center;
+  padding: 22px 28px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.danger-zone summary::before {
+  content: "▶";
+  color: #ff7772;
+  font-size: 0.75rem;
+  transition: transform 150ms ease;
+}
+
+.danger-zone[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.danger-zone summary span {
+  display: inline-flex;
+  gap: 12px;
+  align-items: baseline;
+  margin-left: 8px;
+}
+
+.danger-zone summary strong {
+  color: #ffd7d5;
+}
+
+.danger-zone summary small {
+  color: #ff7772;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.danger-zone-content {
+  border-top: 1px solid #653536;
+  padding: 28px;
+}
+
+.danger-zone-warning {
+  margin: 0 0 22px;
+  border-left: 4px solid #ef5350;
+  background: #3a1112;
+  color: #ffd7d5;
+  padding: 14px 16px;
+  line-height: 1.55;
+}
+
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.mode-option {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  border: 1px solid #5b3b3b;
+  border-radius: 16px;
+  background: #1b1212;
+  padding: 20px;
+}
+
+.mode-option h2 {
+  font-size: 1.15rem;
+}
+
+.mode-option p {
+  flex: 1;
+  color: #bda9a8;
+  line-height: 1.5;
+}
+
+.mode-option label {
+  margin-bottom: 7px;
+  color: #d5b7b5;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.mode-option code {
+  color: #ff9c98;
+}
+
+.mode-option input,
+.mode-option button {
+  min-height: 44px;
+  border: 1px solid #704344;
+  border-radius: 10px;
+  font: inherit;
+}
+
+.mode-option input {
+  margin-bottom: 10px;
+  background: #110c0c;
+  color: #fff0ef;
+  padding: 0 12px;
+}
+
+.mode-option button {
+  background: #493030;
+  color: #ffe4e2;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0 14px;
+}
+
+.mode-option button:hover:not(:disabled) {
+  background: #674041;
+}
+
+.mode-option-direct {
+  border-color: #a83e3c;
+  background: #2e1112;
+}
+
+.mode-option-direct button {
+  background: #b93633;
+  color: white;
+}
+
+.mode-option button:disabled,
+.mode-option input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .local-status {
@@ -407,6 +547,10 @@ footer {
   }
 
   .target-action {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-options {
     grid-template-columns: 1fr;
   }
 

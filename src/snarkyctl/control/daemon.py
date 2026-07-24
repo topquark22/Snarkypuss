@@ -22,6 +22,7 @@ from snarkyctl.control.protocol import (
     DisconnectRequest,
     LockRequest,
     ProtocolError,
+    ProtectedRequest,
     StatusRequest,
     TargetsRequest,
     encode_message,
@@ -97,7 +98,10 @@ class ControlService:
 
     def dispatch(self, request: ControlRequest) -> ControlResponse:
         """Execute one already validated request."""
-        if not isinstance(request, (ConnectRequest, DisconnectRequest)):
+        if not isinstance(
+            request,
+            (ConnectRequest, DisconnectRequest, ProtectedRequest, LockRequest, DirectRequest),
+        ):
             return self._dispatch_unlocked(request)
         if not self._operation_lock.acquire(blocking=False):
             return ControlResponse(
@@ -192,6 +196,38 @@ class ControlService:
                     partial_failures=failures,
                 ),
             )
+        if isinstance(request, ProtectedRequest):
+            try:
+                target = self._targets[request.target]
+            except KeyError:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNKNOWN_TARGET",
+                    message="The requested target alias is not configured.",
+                )
+            self._require_protection_configuration()
+            settings = self._provider.set_leak_protection(True)
+            if settings.leak_protection_enabled is not True:
+                raise ProviderError(
+                    "PROTECTION_NOT_ENABLED",
+                    "Provider did not confirm that leak protection is enabled.",
+                )
+            status = self._provider.connect(target)
+            status = status.model_copy(update={"target": target.alias})
+            self._current_target_alias = target.alias
+            status = self._with_gateway_mode(status, self._provider.settings())
+            if status.gateway_mode is not GatewayMode.VPN:
+                raise ProviderError(
+                    "MODE_TRANSITION_FAILED",
+                    "Provider did not reach protected VPN mode.",
+                )
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message=f"Protected VPN mode enabled using target alias {target.alias}.",
+                vpn_status=status,
+            )
         if isinstance(request, ConnectRequest):
             try:
                 target = self._targets[request.target]
@@ -240,14 +276,68 @@ class ControlService:
                 message="Upstream VPN disconnected.",
                 vpn_status=status,
             )
-        if isinstance(request, (LockRequest, DirectRequest)):
+        if isinstance(request, LockRequest):
+            self._require_protection_configuration()
+            settings = self._provider.set_leak_protection(True)
+            if settings.leak_protection_enabled is not True:
+                raise ProviderError(
+                    "PROTECTION_NOT_ENABLED",
+                    "Provider did not confirm that leak protection is enabled.",
+                )
+            status = self._provider.disconnect()
+            self._current_target_alias = None
+            status = self._with_gateway_mode(status, self._provider.settings())
+            if status.gateway_mode is not GatewayMode.LOCKED:
+                raise ProviderError(
+                    "MODE_TRANSITION_FAILED",
+                    "Provider did not reach Locked mode.",
+                )
             return ControlResponse(
                 request_id=request.request_id,
-                success=False,
-                error_code="NOT_IMPLEMENTED",
-                message="This policy operation is not implemented yet.",
+                success=True,
+                message="Locked mode enabled; public forwarding is protected.",
+                vpn_status=status,
+            )
+        if isinstance(request, DirectRequest):
+            self._require_protection_configuration()
+            try:
+                settings = self._provider.set_leak_protection(False)
+                if settings.leak_protection_enabled is not False:
+                    raise ProviderError(
+                        "PROTECTION_NOT_DISABLED",
+                        "Provider did not confirm that leak protection is disabled.",
+                    )
+                status = self._provider.disconnect()
+                self._current_target_alias = None
+                status = self._with_gateway_mode(status, self._provider.settings())
+                if status.gateway_mode is not GatewayMode.DIRECT:
+                    raise ProviderError(
+                        "MODE_TRANSITION_FAILED",
+                        "Provider did not reach Direct VPS mode.",
+                    )
+            except ProviderError:
+                self._restore_leak_protection()
+                raise
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Direct VPS mode enabled; the VPS public IP is exposed.",
+                vpn_status=status,
             )
         raise AssertionError("unreachable validated control request")
+
+    def _require_protection_configuration(self) -> None:
+        if not self._provider.capabilities.leak_protection_configuration:
+            raise ProviderError(
+                "UNSUPPORTED_OPERATION",
+                f"{self._provider.name} cannot configure leak protection.",
+            )
+
+    def _restore_leak_protection(self) -> None:
+        try:
+            self._provider.set_leak_protection(True)
+        except ProviderError:
+            LOGGER.exception("failed to restore provider leak protection")
 
     @staticmethod
     def _with_gateway_mode(

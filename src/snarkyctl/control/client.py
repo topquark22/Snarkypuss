@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from snarkyctl.control.protocol import (
@@ -12,8 +13,11 @@ from snarkyctl.control.protocol import (
     ControlRequest,
     ControlResponse,
     DisconnectRequest,
+    DirectRequest,
+    LockRequest,
     Operation,
     ProtocolError,
+    ProtectedRequest,
     StatusRequest,
     TargetsRequest,
     encode_message,
@@ -78,6 +82,38 @@ class ControlClient:
                 version=PROTOCOL_VERSION,
                 request_id=uuid4(),
                 operation=Operation.DISCONNECT,
+            )
+        )
+
+    def protected(self, target: str) -> ControlResponse:
+        """Enable protection and connect to a configured target."""
+        return self.request(
+            ProtectedRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.PROTECTED,
+                target=target,
+            )
+        )
+
+    def lock(self) -> ControlResponse:
+        """Enable protection and disconnect the upstream VPN."""
+        return self.request(
+            LockRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.LOCK,
+            )
+        )
+
+    def direct(self, confirmation_token: Literal["EXPOSE VPS IP"]) -> ControlResponse:
+        """Disable protection and disconnect after explicit confirmation."""
+        return self.request(
+            DirectRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.DIRECT,
+                confirmation_token=confirmation_token,
             )
         )
 

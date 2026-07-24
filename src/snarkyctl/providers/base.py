@@ -39,6 +39,7 @@ class ProviderCapabilities(BaseModel):
     disconnect: bool
     target_selection: bool
     server_details: bool
+    leak_protection_configuration: bool = False
 
 
 class VpnTarget(BaseModel):
@@ -130,3 +131,11 @@ class VpnProvider(ABC):
     @abstractmethod
     def disconnect(self) -> VpnStatus:
         """Disconnect the upstream VPN and return resulting status."""
+
+    def set_leak_protection(self, enabled: bool) -> VpnSettings:
+        """Enable or disable provider leak protection when supported."""
+        del enabled
+        raise ProviderError(
+            "UNSUPPORTED_OPERATION",
+            f"{self.name} cannot configure leak protection.",
+        )
