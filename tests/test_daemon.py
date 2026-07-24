@@ -16,6 +16,7 @@ from snarkyctl.control.protocol import (
     DisconnectRequest,
     LockRequest,
     Operation,
+    PROTOCOL_VERSION,
     StatusRequest,
     encode_message,
     receive_frame,
@@ -68,7 +69,11 @@ def control_service(provider: VpnProvider | None = None) -> daemon.ControlServic
         alias="dallas", label="Dallas, United States", provider_target="us9167"
     )
     config = SimpleNamespace(targets=SimpleNamespace(targets=(configured_target,)))
-    return daemon.ControlService(config, provider or FakeProvider())  # type: ignore[arg-type]
+    return daemon.ControlService(  # type: ignore[arg-type]
+        config,
+        provider or FakeProvider(),
+        local_collector=lambda: (None, None, []),
+    )
 
 
 def test_daemon_refuses_non_socket_activated_start(
@@ -151,7 +156,9 @@ def test_peer_credentials_report_current_process() -> None:
 
 def test_valid_status_request_is_dispatched() -> None:
     server, client = socket.socketpair()
-    request = StatusRequest(version=1, request_id=REQUEST_ID, operation=Operation.STATUS)
+    request = StatusRequest(
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.STATUS
+    )
     try:
         client.sendall(encode_message(request))
         daemon.handle_connection(server, frozenset({os.getuid()}), control_service())
@@ -162,16 +169,20 @@ def test_valid_status_request_is_dispatched() -> None:
 
     assert response.request_id == REQUEST_ID
     assert response.success is True
-    assert response.vpn_status is not None
-    assert response.vpn_status.state is VpnState.DISCONNECTED
-    assert response.vpn_status.gateway_mode is GatewayMode.LOCKED
+    assert response.gateway_status is not None
+    assert response.gateway_status.vpn_status is not None
+    assert response.gateway_status.vpn_status.state is VpnState.DISCONNECTED
+    assert response.gateway_status.vpn_status.gateway_mode is GatewayMode.LOCKED
 
 
 def test_control_service_connects_only_configured_alias() -> None:
     provider = FakeProvider()
     service = control_service(provider)
     request = ConnectRequest(
-        version=1, request_id=REQUEST_ID, operation=Operation.CONNECT, target="dallas"
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.CONNECT,
+        target="dallas",
     )
     response = service.dispatch(request)
     assert response.success
@@ -183,7 +194,10 @@ def test_control_service_rejects_unknown_alias_without_provider_call() -> None:
     provider = FakeProvider()
     service = control_service(provider)
     request = ConnectRequest(
-        version=1, request_id=REQUEST_ID, operation=Operation.CONNECT, target="unknown"
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.CONNECT,
+        target="unknown",
     )
     response = service.dispatch(request)
     assert not response.success
@@ -197,7 +211,7 @@ def test_control_service_disconnects_provider() -> None:
         alias="dallas", label="Dallas", provider_target="us9167"
     )
     request = DisconnectRequest(
-        version=1, request_id=REQUEST_ID, operation=Operation.DISCONNECT
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.DISCONNECT
     )
     response = control_service(provider).dispatch(request)
     assert response.success
@@ -219,7 +233,7 @@ def test_control_service_refuses_unsafe_disconnect() -> None:
             raise AssertionError("disconnect must not be called")
 
     request = DisconnectRequest(
-        version=1, request_id=REQUEST_ID, operation=Operation.DISCONNECT
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.DISCONNECT
     )
     response = control_service(UnsafeProvider()).dispatch(request)
     assert not response.success
@@ -227,7 +241,9 @@ def test_control_service_refuses_unsafe_disconnect() -> None:
 
 
 def test_policy_operations_remain_unavailable() -> None:
-    request = LockRequest(version=1, request_id=REQUEST_ID, operation=Operation.LOCK)
+    request = LockRequest(
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.LOCK
+    )
     response = control_service().dispatch(request)
     assert not response.success
     assert response.error_code == "NOT_IMPLEMENTED"
@@ -258,7 +274,9 @@ def test_provider_error_is_returned_as_controlled_response() -> None:
             raise ProviderError("PROVIDER_TIMEOUT", "NordVPN command timed out")
 
     server, client = socket.socketpair()
-    request = StatusRequest(version=1, request_id=REQUEST_ID, operation=Operation.STATUS)
+    request = StatusRequest(
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.STATUS
+    )
     try:
         client.sendall(encode_message(request))
         daemon.handle_connection(
@@ -268,5 +286,7 @@ def test_provider_error_is_returned_as_controlled_response() -> None:
     finally:
         server.close()
         client.close()
-    assert not response.success
-    assert response.error_code == "PROVIDER_TIMEOUT"
+    assert response.success
+    assert response.gateway_status is not None
+    assert response.gateway_status.vpn_status is None
+    assert response.gateway_status.partial_failures[0].code == "PROVIDER_TIMEOUT"
