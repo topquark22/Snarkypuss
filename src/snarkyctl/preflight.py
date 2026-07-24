@@ -397,10 +397,21 @@ def run_preflight(
         group_gid: int | None = service_group.gr_gid
     except KeyError:
         group_gid = None
+    target_file = config.settings.upstream_vpn.targets_file
+    target_database = config.settings.upstream_vpn.targets
+    if target_file is not None:
+        target_storage_check = _file_security("file.targets", target_file)
+    else:
+        assert target_database is not None
+        target_storage_check = _file_security(
+            "file.target_database",
+            target_database.path,
+            allow_group_read=False,
+        )
     checks.extend(
         (
             _file_security("file.main_config", config_path),
-            _file_security("file.targets", config.settings.upstream_vpn.targets_file),
+            target_storage_check,
             _file_security(
                 "file.auth",
                 config.settings.web.auth_file,

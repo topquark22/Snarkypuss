@@ -24,6 +24,9 @@ from snarkyctl.control.protocol import (
     ProtocolError,
     ProtectedRequest,
     StatusRequest,
+    TargetCatalogGetRequest,
+    TargetCatalogReplaceRequest,
+    TargetSchemaRequest,
     TargetsRequest,
     encode_message,
     parse_request,
@@ -50,7 +53,10 @@ from snarkyctl.status import (
     collect_public_ip,
     new_gateway_status,
 )
-from snarkyctl.targets.repository import TargetRepository, YamlTargetRepository
+from snarkyctl.targets.lifecycle import check_database
+from snarkyctl.targets.models import StoredTarget
+from snarkyctl.targets.repository import RepositoryError, TargetRepository, YamlTargetRepository
+from snarkyctl.targets.sqlite import SqliteTargetRepository
 
 LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
@@ -83,14 +89,18 @@ class ControlService:
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
         self._operation_lock = Lock()
         self._current_target_alias: str | None = None
-        repository = target_repository or YamlTargetRepository(
-            provider.name,
-            config.targets.targets,
-            provider.import_legacy_target,
-        )
+        repository = target_repository
+        if repository is None:
+            if config.targets is None:
+                raise ConfigError("YAML target configuration is unavailable")
+            repository = YamlTargetRepository(
+                provider.name,
+                config.targets.targets,
+                provider.import_legacy_target,
+            )
         self._target_repository = repository
-        catalogue = repository.get_catalogue(provider.name)
-        self._targets = {target.alias: target for target in catalogue.targets}
+        self._catalogue = repository.get_catalogue(provider.name)
+        self._targets = {target.alias: target for target in self._catalogue.targets}
 
     @classmethod
     def from_config(cls, path: Path = DEFAULT_CONFIG_PATH) -> ControlService:
@@ -100,13 +110,25 @@ class ControlService:
             config.settings.upstream_vpn.provider,
             timeout_seconds=config.settings.control.operation_timeout_seconds,
         )
-        return cls(config, provider)
+        storage = config.settings.upstream_vpn.targets
+        repository: TargetRepository | None = None
+        if storage is not None:
+            check_database(storage.path)
+            repository = SqliteTargetRepository(storage.path)
+        return cls(config, provider, target_repository=repository)
 
     def dispatch(self, request: ControlRequest) -> ControlResponse:
         """Execute one already validated request."""
         if not isinstance(
             request,
-            (ConnectRequest, DisconnectRequest, ProtectedRequest, LockRequest, DirectRequest),
+            (
+                ConnectRequest,
+                DisconnectRequest,
+                ProtectedRequest,
+                LockRequest,
+                DirectRequest,
+                TargetCatalogReplaceRequest,
+            ),
         ):
             return self._dispatch_unlocked(request)
         if not self._operation_lock.acquire(blocking=False):
@@ -123,6 +145,90 @@ class ControlService:
 
     def _dispatch_unlocked(self, request: ControlRequest) -> ControlResponse:
         """Execute a request after any required operation lock is acquired."""
+        if isinstance(request, TargetSchemaRequest):
+            if response := self._require_active_provider(request):
+                return response
+            if not self._provider.capabilities.target_selection:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNSUPPORTED_TARGET_SELECTION",
+                    message=f"{self._provider.name} does not support target selection.",
+                )
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Provider target schema retrieved.",
+                provider_target_schema=self._provider.target_schema(),
+            )
+        if isinstance(request, TargetCatalogGetRequest):
+            if response := self._require_active_provider(request):
+                return response
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Editable target catalogue retrieved.",
+                editable_target_catalogue=self._catalogue,
+            )
+        if isinstance(request, TargetCatalogReplaceRequest):
+            if response := self._require_active_provider(request):
+                return response
+            if not self._provider.capabilities.target_selection:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNSUPPORTED_TARGET_SELECTION",
+                    message=f"{self._provider.name} does not support target selection.",
+                )
+            if not request.targets:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="INVALID_CATALOG",
+                    message="A target catalogue must contain at least one target.",
+                )
+            try:
+                normalized = tuple(
+                    StoredTarget(
+                        alias=target.alias,
+                        label=target.label,
+                        position=target.position,
+                        selector=self._provider.validate_selector(target.selector),
+                    )
+                    for target in request.targets
+                )
+                catalogue = self._target_repository.replace_catalogue(
+                    request.provider,
+                    request.expected_revision,
+                    normalized,
+                )
+            except ProviderError as exc:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="INVALID_CATALOG",
+                    message=str(exc),
+                )
+            except RepositoryError as exc:
+                code = (
+                    "CATALOG_MIGRATION_REQUIRED"
+                    if exc.code == "READ_ONLY_REPOSITORY"
+                    else exc.code
+                )
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code=code,
+                    message=str(exc),
+                )
+            self._catalogue = catalogue
+            self._targets = {target.alias: target for target in catalogue.targets}
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Target catalogue replaced.",
+                editable_target_catalogue=catalogue,
+            )
         if isinstance(request, TargetsRequest):
             catalog = VpnTargetCatalog(
                 provider=self._provider.name,
@@ -331,6 +437,19 @@ class ControlService:
                 vpn_status=status,
             )
         raise AssertionError("unreachable validated control request")
+
+    def _require_active_provider(
+        self,
+        request: TargetSchemaRequest | TargetCatalogGetRequest | TargetCatalogReplaceRequest,
+    ) -> ControlResponse | None:
+        if request.provider == self._provider.name:
+            return None
+        return ControlResponse(
+            request_id=request.request_id,
+            success=False,
+            error_code="UNKNOWN_PROVIDER",
+            message="The requested provider is not active.",
+        )
 
     def _require_protection_configuration(self) -> None:
         if not self._provider.capabilities.leak_protection_configuration:

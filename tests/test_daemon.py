@@ -5,6 +5,7 @@ import pwd
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 from uuid import UUID
@@ -23,6 +24,9 @@ from snarkyctl.control.protocol import (
     PROTOCOL_VERSION,
     ProtectedRequest,
     StatusRequest,
+    TargetCatalogGetRequest,
+    TargetCatalogReplaceRequest,
+    TargetSchemaRequest,
     TargetsRequest,
     encode_message,
     receive_frame,
@@ -38,8 +42,17 @@ from snarkyctl.providers.base import (
     VpnTarget,
 )
 from snarkyctl.status import PublicIpStatus, StatusCollectionError
-from snarkyctl.targets.models import StoredTarget, TargetCatalogue
-from snarkyctl.targets.repository import MemoryTargetRepository, TargetRepository
+from snarkyctl.targets.models import (
+    ProviderTargetSchema,
+    SelectorKind,
+    StoredTarget,
+    TargetCatalogue,
+)
+from snarkyctl.targets.repository import (
+    MemoryTargetRepository,
+    RepositoryError,
+    TargetRepository,
+)
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
 
@@ -72,6 +85,12 @@ class FakeProvider(VpnProvider):
     def connect(self, target: VpnTarget) -> VpnStatus:
         self.connected_target = target
         return VpnStatus(state=VpnState.CONNECTED, provider="fake")
+
+    def target_schema(self) -> ProviderTargetSchema:
+        return ProviderTargetSchema(
+            provider="fake",
+            selector_kinds=(SelectorKind(kind="legacy", label="Legacy"),),
+        )
 
     def disconnect(self) -> VpnStatus:
         self.connected_target = None
@@ -113,6 +132,49 @@ def control_service(
         public_ip_collector=collector,
         target_repository=target_repository,
     )
+
+
+def test_control_service_from_config_selects_sqlite_only_when_explicit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    database = tmp_path / "targets.db"
+    repository = MemoryTargetRepository()
+    config = SimpleNamespace(
+        settings=SimpleNamespace(
+            upstream_vpn=SimpleNamespace(
+                provider="fake",
+                targets=SimpleNamespace(path=database),
+            ),
+            control=SimpleNamespace(operation_timeout_seconds=60),
+            status=SimpleNamespace(
+                public_ip_url="https://api.ipify.org",
+                public_ip_timeout_seconds=5,
+            ),
+        ),
+        targets=None,
+    )
+    checked: list[Path] = []
+    monkeypatch.setattr(daemon, "load_config", lambda _path: config)
+    monkeypatch.setattr(daemon, "create_provider", lambda *_args, **_kwargs: FakeProvider())
+    monkeypatch.setattr(daemon, "check_database", checked.append)
+    monkeypatch.setattr(daemon, "SqliteTargetRepository", lambda _path: repository)
+    service = daemon.ControlService.from_config(tmp_path / "snarkyctl.yaml")
+    assert checked == [database]
+    assert service._target_repository is repository
+
+
+def test_control_service_requires_yaml_when_no_repository_is_supplied() -> None:
+    config = SimpleNamespace(
+        settings=SimpleNamespace(
+            status=SimpleNamespace(
+                public_ip_url="https://api.ipify.org",
+                public_ip_timeout_seconds=5,
+            )
+        ),
+        targets=None,
+    )
+    with pytest.raises(daemon.ConfigError, match="YAML target"):
+        daemon.ControlService(config, FakeProvider())  # type: ignore[arg-type]
 
 
 def test_daemon_refuses_non_socket_activated_start(
@@ -261,6 +323,236 @@ def test_daemon_resolves_connection_alias_through_repository() -> None:
     assert response.success
     assert provider.connected_target is not None
     assert provider.connected_target.provider_target == "cz"
+
+
+def test_daemon_returns_schema_and_editable_catalogue() -> None:
+    service = control_service()
+    schema = service.dispatch(
+        TargetSchemaRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_SCHEMA,
+            provider="fake",
+        )
+    )
+    catalogue = service.dispatch(
+        TargetCatalogGetRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_GET,
+            provider="fake",
+        )
+    )
+    assert schema.success
+    assert schema.provider_target_schema is not None
+    assert catalogue.success
+    assert catalogue.editable_target_catalogue is not None
+    assert catalogue.editable_target_catalogue.targets[0].selector["value"] == "us9167"
+
+
+def test_daemon_commits_replacement_before_switching_snapshot() -> None:
+    repository = MemoryTargetRepository(
+        (
+            TargetCatalogue(
+                provider="fake",
+                revision=2,
+                targets=(
+                    StoredTarget(
+                        alias="old",
+                        label="Old",
+                        position=0,
+                        selector={"kind": "legacy", "value": "old"},
+                    ),
+                ),
+            ),
+        )
+    )
+    service = control_service(target_repository=repository)
+    replacement = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=2,
+            targets=(
+                StoredTarget(
+                    alias="new",
+                    label="New",
+                    position=0,
+                    selector={"kind": "legacy", "value": "new"},
+                ),
+            ),
+        )
+    )
+    assert replacement.success
+    assert replacement.editable_target_catalogue is not None
+    assert replacement.editable_target_catalogue.revision == 3
+    connected = service.dispatch(
+        ConnectRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.CONNECT,
+            target="new",
+        )
+    )
+    assert connected.success
+
+
+def test_daemon_preserves_snapshot_after_repository_failure() -> None:
+    class FailingRepository(MemoryTargetRepository):
+        def replace_catalogue(
+            self,
+            provider: str,
+            expected_revision: int,
+            targets: tuple[StoredTarget, ...],
+        ) -> TargetCatalogue:
+            raise RepositoryError("CATALOG_STORAGE_FAILED", "disk failure")
+
+    initial = TargetCatalogue(
+        provider="fake",
+        revision=1,
+        targets=(
+            StoredTarget(
+                alias="old",
+                label="Old",
+                position=0,
+                selector={"kind": "legacy", "value": "old"},
+            ),
+        ),
+    )
+    service = control_service(target_repository=FailingRepository((initial,)))
+    response = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=1,
+            targets=(
+                StoredTarget(
+                    alias="new",
+                    label="New",
+                    position=0,
+                    selector={"kind": "legacy", "value": "new"},
+                ),
+            ),
+        )
+    )
+    assert not response.success
+    assert response.error_code == "CATALOG_STORAGE_FAILED"
+    assert service.dispatch(
+        ConnectRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.CONNECT,
+            target="old",
+        )
+    ).success
+
+
+def test_daemon_rejects_unknown_provider_and_yaml_replacement() -> None:
+    service = control_service()
+    unknown = service.dispatch(
+        TargetCatalogGetRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_GET,
+            provider="other",
+        )
+    )
+    read_only = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=0,
+            targets=(
+                StoredTarget(
+                    alias="new",
+                    label="New",
+                    position=0,
+                    selector={"kind": "legacy", "value": "new"},
+                ),
+            ),
+        )
+    )
+    assert unknown.error_code == "UNKNOWN_PROVIDER"
+    assert read_only.error_code == "CATALOG_MIGRATION_REQUIRED"
+
+
+def test_daemon_rejects_empty_or_adapter_invalid_catalogue() -> None:
+    repository = MemoryTargetRepository()
+    service = control_service(target_repository=repository)
+    empty = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=0,
+            targets=(),
+        )
+    )
+    invalid = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=0,
+            targets=(
+                StoredTarget(
+                    alias="bad",
+                    label="Bad",
+                    position=0,
+                    selector={"kind": "recommended"},
+                ),
+            ),
+        )
+    )
+    assert empty.error_code == "INVALID_CATALOG"
+    assert invalid.error_code == "INVALID_CATALOG"
+    assert repository.get_catalogue("fake").revision == 0
+
+
+def test_daemon_rejects_target_administration_for_unsupported_provider() -> None:
+    provider = FakeProvider()
+    provider.capabilities = ProviderCapabilities(
+        connect=True,
+        disconnect=True,
+        target_selection=False,
+        server_details=False,
+    )
+    service = control_service(provider, target_repository=MemoryTargetRepository())
+    schema = service.dispatch(
+        TargetSchemaRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_SCHEMA,
+            provider="fake",
+        )
+    )
+    replacement = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=0,
+            targets=(
+                StoredTarget(
+                    alias="new",
+                    label="New",
+                    position=0,
+                    selector={"kind": "legacy", "value": "new"},
+                ),
+            ),
+        )
+    )
+    assert schema.error_code == "UNSUPPORTED_TARGET_SELECTION"
+    assert replacement.error_code == "UNSUPPORTED_TARGET_SELECTION"
 
 
 def test_locked_status_does_not_make_external_request() -> None:

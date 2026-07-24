@@ -18,12 +18,16 @@ from snarkyctl.control.protocol import (
     ProtocolError,
     ProtectedRequest,
     StatusRequest,
+    TargetCatalogGetRequest,
+    TargetCatalogReplaceRequest,
+    TargetSchemaRequest,
     TargetsRequest,
     encode_message,
     parse_request,
     parse_response,
     receive_frame,
 )
+from snarkyctl.targets.models import StoredTarget
 from snarkyctl.providers.base import (
     ProviderCapabilities,
     VpnState,
@@ -86,7 +90,13 @@ def test_parse_protected_and_confirmed_direct_requests() -> None:
         request_bytes("CONNECT", target="../../bin/sh"),
         request_bytes("DIRECT", confirmation_token="yes"),
         request_bytes("STATUS", unexpected=True),
-        request_bytes("STATUS").replace(b'"version": 2', b'"version": 1'),
+        json.dumps(
+            {
+                "version": PROTOCOL_VERSION - 1,
+                "request_id": REQUEST_ID,
+                "operation": "STATUS",
+            }
+        ).encode(),
         b"[]",
         b"not json",
         b"",
@@ -100,6 +110,70 @@ def test_invalid_requests_are_rejected(payload: bytes) -> None:
 def test_oversized_request_is_rejected() -> None:
     with pytest.raises(ProtocolError, match="maximum size"):
         parse_request(b"x" * (MAX_MESSAGE_SIZE + 1))
+
+
+def test_parse_target_administration_requests() -> None:
+    schema = parse_request(request_bytes("TARGET_SCHEMA", provider="nordvpn"))
+    catalogue = parse_request(request_bytes("TARGET_CATALOG_GET", provider="nordvpn"))
+    replacement = parse_request(
+        request_bytes(
+            "TARGET_CATALOG_REPLACE",
+            provider="nordvpn",
+            expected_revision=2,
+            targets=[
+                {
+                    "alias": "dallas",
+                    "label": "Dallas",
+                    "position": 0,
+                    "selector": {"kind": "city", "country": "us", "city": "Dallas"},
+                }
+            ],
+        )
+    )
+    assert isinstance(schema, TargetSchemaRequest)
+    assert isinstance(catalogue, TargetCatalogGetRequest)
+    assert isinstance(replacement, TargetCatalogReplaceRequest)
+    assert replacement.targets[0].alias == "dallas"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        request_bytes("TARGET_SCHEMA", provider="NordVPN"),
+        request_bytes("TARGET_CATALOG_GET", provider="nordvpn", unexpected=True),
+        request_bytes(
+            "TARGET_CATALOG_REPLACE",
+            provider="nordvpn",
+            expected_revision=-1,
+            targets=[],
+        ),
+        request_bytes(
+            "TARGET_CATALOG_REPLACE",
+            provider="nordvpn",
+            expected_revision=0,
+            targets=[
+                StoredTarget(
+                    alias=f"target_{index:03}",
+                    label="Target",
+                    position=index,
+                    selector={"kind": "recommended"},
+                ).model_dump()
+                for index in range(100)
+            ]
+            + [
+                {
+                    "alias": "overflow",
+                    "label": "Overflow",
+                    "position": 0,
+                    "selector": {"kind": "recommended"},
+                }
+            ],
+        ),
+    ],
+)
+def test_invalid_target_administration_requests_are_rejected(payload: bytes) -> None:
+    with pytest.raises(ProtocolError):
+        parse_request(payload)
 
 
 def test_size_prefixed_response_round_trip() -> None:

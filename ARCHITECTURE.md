@@ -320,6 +320,18 @@ operations, and performs a second authoritative target lookup. For example, the 
 and web process submit the alias `dallas`; only the daemon can resolve that alias to the
 provider-specific command argument.
 
+Control protocol version 3 adds the privileged `TARGET_SCHEMA`, `TARGET_CATALOG_GET`, and
+`TARGET_CATALOG_REPLACE` operations. Complete catalogue replacement is bounded to 100
+targets and uses an expected revision. The daemon validates every structured selector
+through the compiled active-provider adapter, commits through `TargetRepository`, and only
+then replaces its in-memory snapshot. Storage failure or a stale revision leaves the
+previous snapshot active. The existing `TARGETS` operation remains selector-free.
+
+The repository is selected explicitly at daemon startup. Legacy `targets_file`
+configuration creates a read-only YAML compatibility repository. A configured
+`targets.backend: sqlite` opens the root-owned SQLite repository. Database existence alone
+never changes the selected backend, and the web process never opens the database.
+
 This creates three validation boundaries:
 
 1. FastAPI rejects malformed browser requests and aliases.
@@ -336,7 +348,7 @@ assignments, or raw provider targets.
 
 The daemon handles local socket connections concurrently so status and target-catalogue
 reads remain available during a provider transition. A non-blocking operation lock admits
-only one connect or disconnect mutation at a time. Competing mutations receive
+only one connect, disconnect, or catalogue-replacement mutation at a time. Competing mutations receive
 `OPERATION_IN_PROGRESS`, which the HTTP API maps to `409 Conflict`. The lock is released
 in a `finally` block after success, timeout, provider failure, or an unexpected exception.
 
@@ -421,21 +433,26 @@ The architecture distinguishes policy from observed connectivity:
 
 | Mode | Behaviour |
 |---|---|
-| **NordVPN** | Forwarded traffic exits through NordVPN. If NordVPN fails, traffic becomes Locked. |
+| **Protected VPN** | Leak protection is enabled before the configured upstream VPN connects. |
 | **Direct VPS** | Forwarded traffic deliberately exits through the VPS public IP after explicit confirmation. |
-| **Locked** | Forwarded Internet traffic is blocked while WireGuard management remains available. |
+| **Locked** | Leak protection is enabled before the upstream VPN disconnects, blocking public forwarding. |
 
-An observed NordVPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
+The privileged daemon performs and verifies each ordered transition. Direct VPS requires
+the exact confirmation phrase `EXPOSE VPS IP`; if its disconnect or final verification
+fails after protection is disabled, the daemon attempts to restore protection. An
+unexpected VPN disconnection never automatically selects Direct VPS mode.
 
-The status API therefore keeps desired and actual state separate:
+The status API reports the observed provider-neutral state:
 
 ```json
 {
-  "desired_mode": "nordvpn",
-  "actual_mode": "locked",
-  "nordvpn_state": "disconnected",
-  "forwarding_allowed": false,
-  "exit_ip": null
+  "vpn_status": {
+    "provider": "nordvpn",
+    "state": "DISCONNECTED",
+    "gateway_mode": "LOCKED",
+    "leak_protection_active": true
+  },
+  "public_ip_exposed": false
 }
 ```
 

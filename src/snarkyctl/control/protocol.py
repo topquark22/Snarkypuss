@@ -13,11 +13,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 from snarkyctl.providers.base import VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
+from snarkyctl.targets.models import ProviderTargetSchema, StoredTarget, TargetCatalogue
 
-PROTOCOL_VERSION: Final = 2
-# Matches the maximum accepted configuration size so a sanitized catalogue of
-# every validated target can cross the authenticated local control boundary.
-MAX_MESSAGE_SIZE = 64 * 1024
+PROTOCOL_VERSION: Final = 3
+# Bounded for a complete catalogue of 100 maximum-size structured selectors.
+MAX_MESSAGE_SIZE = 512 * 1024
 _FRAME_HEADER = struct.Struct("!I")
 
 type RequestId = UUID
@@ -39,12 +39,15 @@ class Operation(StrEnum):
     CONNECT = "CONNECT"
     DISCONNECT = "DISCONNECT"
     DIRECT = "DIRECT"
+    TARGET_SCHEMA = "TARGET_SCHEMA"
+    TARGET_CATALOG_GET = "TARGET_CATALOG_GET"
+    TARGET_CATALOG_REPLACE = "TARGET_CATALOG_REPLACE"
 
 
 class _RequestBase(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[2]
+    version: Literal[3]
     request_id: RequestId
 
 
@@ -79,6 +82,23 @@ class DirectRequest(_RequestBase):
     confirmation_token: Literal["EXPOSE VPS IP"]
 
 
+class TargetSchemaRequest(_RequestBase):
+    operation: Literal[Operation.TARGET_SCHEMA]
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+class TargetCatalogGetRequest(_RequestBase):
+    operation: Literal[Operation.TARGET_CATALOG_GET]
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+class TargetCatalogReplaceRequest(_RequestBase):
+    operation: Literal[Operation.TARGET_CATALOG_REPLACE]
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    expected_revision: int = Field(ge=0)
+    targets: tuple[StoredTarget, ...] = Field(max_length=100)
+
+
 type ControlRequest = Annotated[
     StatusRequest
     | TargetsRequest
@@ -86,7 +106,10 @@ type ControlRequest = Annotated[
     | ProtectedRequest
     | ConnectRequest
     | DisconnectRequest
-    | DirectRequest,
+    | DirectRequest
+    | TargetSchemaRequest
+    | TargetCatalogGetRequest
+    | TargetCatalogReplaceRequest,
     Field(discriminator="operation"),
 ]
 
@@ -98,7 +121,7 @@ class ControlResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[2] = 2
+    version: Literal[3] = 3
     request_id: RequestId
     success: bool
     error_code: str | None = None
@@ -106,6 +129,8 @@ class ControlResponse(BaseModel):
     vpn_status: VpnStatus | None = None
     gateway_status: GatewayStatus | None = None
     target_catalog: VpnTargetCatalog | None = None
+    provider_target_schema: ProviderTargetSchema | None = None
+    editable_target_catalogue: TargetCatalogue | None = None
 
 
 def parse_request(payload: bytes) -> ControlRequest:

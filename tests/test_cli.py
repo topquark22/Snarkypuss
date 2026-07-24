@@ -18,6 +18,7 @@ from snarkyctl.status import (
     PublicIpStatus,
     SystemStatus,
 )
+from snarkyctl.targets.migration import MigrationResult
 from snarkyctl.targets.repository import RepositoryError
 
 
@@ -199,3 +200,38 @@ def test_targets_database_error_is_controlled(
     monkeypatch.setattr("snarkyctl.cli.check_database", fail)
     assert main(["targets-db", "check", "--database", "/tmp/missing.db"]) == 2
     assert "DATABASE_NOT_FOUND: missing" in capsys.readouterr().err
+
+
+def test_targets_database_migrate_reports_yaml_remains_authoritative(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "targets.db"
+    monkeypatch.setattr(
+        "snarkyctl.cli.migrate_yaml_catalogue",
+        lambda _config, _database: MigrationResult(
+            provider="nordvpn",
+            database=database,
+            revision=1,
+            migrated_count=2,
+            yaml_backup=tmp_path / "targets.yaml.pre-sqlite",
+            database_backup=None,
+        ),
+    )
+    assert (
+        main(
+            [
+                "targets-db",
+                "migrate",
+                "--config",
+                str(tmp_path / "snarkyctl.yaml"),
+                "--database",
+                str(database),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "Migrated 2 targets" in output
+    assert "YAML remains authoritative" in output

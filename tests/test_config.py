@@ -50,7 +50,35 @@ def test_load_valid_config(tmp_path: Path) -> None:
     loaded = load_config(write_config(tmp_path))
     assert loaded.settings.upstream_vpn.provider == "nordvpn"
     assert loaded.settings.status.public_ip_url == "https://api.ipify.org"
+    assert loaded.targets is not None
     assert loaded.targets.targets[0].alias == "dallas"
+
+
+def test_explicit_sqlite_backend_does_not_load_yaml(tmp_path: Path) -> None:
+    path = write_config(tmp_path)
+    database = tmp_path / "targets.db"
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        f"  targets_file: {tmp_path / 'targets.yaml'}",
+        f"  targets:\n    backend: sqlite\n    path: {database}",
+    )
+    path.write_text(text, encoding="utf-8")
+    loaded = load_config(path)
+    assert loaded.targets is None
+    assert loaded.settings.upstream_vpn.targets is not None
+    assert loaded.settings.upstream_vpn.targets.path == database
+
+
+def test_target_backend_must_be_explicit_and_unambiguous(tmp_path: Path) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "  targets_file:",
+        f"  targets:\n    backend: sqlite\n    path: {tmp_path / 'targets.db'}\n"
+        "  targets_file:",
+    )
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ConfigError, match="exactly one"):
+        load_config(path)
 
 
 def test_unknown_provider_is_rejected(tmp_path: Path) -> None:

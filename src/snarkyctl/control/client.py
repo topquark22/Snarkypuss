@@ -19,11 +19,15 @@ from snarkyctl.control.protocol import (
     ProtocolError,
     ProtectedRequest,
     StatusRequest,
+    TargetCatalogGetRequest,
+    TargetCatalogReplaceRequest,
+    TargetSchemaRequest,
     TargetsRequest,
     encode_message,
     parse_response,
     receive_frame,
 )
+from snarkyctl.targets.models import StoredTarget
 
 DEFAULT_CONTROL_SOCKET = Path("/run/snarkyctl/control.sock")
 DEFAULT_CONTROL_TIMEOUT_SECONDS = 65.0
@@ -114,6 +118,46 @@ class ControlClient:
                 request_id=uuid4(),
                 operation=Operation.DIRECT,
                 confirmation_token=confirmation_token,
+            )
+        )
+
+    def target_schema(self, provider: str) -> ControlResponse:
+        """Request the reviewed structured-selector schema for a provider."""
+        return self.request(
+            TargetSchemaRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.TARGET_SCHEMA,
+                provider=provider,
+            )
+        )
+
+    def editable_catalogue(self, provider: str) -> ControlResponse:
+        """Request the privileged editable catalogue for a provider."""
+        return self.request(
+            TargetCatalogGetRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.TARGET_CATALOG_GET,
+                provider=provider,
+            )
+        )
+
+    def replace_catalogue(
+        self,
+        provider: str,
+        expected_revision: int,
+        targets: tuple[StoredTarget, ...],
+    ) -> ControlResponse:
+        """Atomically replace a provider catalogue."""
+        return self.request(
+            TargetCatalogReplaceRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.TARGET_CATALOG_REPLACE,
+                provider=provider,
+                expected_revision=expected_revision,
+                targets=targets,
             )
         )
 

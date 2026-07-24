@@ -106,6 +106,22 @@ class StatusConfig(BaseModel):
         return value
 
 
+class TargetStorageConfig(BaseModel):
+    """Explicit target-catalogue storage selection."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    backend: Literal["sqlite"]
+    path: Path
+
+    @field_validator("path")
+    @classmethod
+    def require_absolute_path(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("path must be absolute")
+        return value
+
+
 class UpstreamVpnConfig(BaseModel):
     """Trusted adapter selection and its root-owned target document."""
 
@@ -113,7 +129,8 @@ class UpstreamVpnConfig(BaseModel):
 
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     expected_interfaces: tuple[str, ...] = Field(min_length=1, max_length=8)
-    targets_file: Path
+    targets_file: Path | None = None
+    targets: TargetStorageConfig | None = None
 
     @field_validator("provider")
     @classmethod
@@ -138,10 +155,18 @@ class UpstreamVpnConfig(BaseModel):
 
     @field_validator("targets_file")
     @classmethod
-    def require_absolute_path(cls, value: Path) -> Path:
+    def require_absolute_path(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return value
         if not value.is_absolute():
             raise ValueError("path must be absolute")
         return value
+
+    @model_validator(mode="after")
+    def require_one_target_backend(self) -> UpstreamVpnConfig:
+        if (self.targets_file is None) == (self.targets is None):
+            raise ValueError("configure exactly one of targets_file or targets")
+        return self
 
 
 class SnarkyCtlConfig(BaseModel):
@@ -191,7 +216,7 @@ class LoadedConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     settings: SnarkyCtlConfig
-    targets: TargetConfig
+    targets: TargetConfig | None
 
 
 def _read_yaml(path: Path) -> Any:
@@ -236,5 +261,9 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> LoadedConfig:
     """Load and validate the main document and its authoritative targets."""
     settings = _validate(SnarkyCtlConfig, _read_yaml(path), path)
     targets_path = settings.upstream_vpn.targets_file
-    targets = _validate(TargetConfig, _read_yaml(targets_path), targets_path)
+    targets = (
+        _validate(TargetConfig, _read_yaml(targets_path), targets_path)
+        if targets_path is not None
+        else None
+    )
     return LoadedConfig(settings=settings, targets=targets)

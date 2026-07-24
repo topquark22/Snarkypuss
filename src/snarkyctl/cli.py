@@ -18,6 +18,7 @@ from snarkyctl.targets.lifecycle import (
     check_database,
     initialize_database,
 )
+from snarkyctl.targets.migration import migrate_yaml_catalogue
 from snarkyctl.targets.repository import RepositoryError
 
 
@@ -90,6 +91,21 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"source database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
     )
     backup.add_argument("--output", type=Path, required=True, help="new backup file path")
+    migrate = database_commands.add_parser(
+        "migrate", help="explicitly migrate the configured YAML catalogue to SQLite"
+    )
+    migrate.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=f"legacy YAML configuration path (default: {DEFAULT_CONFIG_PATH})",
+    )
+    migrate.add_argument(
+        "--database",
+        type=Path,
+        default=DEFAULT_TARGET_DATABASE_PATH,
+        help=f"destination database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
+    )
     return parser
 
 
@@ -103,9 +119,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ConfigError as exc:
             print(f"snarkyctl: {exc}", file=sys.stderr)
             return 2
+        backend = "yaml" if loaded.targets is not None else "sqlite"
+        target_count = len(loaded.targets.targets) if loaded.targets is not None else "stored"
         print(
             f"Configuration is valid: provider={loaded.settings.upstream_vpn.provider}, "
-            f"targets={len(loaded.targets.targets)}"
+            f"target_backend={backend}, targets={target_count}"
         )
     elif args.command == "preflight":
         try:
@@ -130,11 +148,19 @@ def _run_database_command(args: argparse.Namespace) -> int:
         elif args.database_command == "check":
             check_database(args.database)
             message = f"Target database is valid: {args.database}"
-        else:
+        elif args.database_command == "backup":
             backup_database(args.output, args.database)
             message = f"Backed up target database to: {args.output}"
-    except RepositoryError as exc:
-        print(f"snarkyctl: {exc.code}: {exc}", file=sys.stderr)
+        else:
+            result = migrate_yaml_catalogue(args.config, args.database)
+            message = (
+                f"Migrated {result.migrated_count} targets for {result.provider} "
+                f"to revision {result.revision} in {result.database}. "
+                "YAML remains authoritative until configuration is switched."
+            )
+    except (ConfigError, RepositoryError) as exc:
+        code = exc.code if isinstance(exc, RepositoryError) else "INVALID_CONFIG"
+        print(f"snarkyctl: {code}: {exc}", file=sys.stderr)
         return 2
     print(message)
     return 0

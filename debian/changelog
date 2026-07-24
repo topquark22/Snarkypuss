@@ -1,3 +1,10 @@
+snarkyctl (0.10.0~dev0-1) unstable; urgency=medium
+
+  * Add the provider-neutral SQLite target catalogue protocol, daemon
+    administration, and explicit YAML migration path.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Sat, 25 Jul 2026 03:30:00 -0400
+
 snarkyctl (0.9.0-1) unstable; urgency=medium
 
   * Publish the first feature-complete beta for user acceptance testing.

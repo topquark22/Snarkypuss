@@ -13,6 +13,7 @@ from snarkyctl.control.protocol import (
     encode_message,
     parse_request,
 )
+from snarkyctl.targets.models import StoredTarget
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
 
@@ -80,6 +81,43 @@ def test_targets_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.parametrize(
     ("method", "arguments", "operation"),
     [
+        ("target_schema", ("nordvpn",), Operation.TARGET_SCHEMA),
+        ("editable_catalogue", ("nordvpn",), Operation.TARGET_CATALOG_GET),
+        (
+            "replace_catalogue",
+            (
+                "nordvpn",
+                4,
+                (
+                    StoredTarget(
+                        alias="dallas",
+                        label="Dallas",
+                        position=0,
+                        selector={"kind": "recommended"},
+                    ),
+                ),
+            ),
+            Operation.TARGET_CATALOG_REPLACE,
+        ),
+    ],
+)
+def test_target_administration_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    arguments: tuple[object, ...],
+    operation: Operation,
+) -> None:
+    fake = FakeSocket(ControlResponse(request_id=REQUEST_ID, success=True, message="ok"))
+    monkeypatch.setattr("snarkyctl.control.client.uuid4", lambda: REQUEST_ID)
+    monkeypatch.setattr(socket, "socket", lambda *_args: fake)
+    getattr(ControlClient(), method)(*arguments)
+    request = parse_request(fake.sent[4:])
+    assert request.operation is operation
+
+
+@pytest.mark.parametrize(
+    ("method", "arguments", "operation"),
+    [
         ("protected", ("dallas",), Operation.PROTECTED),
         ("lock", (), Operation.LOCK),
         ("direct", ("EXPOSE VPS IP",), Operation.DIRECT),
@@ -127,3 +165,26 @@ def test_missing_socket_is_controlled(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ControlClientError) as exc_info:
         ControlClient().connect("dallas")
     assert exc_info.value.code == "DAEMON_UNAVAILABLE"
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (PermissionError(), "ACCESS_DENIED"),
+        (ConnectionRefusedError(), "DAEMON_UNAVAILABLE"),
+        (TimeoutError(), "DAEMON_TIMEOUT"),
+        (OSError("broken"), "SOCKET_ERROR"),
+    ],
+)
+def test_socket_failures_are_mapped(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: OSError,
+    code: str,
+) -> None:
+    def fail(*_args: object) -> socket.socket:
+        raise failure
+
+    monkeypatch.setattr(socket, "socket", fail)
+    with pytest.raises(ControlClientError) as exc_info:
+        ControlClient().status()
+    assert exc_info.value.code == code
