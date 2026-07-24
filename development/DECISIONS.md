@@ -344,3 +344,389 @@ Therefore:
 - Tests must verify that rollback is scheduled before firewall mutation, that no route command
   is introduced, that explicit leak-protection acknowledgement is required, and that the
   dedicated firewall chains are used.
+
+
+## ADR-014: Provider-neutral target catalogues in SQLite
+
+**Status:** Accepted.
+
+### Context
+
+SnarkyCtl currently reads one root-owned YAML target allowlist. Each entry contains a
+provider-neutral alias and label plus a single `provider_target` string. This is safe for a
+small manually maintained NordVPN deployment, but it has important limitations:
+
+- Adding, editing, removing, or reordering destinations requires a root shell, validation,
+  and a daemon restart.
+- A single string reflects the command-line shape of NordVPN and cannot naturally represent
+  an OpenVPN profile, a structured Mullvad location, a recommended-server policy, or another
+  provider's selector.
+- The catalogue is implicitly tied to the active provider. Changing providers would either
+  overwrite the existing destinations or leave ambiguous values behind.
+- A future dashboard editor needs transactional updates, conflict detection, schema
+  migration, and recovery without granting the network-facing web process arbitrary
+  filesystem write access.
+- Partial per-entry mutations could leave a catalogue in an invalid intermediate state.
+
+The catalogue remains small, local, and single-writer. A database server and a general
+multi-user SQL deployment would add operational complexity without benefit. At the same
+time, an embedded transactional store is preferable to reimplementing database semantics
+around a collection of mutable files.
+
+### Decision
+
+SnarkyCtl will store managed destination catalogues in an embedded SQLite database. SQLite
+is a storage implementation behind a repository interface; it is not exposed as part of the
+HTTP API, daemon protocol, provider interface, or dashboard model.
+
+The canonical database path will be:
+
+```text
+/var/lib/snarkyctl/targets.db
+```
+
+The database and any SQLite journal files are owned by `root:root` and are not writable or
+directly readable by the `snarkyctl` service account. The containing directory is writable
+only by root. The privileged control daemon is the sole database writer and reader. The web
+service obtains sanitized target information and submits narrowly typed catalogue operations
+only through `/run/snarkyctl/control.sock`.
+
+This deliberately preserves the existing privilege boundary. Ownership by the unprivileged
+web account was rejected because compromise of that process would then permit direct
+replacement of the authoritative provider allowlist.
+
+Python's standard `sqlite3` module will be used. SnarkyCtl will not introduce a separate
+database daemon, network listener, database account, ORM, Berkeley DB runtime, or native
+third-party database binding for this feature.
+
+### Provider-scoped storage model
+
+The database stores independent catalogues under provider registry names such as
+`nordvpn`, `mullvad`, and `openvpn`. Only providers compiled into the trusted registry
+may own a catalogue.
+
+A conceptual target record contains:
+
+```text
+provider
+alias
+label
+position
+selector_kind
+selector_document
+```
+
+The exact normalized relational schema may evolve during implementation, but it must enforce
+at least:
+
+- A database schema version.
+- A monotonically increasing catalogue revision.
+- A unique alias within each provider.
+- A unique ordering position within each provider.
+- A bounded label and selector document.
+- Referential integrity between a catalogue and its target records.
+- Deterministic ordering.
+- No executable path, Python module name, shell text, or arbitrary command representation in
+  core target fields.
+
+Provider catalogues coexist. Changing the active provider does not delete or reinterpret
+another provider's destinations. A connection operation resolves an alias only within the
+currently configured provider.
+
+### Structured provider selectors
+
+The core target model will no longer treat a destination as one universally meaningful
+string. Each target has a structured selector document owned by its compiled adapter.
+
+Examples are illustrative:
+
+NordVPN city:
+
+```json
+{
+  "kind": "city",
+  "country": "US",
+  "city": "Dallas"
+}
+```
+
+NordVPN recommended server:
+
+```json
+{
+  "kind": "recommended"
+}
+```
+
+Mullvad location:
+
+```json
+{
+  "kind": "location",
+  "country": "se",
+  "city": "got"
+}
+```
+
+OpenVPN profile:
+
+```json
+{
+  "kind": "profile",
+  "profile_id": "private-us-east"
+}
+```
+
+The selector document is stored as bounded canonical JSON or an equivalent normalized
+relational representation. SQLite does not decide whether a selector is meaningful. Before
+storage and again before use, the corresponding compiled adapter validates the selector,
+rejects unknown fields, and converts the validated value into its own safe operation.
+
+Adapters must construct fixed argument arrays or use fixed configuration objects. A selector
+must never be concatenated into shell text.
+
+### Provider adapter contract
+
+The existing `VpnProvider` Strategy interface will be extended with target capabilities
+similar to:
+
+```python
+def target_schema(self) -> ProviderTargetSchema: ...
+def validate_selector(self, selector: JsonObject) -> ValidatedSelector: ...
+def connect(self, target: StoredTarget) -> VpnStatus: ...
+```
+
+The names may change during implementation, but the responsibilities may not:
+
+- The core owns aliases, labels, ordering, revisions, persistence, and protocol framing.
+- The adapter owns selector kinds, selector validation, provider discovery semantics, and
+  translation into provider operations.
+- The trusted provider registry remains the only provider factory. Database content cannot
+  dynamically load an adapter.
+
+An adapter may expose fixed target-schema metadata so the generic dashboard can render an
+appropriate editor. That metadata is data, not provider-supplied HTML or executable code. It
+may describe only a small reviewed set of field types, lengths, choices, and required flags.
+
+A provider that does not support target selection reports that capability. The dashboard
+must not invent or display a target editor for it.
+
+### Repository pattern
+
+Daemon business logic will depend on a storage abstraction such as:
+
+```python
+class TargetRepository:
+    def get_catalogue(self, provider: str) -> TargetCatalogue: ...
+    def replace_catalogue(
+        self,
+        provider: str,
+        expected_revision: int,
+        targets: tuple[StoredTarget, ...],
+    ) -> TargetCatalogue: ...
+```
+
+The first implementation is `SqliteTargetRepository`. Tests may use an in-memory repository
+or a temporary SQLite database through the same contract. No provider adapter, protocol
+handler, API route, or dashboard component may issue SQL directly.
+
+This Repository pattern keeps the choice of SQLite out of the domain and protocol layers.
+Changing the storage implementation later does not change provider adapters or public API
+objects.
+
+### Atomic replacement and optimistic concurrency
+
+Catalogue editing uses complete-catalogue replacement rather than independent create, update,
+delete, and reorder writes.
+
+A read returns the provider and current revision. A replacement includes
+`expected_revision` and the complete proposed ordered target list. The daemon:
+
+1. Verifies the requesting process through the existing Unix-socket peer checks.
+2. Confirms that the provider is compiled and eligible for catalogue administration.
+3. Enforces catalogue size, alias, label, ordering, and request-size limits.
+4. Asks that provider's adapter to validate every selector.
+5. Begins one SQLite transaction.
+6. Compares `expected_revision` with the stored revision.
+7. Replaces the provider's targets and increments its revision.
+8. Commits only if the complete catalogue is valid.
+9. Replaces the daemon's in-memory snapshot only after commit.
+10. Returns the new revision and sanitized catalogue.
+
+A stale revision returns `CATALOG_CONFLICT` without changing the database. This prevents
+two dashboard tabs or clients from silently overwriting each other.
+
+SQLite will use foreign-key enforcement, a bounded busy timeout, durable transaction
+settings, and explicit transaction boundaries. The implementation must account for every
+database sidecar file in ownership, backup, package upgrade, and recovery procedures.
+
+### Daemon protocol
+
+The versioned control protocol will add three provider-neutral operations:
+
+```text
+TARGET_SCHEMA
+TARGET_CATALOG_GET
+TARGET_CATALOG_REPLACE
+```
+
+Their responsibilities are:
+
+- `TARGET_SCHEMA`: Return the selected compiled adapter's bounded editor metadata and target
+  capabilities.
+- `TARGET_CATALOG_GET`: Return an editable provider-scoped catalogue and revision to an
+  authenticated administrative caller.
+- `TARGET_CATALOG_REPLACE`: Validate and atomically replace one provider catalogue using an
+  expected revision.
+
+Ordinary target discovery remains sanitized. The existing browser catalogue endpoint and
+routine status responses continue to expose only aliases and labels. Provider selector
+documents are available only through a distinct authenticated administrative operation and
+must never appear accidentally in the ordinary dashboard response.
+
+Connection remains an alias-based command:
+
+```text
+CONNECT <alias>
+```
+
+The daemon resolves the alias against the active provider's committed in-memory catalogue.
+The browser never sends a selector as part of a connection request.
+
+Protocol messages remain bounded, versioned, strictly schema-validated, and free of unknown
+fields. Stable failures will include at least:
+
+```text
+INVALID_CATALOG
+UNKNOWN_PROVIDER
+UNSUPPORTED_TARGET_SELECTION
+CATALOG_CONFLICT
+CATALOG_STORAGE_FAILED
+CATALOG_MIGRATION_REQUIRED
+```
+
+The precise error enumeration will be finalized with the protocol models and tests.
+
+### HTTP API and dashboard
+
+Catalogue administration uses separate authenticated endpoints from ordinary catalogue
+display. State-changing requests retain HTTP Basic authentication, exact-origin checks,
+JSON-only content, and the dedicated request marker header.
+
+The dashboard editor is generated from core fields plus the active adapter's bounded schema
+metadata. It must support adding, editing, deleting, and reordering destinations, but it
+submits the complete catalogue and expected revision in one request.
+
+The UI must:
+
+- Identify the provider whose catalogue is being edited.
+- Distinguish aliases from labels.
+- Explain that aliases are stable API identifiers.
+- Warn before deleting a destination.
+- Refuse to save an empty catalogue.
+- Show a conflict rather than overwriting a newer revision.
+- Never display a selector for one provider as though it belonged to another.
+- Keep provider auto-connect policy separate from the selectable destination catalogue.
+
+### Migration from targets.yaml
+
+The existing `/etc/snarkyctl/targets.yaml` file remains authoritative until an explicit
+administrator-run migration succeeds. Package installation or upgrade must not silently
+replace it.
+
+A migration tool will:
+
+1. Read and validate the existing main configuration and YAML target catalogue.
+2. Select the compiled adapter named by `upstream_vpn.provider`.
+3. Create a root-only backup of the YAML file and any existing destination database.
+4. Initialize or migrate the SQLite schema transactionally.
+5. Preserve aliases, labels, and entry order.
+6. Convert each existing `provider_target` through an adapter-owned legacy import method.
+7. Abort the complete migration if any value cannot be represented safely.
+8. Verify the committed catalogue through the repository.
+9. Leave the YAML backup available for explicit rollback.
+10. Require a deliberate configuration change before SQLite becomes authoritative.
+
+Because a legacy string may not reveal whether it denotes a country, city, group, or server,
+the importer must not guess. An adapter may preserve it temporarily using a narrowly
+validated legacy selector kind, or require the administrator to classify it. New dashboard
+entries must use the structured selector forms.
+
+Migration is idempotent and does not connect, disconnect, or reconfigure the VPN provider.
+It does not change routes, firewall rules, WireGuard, DNS, or provider auto-connect state.
+
+### Backup, integrity, and recovery
+
+The database contains configuration, not passwords or private keys, but it remains
+security-sensitive because it controls approved provider destinations.
+
+Operational requirements include:
+
+- Root-only database writes.
+- No symbolic-link following for database creation, migration, backup, or restore.
+- A consistent SQLite backup operation rather than copying an active database blindly.
+- A pre-migration and pre-upgrade backup.
+- Schema migrations inside an explicit transaction.
+- Integrity checking after migration and restore.
+- Documented recovery to the previous database or YAML catalogue.
+- No automatic fallback to an unvalidated or corrupt catalogue.
+- Fail-closed behavior when the active provider has no valid committed targets.
+
+### Design patterns
+
+This decision applies the following patterns:
+
+- **Strategy:** `VpnProvider` implementations own provider behavior.
+- **Registry and Factory:** only compiled, reviewed providers can be selected.
+- **Repository:** domain and daemon logic are independent of SQLite.
+- **Command:** daemon protocol operations represent bounded administrative actions.
+- **Capability discovery:** adapters describe supported target-selection forms.
+- **Data transfer objects / anti-corruption layer:** protocol and UI models do not expose
+  provider CLI syntax.
+- **Optimistic concurrency:** revision checks prevent lost catalogue updates.
+- **Unit of Work:** one SQLite transaction commits a complete catalogue replacement.
+- **Adapter:** NordVPN, Mullvad, OpenVPN, and future implementations translate validated
+  selectors into their own native operations.
+
+### Rejected alternatives
+
+**SQLite owned or directly writable by the web-service account:** Rejected because a web
+process compromise would become direct authoritative catalogue-write access.
+
+**Berkeley DB:** Rejected because it adds native libraries and Python bindings, complicates
+locking and recovery, and provides no benefit over SQLite for this small transactional
+catalogue.
+
+**Flat mutable YAML as the permanent UI-managed store:** Rejected because conflict detection,
+transactional migration, structured provider selectors, and robust recovery would have to be
+reimplemented around files.
+
+**One universal provider-target string:** Rejected because it embeds NordVPN's command shape
+in the core model and cannot safely express other providers.
+
+**A generic core enumeration of all target kinds:** Rejected because provider semantics differ
+and the core would accumulate provider-specific concepts.
+
+**Independent per-entry protocol mutations:** Rejected because add, update, delete, and
+reorder requests can create partial state and complicate concurrency.
+
+**Dynamic provider modules or executable database content:** Rejected because database content
+must never expand the trusted code base.
+
+**A database server or network SQL service:** Rejected because this catalogue needs one local
+writer and no remote database access.
+
+### Consequences
+
+- SQLite becomes a runtime persistence dependency through Python's standard library.
+- The privileged daemon gains narrowly scoped configuration-write responsibility.
+- The web process remains unprivileged and cannot open the database.
+- Provider adapters gain selector validation and schema-metadata responsibilities.
+- Protocol and API versions must change where their schemas are incompatible.
+- Existing YAML deployments require an explicit migration and rollback procedure.
+- Packaging must create and preserve the root-owned database directory without starting a
+  partially migrated service.
+- Tests must cover SQL failures, corrupt databases, stale revisions, concurrent replacement,
+  schema migration, legacy import, permission enforcement, selector validation, provider
+  separation, sanitized responses, and daemon restart persistence.
+- Documentation must distinguish provider auto-connect from the SnarkyCtl target catalogue.
