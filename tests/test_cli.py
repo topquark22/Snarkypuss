@@ -1,5 +1,6 @@
 """Tests for the SnarkyCtl command-line entry point."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from snarkyctl.control.client import ControlClientError
 from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.preflight import CheckResult, CheckStatus, PreflightReport
 from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
+from snarkyctl.status import ComponentFailure, DnsStatus, GatewayStatus, SystemStatus
 
 
 def test_version_option(capsys: pytest.CaptureFixture[str]) -> None:
@@ -61,12 +63,17 @@ def test_status_human_output(
         request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
         success=True,
         message="ok",
-        vpn_status=VpnStatus(
-            state=VpnState.CONNECTED,
-            provider="nordvpn",
-            gateway_mode=GatewayMode.VPN,
-            leak_protection_active=True,
-            target="dallas",
+        gateway_status=GatewayStatus(
+            checked_at=datetime.now(UTC),
+            vpn_status=VpnStatus(
+                state=VpnState.CONNECTED,
+                provider="nordvpn",
+                gateway_mode=GatewayMode.VPN,
+                leak_protection_active=True,
+                target="dallas",
+            ),
+            dns=None,
+            system=None,
         ),
     )
     monkeypatch.setattr("snarkyctl.cli.ControlClient.status", lambda _self: response)
@@ -75,6 +82,50 @@ def test_status_human_output(
     output = capsys.readouterr().out
     assert "Gateway mode:     VPN" in output
     assert "Public exposure:  No" in output
+
+
+def test_status_human_output_includes_local_components_and_failures(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    response = ControlResponse(
+        request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+        success=True,
+        message="partial",
+        gateway_status=GatewayStatus(
+            checked_at=datetime.now(UTC),
+            vpn_status=None,
+            dns=DnsStatus(
+                service="dnsmasq.service",
+                load_state="loaded",
+                active_state="active",
+                sub_state="running",
+            ),
+            system=SystemStatus(
+                uptime_seconds=183642,
+                load_average=(0.08, 0.11, 0.09),
+                memory_total_bytes=2 * 1024**3,
+                memory_available_bytes=1024**3,
+                root_disk_total_bytes=50 * 1024**3,
+                root_disk_free_bytes=40 * 1024**3,
+            ),
+            partial_failures=(
+                ComponentFailure(
+                    component="vpn",
+                    code="PROVIDER_TIMEOUT",
+                    message="provider timed out",
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.status", lambda _self: response)
+
+    assert main(["status"]) == 0
+    output = capsys.readouterr().out
+    assert "Upstream VPN\n  Status:          Unavailable" in output
+    assert "active (running)" in output
+    assert "2d 3h 0m" in output
+    assert "1.0 GiB / 2.0 GiB" in output
+    assert "vpn: PROVIDER_TIMEOUT: provider timed out" in output
 
 
 def test_connect_json_output(
