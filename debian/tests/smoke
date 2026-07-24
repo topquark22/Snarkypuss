@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -eu
+
+snarkyctl --version
+/usr/lib/snarkyctl/venv/bin/python -c \
+    'import bcrypt, fastapi, jinja2, pydantic, snarkyctl, uvicorn, yaml'
+test -f /usr/lib/systemd/system/snarkyctl-control.socket
+test -f /usr/lib/systemd/system/snarkyctl-control.service
+test -f /usr/lib/systemd/system/snarkyctl-web.service
+test -f /usr/share/doc/snarkyctl/examples/snarkyctl.yaml.example
+test -f /usr/share/doc/snarkyctl/examples/targets.yaml.example

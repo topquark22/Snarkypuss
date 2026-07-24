@@ -1,0 +1,23 @@
+SnarkyCtl for Debian and Ubuntu
+================================
+
+This package deliberately installs an inactive, unconfigured service.
+Installation does not alter VPN, WireGuard, routing, DNS, or firewall state.
+
+Configuration examples are installed under:
+
+  /usr/share/doc/snarkyctl/examples/
+
+Follow /usr/share/doc/snarkyctl/INSTALL.md before enabling any units. In
+particular, create the configuration, authentication file, and TLS identity,
+then run:
+
+  sudo snarkyctl preflight
+
+After preflight succeeds, explicitly enable and start the socket and web unit:
+
+  sudo systemctl enable --now snarkyctl-control.socket
+  sudo systemctl enable --now snarkyctl-web.service
+
+The privileged service is socket-activated. Do not start
+snarkyctl-control.service directly.

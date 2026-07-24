@@ -1,0 +1,31 @@
+Source: snarkyctl
+Section: net
+Priority: optional
+Maintainer: Gary Falk <topquark22@users.noreply.github.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-virtualenv,
+ python3,
+ python3-dev,
+ python3-pip,
+ python3-venv,
+Rules-Requires-Root: no
+Standards-Version: 4.7.0
+Homepage: https://github.com/topquark22/snarkyctl
+
+Package: snarkyctl
+Architecture: amd64
+Depends:
+ adduser,
+ ca-certificates,
+ iproute2,
+ python3 (>= 3.12),
+ systemd,
+ wireguard-tools,
+ ${misc:Depends},
+Description: private control plane for a VPN gateway
+ SnarkyCtl provides a read-only HTTPS dashboard, command-line diagnostics,
+ and a narrowly scoped privileged control daemon for a VPN gateway.
+ .
+ The initial package targets Ubuntu 24.04 on amd64. A separately installed
+ and configured upstream VPN provider is required for provider operations.

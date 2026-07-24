@@ -16,7 +16,7 @@ Python wheel
 Ubuntu/Debian package (.deb)
       │
       ▼
-Installed SnarkyCtl services
+Installed SnarkyCtl units
 ```
 
 The Python wheel is the logical application build artifact. The Debian package is the complete operational artifact installed on the VPS.
@@ -37,7 +37,8 @@ The package must be self-contained: installing it on the VPS must not contact Py
 
 3. **Package-owned code is immutable at runtime**
 
-   Application code, the virtual environment, control-daemon code, and systemd units are owned by `root:root` and are not writable by the `snarkyctl` service account.
+   Application code, the virtual environment, and systemd units are owned by `root:root`
+   and are not writable by the `snarkyctl` service account.
 
 4. **Local secrets are never build artifacts**
 
@@ -45,7 +46,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 
 5. **Installation does not alter gateway routing**
 
-   Package installation must not connect or disconnect the configured upstream VPN, change forwarding, modify firewall rules, expose Direct VPS mode, or reconfigure WireGuard.
+   Package installation must not connect or disconnect NordVPN, change forwarding, modify firewall rules, expose Direct VPS mode, or reconfigure WireGuard.
 
 6. **Activation is explicit**
 
@@ -63,13 +64,13 @@ The package must be self-contained: installing it on the VPS must not contact Py
 |---|---|---|---|
 | Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkyctl` | Built as a wheel and installed in the packaged virtual environment |
 | Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, read-only | Included as Python package data |
-| Privileged control daemon | Provider-neutral VPN and atomic forwarding-mode operations | Root in a separate socket-activated service | Installed with a protected Unix socket and strict local protocol |
-| Service integration | Web service, control daemon, protected socket, and tmpfiles rule | System | Installed by the `.deb` |
-| Administrator configuration | General settings and approved target labels | Read by `snarkyctl` | Installed as examples or conffiles |
+| Privileged control daemon | Fixed provider operations and status collection | Root, reached only through the authenticated Unix socket | Included in the Python application and started by systemd socket activation |
+| Service integration | Control socket, privileged daemon, and unprivileged web units | System | Installed by the `.deb` but not enabled or started automatically |
+| Administrator configuration | General settings and approved target labels | Read by `snarkyctl` | Installed as examples, then copied and edited locally |
 | Authentication | Username and salted password hash | Read by `snarkyctl` | Generated locally; never included with real credentials |
 | TLS identity | Server certificate and private key | Read by service as narrowly permitted | Generated or installed locally |
-| Runtime state | Operation lock and transient status | `snarkyctl` | Created under `/run/snarkyctl` |
-| Persistent state | Minimal policy state, if required | `snarkyctl` | Stored under `/var/lib/snarkyctl`; no database |
+| Runtime state | Control socket and transient status | systemd and `snarkyctl` | Created under `/run/snarkyctl` |
+| Persistent state | Provider CLI home and minimal state, if required | Root daemon or `snarkyctl`, as applicable | Stored under `/var/lib/snarkyctl`; no database |
 
 ---
 
@@ -78,7 +79,6 @@ The package must be self-contained: installing it on the VPS must not contact Py
 ```text
 snarkyctl/
 ├── pyproject.toml
-├── requirements.lock
 ├── README.md
 ├── ARCHITECTURE.md
 ├── DEPLOYMENT.md
@@ -102,27 +102,14 @@ snarkyctl/
 │       └── templates/
 │           └── index.html
 │
-├── src/snarkyctl/control/
-│   ├── daemon.py
-│   ├── protocol.py
-│   └── firewall.py
-│
-├── src/snarkyctl/providers/
-│   ├── base.py
-│   ├── registry.py
-│   ├── placeholder.py
-│   └── nordvpn.py
-│
 ├── config/
 │   ├── snarkyctl.yaml.example
 │   └── targets.yaml.example
 │
 ├── systemd/
-│   ├── snarkyctl-web.service
 │   ├── snarkyctl-control.socket
-│   └── snarkyctl-control.service
-├── tmpfiles/
-│   └── snarkyctl.conf
+│   ├── snarkyctl-control.service
+│   └── snarkyctl-web.service
 │
 ├── tests/
 │   ├── unit/
@@ -133,11 +120,14 @@ snarkyctl/
     ├── changelog
     ├── control
     ├── rules
-    ├── conffiles
     ├── postinst
-    ├── prerm
-    ├── postrm
-    └── snarkyctl.install
+    ├── snarkyctl.install
+    ├── snarkyctl.links
+    ├── source/
+    │   └── format
+    └── tests/
+        ├── control
+        └── smoke
 ```
 
 The `src/` layout prevents tests and development commands from accidentally importing Python modules directly from the repository root instead of the built package.
@@ -182,7 +172,6 @@ The wheel does not contain:
 - Live credentials or password hashes.
 - TLS private keys or machine certificates.
 - VPS-specific routing state.
-- systemd service and socket installation.
 - systemd installation scripts.
 
 Those are operating-system integration or local-configuration concerns.
@@ -191,7 +180,8 @@ Those are operating-system integration or local-configuration concerns.
 
 ## Python Dependency Locking
 
-Application dependencies must be locked to exact versions and cryptographic hashes before release. The repository will contain:
+Application dependencies must be locked to exact versions and cryptographic hashes before
+a stable release. The intended repository artifact is:
 
 ```text
 requirements.lock
@@ -206,13 +196,20 @@ The build must fail if:
 - Dependency resolution produces an uncommitted lock-file change.
 - A dependency cannot be built or retrieved for the target architecture.
 
-No unconstrained `pip install` command is permitted in the release pipeline or Debian maintainer scripts.
+No unconstrained `pip install` command is permitted in the stable release pipeline or
+Debian maintainer scripts.
+
+The `0.1.0.dev2` package is a development package. Its `dh-virtualenv` build currently
+resolves the bounded dependency ranges from `pyproject.toml` while assembling the package.
+This never causes package installation to contact PyPI, but it is not yet a reproducible
+release build. Adding and enforcing the hashed lock file remains a release gate.
 
 ---
 
 ## Packaged Python Runtime
 
-The Debian package contains a virtual environment assembled during the build. A Debian-oriented builder such as `dh-virtualenv` can create it at the final installation path:
+The Debian package contains a virtual environment assembled during the build.
+`dh-virtualenv` creates it at the final installation path:
 
 ```text
 /usr/lib/snarkyctl/venv/
@@ -228,20 +225,10 @@ This model provides:
 If any dependency includes native code, the resulting Debian package is architecture-specific. The first supported target is Ubuntu 24.04 on `amd64`, so the expected package name is:
 
 ```text
-snarkyctl_0.1.0-1_amd64.deb
+snarkyctl_0.1.0~dev2-1_amd64.deb
 ```
 
 A future `arm64` package must be built and tested separately.
-
----
-
-## Provider Adapter Packaging
-
-The base package contains the provider-neutral interface, fixed registry, firewall policy, and the first built-in NordVPN adapter. NordVPN itself is an external prerequisite only when `provider: nordvpn` is configured; it is not an unconditional Debian package dependency.
-
-Provider code runs inside the root control daemon and is fully trusted. Configuration selects only a compiled registry key and can never name an arbitrary module or executable.
-
-Future adapters may remain in the base package when they add no substantial dependencies. A provider with large or conflicting dependencies may later be shipped as an additional signed Debian package.
 
 ---
 
@@ -249,17 +236,18 @@ Future adapters may remain in the base package when they add no substantial depe
 
 | Installed path | Purpose | Ownership |
 |---|---|---|
-| `/usr/lib/snarkyctl/` | Packaged web application, control daemon, and virtual environment | `root:root` |
+| `/usr/lib/snarkyctl/` | Packaged application and virtual environment | `root:root` |
+| `/usr/bin/snarkyctl` | Link to the packaged command-line entry point | `root:root` |
 | `/etc/snarkyctl/snarkyctl.yaml` | Main administrator configuration | `root:snarkyctl`, normally `0640` |
-| `/etc/snarkyctl/targets.yaml` | Approved aliases and labels | `root:snarkyctl` or `root:root` according to use |
+| `/etc/snarkyctl/targets.yaml` | Approved aliases and labels | `root:snarkyctl`, normally `0640` |
 | `/etc/snarkyctl/auth.htpasswd` | Basic-auth username and password hash | `root:snarkyctl`, `0640` |
 | `/etc/snarkyctl/tls/` | Server certificate and private key | Narrow root/service permissions |
+| `/usr/lib/systemd/system/snarkyctl-control.socket` | Privileged daemon socket activation | `root:root` |
+| `/usr/lib/systemd/system/snarkyctl-control.service` | Privileged control daemon | `root:root` |
 | `/usr/lib/systemd/system/snarkyctl-web.service` | Unprivileged HTTPS service | `root:root` |
-| `/usr/lib/systemd/system/snarkyctl-control.socket` | Protected control socket | `root:root` |
-| `/usr/lib/systemd/system/snarkyctl-control.service` | Root control daemon | `root:root` |
-| `/usr/lib/tmpfiles.d/snarkyctl.conf` | Runtime-directory definition | `root:root` |
-| `/run/snarkyctl/` | Operation lock and ephemeral runtime data | `snarkyctl:snarkyctl` |
-| `/var/lib/snarkyctl/` | Minimal persistent state, if required | `snarkyctl:snarkyctl` |
+| `/run/snarkyctl/` | systemd-created runtime socket directory | `root:snarkyctl` |
+| `/var/lib/snarkyctl/` | Provider CLI home and minimal persistent state | `snarkyctl:snarkyctl` initially; systemd may manage service ownership |
+| `/usr/share/doc/snarkyctl/examples/` | Configuration examples copied by the administrator | `root:root` |
 | `/usr/share/doc/snarkyctl/` | Packaged documentation and changelog | `root:root` |
 
 `/usr/local` is not used for files owned by the Debian package. It remains reserved for files managed directly by the VPS administrator.
@@ -274,10 +262,10 @@ These are replaced during an upgrade:
 
 ```text
 /usr/lib/snarkyctl/
-/usr/lib/systemd/system/snarkyctl-web.service
+/usr/bin/snarkyctl
 /usr/lib/systemd/system/snarkyctl-control.socket
 /usr/lib/systemd/system/snarkyctl-control.service
-/usr/lib/tmpfiles.d/snarkyctl.conf
+/usr/lib/systemd/system/snarkyctl-web.service
 ```
 
 They are owned by `root:root` and are not writable by `snarkyctl`.
@@ -312,40 +300,6 @@ If persistent policy state is necessary, it belongs under:
 No database is required. A small file written atomically is sufficient. Direct VPS mode must not be restored automatically after reboot.
 
 Logs go to the systemd journal rather than an application-owned log directory.
-
----
-
-## Privileged Control Boundary
-
-The package installs a separate root control daemon and systemd socket:
-
-```text
-snarkyctl-web.service
-        │
-        │ /run/snarkyctl/control.sock
-        ▼
-snarkyctl-control.service
-```
-
-The socket is owned by `root:snarkyctl` with mode `0660`. The daemon verifies Linux peer credentials and accepts only root or the configured `snarkyctl` UID.
-
-The protocol is versioned, size-limited, and schema-validated. It exposes only fixed operations and approved aliases. It never accepts shell text, executable paths, arbitrary command arguments, firewall fragments, or filenames.
-
-The root daemon serializes all state-changing requests and applies mode transitions atomically. The unprivileged web service never calls `sudo`, receives `CAP_NET_ADMIN`, or joins a broadly privileged networking group. It can therefore run with `NoNewPrivileges=true`.
-
-## Firewall-Enforced Locked Mode
-
-The Debian package includes the implementation needed to maintain these invariants:
-
-- Boot begins Locked.
-- VPN mode permits forwarding only through the verified interface reported by the configured provider.
-- If that interface disappears, the rule ceases to match and forwarding is blocked without a monitoring delay.
-- Direct VPS mode has a separate explicit rule for the configured public interface.
-- Locked mode permits neither forwarding path.
-- WireGuard management remains available in all modes.
-- Direct VPS mode is never restored automatically.
-
-The public interface is explicitly configured in root-owned configuration and verified during preflight. Firewall changes are never performed by the web service.
 
 ---
 
@@ -399,12 +353,15 @@ The Debian control data will declare operating-system dependencies that must be 
 The package version has two components:
 
 ```text
-0.1.0-1
-│     └── Debian packaging revision
-└──────── upstream SnarkyCtl version
+0.1.0~dev2-1
+│          └── Debian packaging revision
+└───────────── PEP 440 development version mapped for Debian ordering
 ```
 
-The Python package version, command output, wheel metadata, Debian changelog, and release tag must agree on the upstream version.
+PEP 440 spells the current version `0.1.0.dev2`; Debian spells it
+`0.1.0~dev2-1` so it sorts before a future `0.1.0-1`. The build helper checks this
+mapping. The Python package version, command output, wheel metadata, Debian changelog, and
+release tag must otherwise agree.
 
 ---
 
@@ -416,34 +373,27 @@ Debian lifecycle scripts must remain conservative and idempotent.
 
 It may:
 
-- Create the non-interactive `snarkyctl` system account if absent.
-- Create configuration, runtime, and state directories.
+- Create the non-interactive `snarkyctl` system account and group if absent.
+- Create configuration, TLS, and state directories.
 - Apply safe ownership and permissions.
-- Verify the control socket, service units, ownership, and modes.
-- Run `systemctl daemon-reload`.
-- Print the remaining configuration and preflight steps.
+- Allow debhelper to reload systemd metadata.
 
 It must not:
 
 - Run `pip install` or access PyPI.
-- Connect or disconnect the configured upstream VPN.
+- Connect or disconnect NordVPN.
 - Change routes, forwarding, DNS, WireGuard, or firewall rules.
 - Generate a password automatically.
 - Create an unprotected certificate authority.
-- Enable Direct VPS mode.
+- Enable direct VPS mode.
 - Start a service lacking authentication, configuration, or TLS.
 
-The initial package installs all three units without automatically enabling the web service.
+The package installs all three units without automatically enabling or starting them.
 
-### `prerm`
-
-It may stop the service when necessary for removal or upgrade. Upgrade handling should minimize downtime and preserve configuration.
-
-### `postrm`
-
-Normal package removal leaves configuration, authentication, TLS material, and persistent state in place.
-
-Purge behaviour must be explicit. Before deleting locally created credentials or private keys, it should warn the administrator or require those files to be removed separately.
+Debhelper generates the standard systemd removal and upgrade handling. Normal package
+removal leaves locally created configuration, authentication, TLS material, and persistent
+state in place. Purge intentionally does not delete locally generated credentials or
+private keys.
 
 ---
 
@@ -458,14 +408,13 @@ sudo snarkyctl preflight
 The preflight command verifies at least:
 
 - `wg0` exists and owns `10.8.0.1`.
-- The selected provider adapter and its external prerequisites are available.
+- `nordvpn` and `nordvpnd` are available.
 - Required configuration files parse successfully.
 - The auth file exists, is readable by `snarkyctl`, and is not world-readable.
 - The TLS certificate and private key exist and match.
 - The certificate covers the configured private hostname or IP address.
-- Control-daemon code and systemd units are root-owned and not writable by `snarkyctl`.
-- The control socket is owned by `root:snarkyctl`, mode `0660`, and rejects unauthorized peer credentials.
-- The versioned control protocol rejects unknown, malformed, and oversized requests.
+- Package-owned code and units are root-owned and not writable by `snarkyctl`.
+- The control socket is owned by `root:snarkyctl` and is not accessible to other users.
 - TCP port `8443` is not already occupied.
 - No configuration requests binding to `0.0.0.0` or the public VPS address.
 - Locked mode can preserve WireGuard management access.
@@ -512,12 +461,16 @@ Publish artifacts, checksums, and provenance
 Representative commands will resemble:
 
 ```bash
-python3 -m build
-dpkg-buildpackage --build=binary --no-sign
+sudo apt-get install --yes \
+    build-essential debhelper devscripts dh-virtualenv lintian \
+    python3-dev python3-pip python3-venv
+scripts/build-deb.sh
 lintian ../snarkyctl_*.deb
 ```
 
-The exact commands will be finalized when `pyproject.toml` and the `debian/` packaging files are implemented.
+The build requires network access while `dh-virtualenv` resolves the development
+dependency ranges. Installing the resulting `.deb` does not require PyPI access. A stable
+release build will instead consume only artifacts verified by `requirements.lock`.
 
 ---
 
@@ -531,10 +484,10 @@ A container can verify:
 - Ownership and permissions.
 - Python imports and CLI execution.
 - Configuration validation.
-- systemd service, socket, ownership, and permission definitions.
+- systemd unit syntax and activation policy.
 - Installation, upgrade, removal, and purge behaviour.
 
-A conventional container cannot fully validate systemd, WireGuard, the selected upstream VPN, routing, or reboot behaviour.
+A conventional container cannot fully validate systemd, WireGuard, NordVPN, routing, or reboot behaviour.
 
 ### Disposable Ubuntu 24.04 VM or VPS
 
@@ -542,12 +495,12 @@ A VM or disposable VPS is required to verify:
 
 - systemd startup and restart behaviour.
 - Binding only to the WireGuard address.
-- Selected provider-adapter integration.
+- NordVPN CLI integration.
 - Routing and firewall transitions.
 - Fail-closed Locked mode.
 - Explicit Direct VPS mode.
 - Reboot behaviour.
-- Continued management access during upstream-VPN transitions.
+- Continued management access during NordVPN transitions.
 
 The live `snarkypuss` gateway should not be the first machine on which a newly built package is installed.
 
@@ -577,7 +530,7 @@ Checksums should be generated from final, immutable release artifacts. If releas
 Install a locally obtained release with:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.1.0-1_amd64.deb
+sudo apt-get install ./snarkyctl_0.1.0~dev2-1_amd64.deb
 ```
 
 After configuration and successful preflight:
@@ -619,21 +572,20 @@ A purge may remove package-supplied configuration, but locally generated credent
 sudo apt-get purge snarkyctl
 ```
 
-Removal and purge must never modify the gateway's independent WireGuard, upstream-VPN, DNS, routing, or firewall configuration.
+Removal and purge must never modify the gateway's independent WireGuard, NordVPN, DNS, routing, or firewall configuration.
 
 ---
 
 ## Initial Packaging Milestones
 
-1. Add `pyproject.toml` and the `src/snarkyctl` package skeleton.
-2. Add a reproducible dependency-locking process.
-3. Build and test the Python wheel.
-4. Add the root control daemon, versioned protocol, and firewall transition layer.
-5. Add the web, control-socket, control-service, and tmpfiles units.
-6. Add Debian metadata and build rules.
-7. Produce a `.deb` containing the assembled virtual environment.
-8. Test install, upgrade, rollback, remove, and purge in a clean Ubuntu environment.
-9. Test the package on a disposable WireGuard/upstream-VPN gateway.
-10. Run preflight and deploy the tested artifact to `snarkypuss`.
+1. ~~Add `pyproject.toml` and the `src/snarkyctl` package skeleton.~~
+2. Add a reproducible, hash-verified dependency-locking process.
+3. ~~Build and test the Python wheel.~~
+4. ~~Add the socket, privileged daemon, and web systemd units.~~
+5. ~~Add Debian metadata, lifecycle handling, smoke test, and build rules.~~
+6. Produce and inspect a `.deb` containing the assembled virtual environment.
+7. Test install, upgrade, rollback, remove, and purge in a clean Ubuntu environment.
+8. Test the package on a disposable VPN gateway.
+9. Run preflight and deploy the tested artifact to `snarkypuss`.
 
 The packaging work begins before the dashboard is complete because filesystem ownership, configuration boundaries, command entry points, and service activation rules shape the implementation itself.

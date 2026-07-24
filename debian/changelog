@@ -1,0 +1,7 @@
+snarkyctl (0.1.0~dev2-1) unstable; urgency=medium
+
+  * Initial Debian development package.
+  * Package the application virtual environment and systemd units.
+  * Preserve explicit post-install configuration and activation.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Fri, 24 Jul 2026 04:00:00 -0400

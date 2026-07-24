@@ -1,0 +1,31 @@
+#!/bin/sh
+
+set -e
+
+case "$1" in
+    configure)
+        if ! getent group snarkyctl >/dev/null; then
+            addgroup --system snarkyctl
+        fi
+
+        if ! getent passwd snarkyctl >/dev/null; then
+            adduser \
+                --system \
+                --ingroup snarkyctl \
+                --no-create-home \
+                --home /nonexistent \
+                --shell /usr/sbin/nologin \
+                snarkyctl
+        else
+            adduser snarkyctl snarkyctl >/dev/null
+        fi
+
+        install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl
+        install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl/tls
+        install -d -o snarkyctl -g snarkyctl -m 0750 /var/lib/snarkyctl
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

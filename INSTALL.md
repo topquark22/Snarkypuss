@@ -1,8 +1,8 @@
 # Installing SnarkyCtl
 
 > **Status:** Development installation procedure for the implemented application, control
-> daemon, API, and read-only dashboard. Debian packaging and automated upgrades remain to
-> be completed.
+> daemon, API, and read-only dashboard. A development Debian package is now available;
+> clean-host lifecycle testing and reproducible dependency locking remain to be completed.
 
 ## Scope
 
@@ -65,6 +65,7 @@ Some paths may not exist on every installation.
 | `iproute2` | Supplies `ip` and `ss` for interface, route, policy-routing, and listener inspection. |
 | `openssl` | Creates and inspects the private CA and HTTPS certificates. |
 | `python3` | Runs the SnarkyCtl application. |
+| `python3-build` | Builds the Python wheel used for development and package verification. |
 | `python3-pip` | Installs Python application dependencies inside the virtual environment. |
 | `python3-venv` | Creates an isolated Python virtual environment. |
 | `sudo` | Runs installation and service-management commands as an administrator. The `snarkyctl` service account does not receive sudo privileges. |
@@ -163,6 +164,74 @@ The expected WireGuard address is:
 ```
 
 Do not continue to remote control implementation if `wg0` is unavailable or if connecting and disconnecting NordVPN breaks the WireGuard management path.
+
+---
+
+## Build the Debian Package
+
+The preferred deployment artifact is an `amd64` Debian package. The package contains the
+application virtual environment, the command-line entry point, all three systemd units,
+documentation, and configuration examples. Installing it does not contact PyPI and does
+not enable or start any SnarkyCtl unit.
+
+Build on Ubuntu 24.04 with:
+
+```bash
+sudo apt-get update
+sudo apt-get install --yes --no-install-recommends \
+    build-essential \
+    debhelper \
+    devscripts \
+    dh-virtualenv \
+    lintian \
+    python3-dev \
+    python3-pip \
+    python3-venv
+scripts/build-deb.sh
+```
+
+The build itself currently needs network access so `dh-virtualenv` can resolve the bounded
+Python dependency ranges in `pyproject.toml`. This is acceptable for the development
+package, but a stable release additionally requires a committed, hash-verified dependency
+lock. Package installation never runs `pip` or accesses PyPI.
+
+The PEP 440 development version `0.1.0.dev2` maps to Debian version
+`0.1.0~dev2-1`. The tilde ensures that the development package sorts before the eventual
+`0.1.0-1` release. The build helper refuses to continue if `pyproject.toml` and
+`debian/changelog` do not match.
+
+After a successful build, inspect the artifact created in the parent directory:
+
+```bash
+dpkg-deb --info ../snarkyctl_0.1.0~dev2-1_amd64.deb
+dpkg-deb --contents ../snarkyctl_0.1.0~dev2-1_amd64.deb
+lintian ../snarkyctl_0.1.0~dev2-1_amd64.deb
+```
+
+Install it with:
+
+```bash
+sudo apt-get install ./../snarkyctl_0.1.0~dev2-1_amd64.deb
+```
+
+The package creates the `snarkyctl` system account and the empty directories
+`/etc/snarkyctl`, `/etc/snarkyctl/tls`, and `/var/lib/snarkyctl`. It deliberately does not
+create live configuration, an authentication file, or TLS keys. Copy the examples and
+continue with Sections 5 through 7:
+
+```bash
+sudo install -o root -g snarkyctl -m 0640 \
+    /usr/share/doc/snarkyctl/examples/snarkyctl.yaml.example \
+    /etc/snarkyctl/snarkyctl.yaml
+sudo install -o root -g snarkyctl -m 0640 \
+    /usr/share/doc/snarkyctl/examples/targets.yaml.example \
+    /etc/snarkyctl/targets.yaml
+```
+
+The manual wheel and unit installation below remains useful to developers and explains
+each installed component. When deploying the `.deb`, skip the manual virtual-environment,
+service-account, and unit-copy commands because the package has already performed those
+steps.
 
 ---
 
@@ -974,12 +1043,11 @@ definitions, certificate private keys, or the authoritative target allowlist.
 
 ## Not Yet Implemented
 
-The following installation pieces will be filled in as their corresponding application components are created:
+The following release packaging work remains:
 
 - Pinned Python dependency file.
-- Service-account creation script.
-- Installation verification script.
-- Upgrade, rollback, and removal procedures.
+- Clean Ubuntu 24.04 install, upgrade, rollback, remove, and purge tests.
+- A non-superficial package installation verification test under systemd.
 
-Until those components exist, this document describes a controlled development deployment,
-not a finalized Debian-package installation.
+Until those items are complete, this document describes a controlled development package,
+not a finalized stable-release package.

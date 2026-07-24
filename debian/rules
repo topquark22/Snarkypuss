@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DH_VIRTUALENV_INSTALL_ROOT = /usr/lib/snarkyctl
+
+%:
+	dh $@ --with python-virtualenv
+
+override_dh_virtualenv:
+	dh_virtualenv \
+		--builtin-venv \
+		--python /usr/bin/python3 \
+		--install-suffix venv \
+		--setuptools
+
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
