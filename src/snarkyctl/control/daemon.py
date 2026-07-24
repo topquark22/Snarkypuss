@@ -38,8 +38,11 @@ from snarkyctl.providers.registry import create_provider
 from snarkyctl.status import (
     ComponentFailure,
     DnsStatus,
+    PublicIpStatus,
+    StatusCollectionError,
     SystemStatus,
     collect_local_status,
+    collect_public_ip,
     new_gateway_status,
 )
 
@@ -63,9 +66,13 @@ class ControlService:
         local_collector: Callable[
             [], tuple[DnsStatus | None, SystemStatus | None, list[ComponentFailure]]
         ] = collect_local_status,
+        public_ip_collector: Callable[[str, float], PublicIpStatus] = collect_public_ip,
     ) -> None:
         self._provider = provider
         self._local_collector = local_collector
+        self._public_ip_collector = public_ip_collector
+        self._public_ip_url = config.settings.status.public_ip_url
+        self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
         self._targets: dict[str, VpnTarget] = {
             target.alias: target for target in config.targets.targets
         }
@@ -105,6 +112,24 @@ class ControlService:
                         )
                     )
                 status = self._with_gateway_mode(status, settings)
+            public_ip: PublicIpStatus | None = None
+            if status is not None and status.gateway_mode in {
+                GatewayMode.VPN,
+                GatewayMode.DIRECT,
+            }:
+                try:
+                    public_ip = self._public_ip_collector(
+                        self._public_ip_url,
+                        self._public_ip_timeout_seconds,
+                    )
+                except StatusCollectionError as exc:
+                    failures.append(
+                        ComponentFailure(
+                            component="public_ip",
+                            code=exc.code,
+                            message=str(exc),
+                        )
+                    )
             dns, system, local_failures = self._local_collector()
             failures.extend(local_failures)
             return ControlResponse(
@@ -113,6 +138,7 @@ class ControlService:
                 message="Gateway status retrieved.",
                 gateway_status=new_gateway_status(
                     vpn_status=status,
+                    public_ip=public_ip,
                     dns=dns,
                     system=system,
                     partial_failures=failures,
