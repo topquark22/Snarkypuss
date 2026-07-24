@@ -150,7 +150,7 @@ The `src/` layout prevents tests and development commands from accidentally impo
 The wheel will have a name such as:
 
 ```text
-snarkyctl-0.1.0-py3-none-any.whl
+snarkyctl-0.9.0-py3-none-any.whl
 ```
 
 It contains:
@@ -485,6 +485,111 @@ release build will instead consume only artifacts verified by `requirements.lock
 
 ---
 
+## Build and Deployment Helper Scripts
+
+The `scripts/` directory contains two POSIX shell helpers. Run them from a checked-out
+source tree. Both use `set -eu`, so an unset variable or failed command stops the script
+instead of allowing a partial workflow to continue.
+
+### `scripts/build-deb.sh`
+
+This is the repository's supported shortcut for building the Debian binary package:
+
+```bash
+scripts/build-deb.sh
+```
+
+Run it as the ordinary build user, not with `sudo`. The script accepts no arguments and
+automatically changes to the repository root, so it may be invoked from any directory.
+
+Before building, it:
+
+1. Verifies that `dpkg-buildpackage`, `dh`, and `dh_virtualenv` are available.
+2. Reads the Python version from `pyproject.toml`.
+3. Reads the Debian version from the first entry in `debian/changelog`.
+4. Converts a Python development suffix such as `.dev4` to Debian's `~dev4` form.
+5. Requires the Debian version to have the same upstream version and a positive numeric
+   Debian revision.
+
+For release `0.9.0`, for example, `pyproject.toml` must contain `0.9.0` and the
+changelog must begin with a version such as `0.9.0-1`. A mismatch exits with status 2
+before `dpkg-buildpackage` runs.
+
+The final command is:
+
+```bash
+dpkg-buildpackage --build=binary --no-sign
+```
+
+Debian build tools place the resulting package **in the parent directory of the source
+checkout**, not in `dist/`. From a checkout named `snarkyctl`, the expected release
+artifact is therefore:
+
+```text
+../snarkyctl_0.9.0-1_amd64.deb
+```
+
+The exact architecture is determined by the build environment. Intermediate files may also
+be created in the source tree and its parent directory.
+
+The helper validates version consistency and builds the package. It does **not** run the
+Python test suite, type checker, `lintian`, package installation tests, artifact signing, or
+publication. Those remain explicit release-pipeline steps.
+
+### `scripts/reinstall-deb.sh`
+
+This helper replaces an already deployed SnarkyCtl package and restarts all three systemd
+units:
+
+```bash
+sudo scripts/reinstall-deb.sh ../snarkyctl_0.9.0-1_amd64.deb
+```
+
+It must run as root and accepts exactly one argument: the path to a regular `.deb` file.
+Before stopping anything, it verifies that:
+
+- `apt-get`, `dpkg-deb`, and `systemctl` are available.
+- The argument names an existing regular file.
+- The package's embedded `Package` field is exactly `snarkyctl`.
+
+It then performs this sequence:
+
+1. Stops `snarkyctl-web.service`.
+2. Stops `snarkyctl-control.service`.
+3. Stops `snarkyctl-control.socket`.
+4. Runs `apt-get install --yes --reinstall` with the absolute package path.
+5. Reloads systemd.
+6. Starts the control socket, control service, and web service.
+7. Requires all three units to report an active state.
+8. Prints their complete status.
+
+The script intentionally uses `start`, not `enable`; it does not change boot-time
+enablement policy. It also does not edit configuration, generate credentials or TLS
+certificates, run preflight, back up local state, or automatically reinstall an older
+package after failure.
+
+If installation or restart fails, the script exits immediately and warns that services may
+remain stopped. Inspect the preceding error and unit logs before manually starting them.
+Because there is no automatic rollback, retain the previously working `.deb`.
+
+### Recommended local release sequence
+
+From the repository root:
+
+```bash
+python3 -m pytest
+python3 -m mypy src
+scripts/build-deb.sh
+lintian ../snarkyctl_0.9.0-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_0.9.0-1_amd64.deb
+```
+
+Use the project's virtual-environment executables instead of `python3 -m` where applicable.
+Perform the reinstall first on a disposable Ubuntu 24.04 system; the live gateway should not
+be the first package-installation test.
+
+---
+
 ## Test Environments
 
 ### Clean Ubuntu container
@@ -522,9 +627,9 @@ The live `snarkypuss` gateway should not be the first machine on which a newly b
 A formal release may contain:
 
 ```text
-snarkyctl_0.1.0-1_amd64.deb
-snarkyctl-0.1.0.tar.gz
-snarkyctl-0.1.0-py3-none-any.whl
+snarkyctl_0.9.0-1_amd64.deb
+snarkyctl-0.9.0.tar.gz
+snarkyctl-0.9.0-py3-none-any.whl
 SHA256SUMS
 SHA256SUMS.asc
 SBOM.spdx.json
@@ -561,13 +666,13 @@ sudo systemctl enable --now snarkyctl-web.service
 Upgrade with:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.2.0-1_amd64.deb
+sudo apt-get install ./snarkyctl_0.9.1-1_amd64.deb
 ```
 
 Rollback using a retained earlier artifact:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.1.0-1_amd64.deb
+sudo apt-get install ./snarkyctl_0.9.0-1_amd64.deb
 ```
 
 Application code and package-managed integration files are replaced. Local configuration, authentication, certificates, and permitted persistent state are retained.
