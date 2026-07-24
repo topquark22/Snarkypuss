@@ -9,7 +9,7 @@ from snarkyctl.main import app
 
 
 def test_package_has_development_version() -> None:
-    assert __version__ == "0.1.0.dev0"
+    assert __version__ == "0.1.0.dev2"
 
 
 def test_liveness_endpoint() -> None:
