@@ -307,6 +307,7 @@ def apply(arguments: argparse.Namespace, config: dict[str, str]) -> int:
     try:
         apply_firewall(config)
         run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
+        run(["systemctl", "daemon-reload"])
         run(["systemctl", "enable", "--now", f"wg-quick@{tunnel}.service"])
         run(["systemctl", "enable", "--now", "dnsmasq.service"])
     except ActivationError:

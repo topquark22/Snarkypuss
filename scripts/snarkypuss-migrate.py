@@ -28,6 +28,7 @@ MANAGED_PATHS = (
     "/etc/wireguard/{interface}.private.key",
     "/etc/dnsmasq.conf",
     "/etc/dnsmasq.d/snarkypuss.conf",
+    "/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf",
     "/etc/sysctl.conf",
     "/etc/sysctl.d/90-snarkypuss.conf",
     "/etc/iptables/rules.v4",

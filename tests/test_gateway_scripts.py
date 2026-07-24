@@ -247,6 +247,9 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     private_key = wireguard_directory / "wg0.private.key"
     wireguard_config = wireguard_directory / "wg0.conf"
     dns_config = destination / "etc/dnsmasq.d/snarkypuss.conf"
+    dnsmasq_drop_in = (
+        destination / "etc/systemd/system/dnsmasq.service.d/snarkypuss.conf"
+    )
     sysctl_config = destination / "etc/sysctl.d/90-snarkypuss.conf"
 
     assert "Server WireGuard public key" in first.stdout
@@ -259,6 +262,9 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     assert "PostUp" not in wireguard_config.read_text(encoding="utf-8")
     assert "PostDown" not in wireguard_config.read_text(encoding="utf-8")
     assert "server=1.1.1.1" in dns_config.read_text(encoding="utf-8")
+    drop_in = dnsmasq_drop_in.read_text(encoding="utf-8")
+    assert "Requires=wg-quick@wg0.service" in drop_in
+    assert "After=wg-quick@wg0.service" in drop_in
     assert "net.ipv4.ip_forward=1" in sysctl_config.read_text(encoding="utf-8")
     assert stat.S_IMODE(private_key.stat().st_mode) == 0o600
     assert stat.S_IMODE(wireguard_config.stat().st_mode) == 0o600
@@ -404,5 +410,9 @@ def test_gateway_apply_schedules_timer_before_firewall(
     assert module.apply(arguments, config) == 0
     timer_index = next(i for i, event in enumerate(events) if event.startswith("systemd-run "))
     assert timer_index < events.index("FIREWALL")
+    reload_index = events.index("systemctl daemon-reload")
+    wireguard_index = events.index("systemctl enable --now wg-quick@wg0.service")
+    dnsmasq_index = events.index("systemctl enable --now dnsmasq.service")
+    assert reload_index < wireguard_index < dnsmasq_index
     assert state["status"] == "pending"
     assert state["token"] == "0123456789abcdef"

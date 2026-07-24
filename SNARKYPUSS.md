@@ -173,12 +173,18 @@ A fresh apply generates and reports the server WireGuard public key, then create
 | `/etc/wireguard/wg0.private.key` | `0600` | Persistent generated server private key |
 | `/etc/wireguard/wg0.conf` | `0600` | Server interface and client peer |
 | `/etc/dnsmasq.d/snarkypuss.conf` | `0644` | Tunnel-bound DNS listener and upstreams |
+| `/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf` | `0644` | Starts dnsmasq only after the private WireGuard interface is available |
 | `/etc/sysctl.d/90-snarkypuss.conf` | `0644` | Persistent IPv4-forwarding setting |
 
 The exact WireGuard filenames follow `tunnel_interface`. The private-key directory is mode
 `0700`. Repeated application preserves the existing server key and leaves identical files
 unchanged. Before replacing a changed file, the generator creates a timestamped
 `.bak.YYYYMMDDTHHMMSSZ` copy in the same directory.
+
+The generated systemd drop-in declares `Requires=` and `After=` for the configured
+`wg-quick@` service. This prevents dnsmasq from trying to bind its tunnel-only address before
+WireGuard creates the interface during boot. Activation runs `systemctl daemon-reload` before
+starting either service.
 
 If an existing WireGuard configuration is found without the separately managed private-key
 file, the generator refuses to continue rather than silently rotating the server identity.
