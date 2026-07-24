@@ -664,7 +664,9 @@ root-only working directory:
 
 ```bash
 sudo install -d -o root -g root -m 0700 /root/snarkyctl-ca
-sudo openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
+sudo openssl req \
+    -provider default \
+    -x509 -newkey rsa:3072 -sha256 -nodes \
     -days 3650 \
     -subj '/CN=SnarkyCtl Private CA' \
     -keyout /root/snarkyctl-ca/ca.key \
