@@ -11,7 +11,13 @@ from snarkyctl.control.client import ControlClientError
 from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.preflight import CheckResult, CheckStatus, PreflightReport
 from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
-from snarkyctl.status import ComponentFailure, DnsStatus, GatewayStatus, SystemStatus
+from snarkyctl.status import (
+    ComponentFailure,
+    DnsStatus,
+    GatewayStatus,
+    PublicIpStatus,
+    SystemStatus,
+)
 
 
 def test_version_option(capsys: pytest.CaptureFixture[str]) -> None:
@@ -108,6 +114,10 @@ def test_status_human_output_includes_local_components_and_failures(
                 root_disk_total_bytes=50 * 1024**3,
                 root_disk_free_bytes=40 * 1024**3,
             ),
+            public_ip=PublicIpStatus(
+                address="203.0.113.42",
+                checked_at=datetime.now(UTC),
+            ),
             partial_failures=(
                 ComponentFailure(
                     component="vpn",
@@ -125,6 +135,7 @@ def test_status_human_output_includes_local_components_and_failures(
     assert "active (running)" in output
     assert "2d 3h 0m" in output
     assert "1.0 GiB / 2.0 GiB" in output
+    assert "Public exit IPv4: 203.0.113.42" in output
     assert "vpn: PROVIDER_TIMEOUT: provider timed out" in output
 
 
