@@ -214,6 +214,18 @@ Install it with:
 sudo apt-get install ./../snarkyctl_0.1.0~dev3-2_amd64.deb
 ```
 
+For later development rebuilds, use the repository helper to stop all three units,
+reinstall the package, reload systemd, restart the units in dependency order, and display
+their final status:
+
+```bash
+sudo scripts/reinstall-deb.sh ../snarkyctl_0.1.0~dev3-2_amd64.deb
+```
+
+The script verifies that the supplied file is a Debian package named `snarkyctl` before
+stopping anything. If installation or startup fails, it leaves the failure visible and
+warns that the services may remain stopped rather than concealing a partial deployment.
+
 The package creates the `snarkyctl` system account and the empty directories
 `/etc/snarkyctl`, `/etc/snarkyctl/tls`, and `/var/lib/snarkyctl`. It deliberately does not
 create live configuration, an authentication file, or TLS keys. Copy the examples and

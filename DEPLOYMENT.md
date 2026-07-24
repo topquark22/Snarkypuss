@@ -541,6 +541,13 @@ Install a locally obtained release with:
 sudo apt-get install ./snarkyctl_0.1.0~dev3-2_amd64.deb
 ```
 
+When replacing an installed development build from a source checkout, the guarded helper
+performs the stop, reinstall, daemon reload, restart, and status sequence:
+
+```bash
+sudo scripts/reinstall-deb.sh ../snarkyctl_0.1.0~dev3-2_amd64.deb
+```
+
 After configuration and successful preflight:
 
 ```bash

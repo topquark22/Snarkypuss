@@ -57,6 +57,24 @@ def test_debian_postinst_has_no_network_or_service_activation() -> None:
         assert forbidden_command not in postinst
 
 
+def test_reinstall_script_is_guarded_and_restarts_all_units() -> None:
+    script = Path("scripts/reinstall-deb.sh").read_text(encoding="utf-8")
+
+    assert "set -eu" in script
+    assert 'if [ "$(id -u)" -ne 0 ]' in script
+    assert 'if [ "$package_name" != "snarkyctl" ]' in script
+    assert 'apt-get install --yes --reinstall "$package_path"' in script
+
+    for unit_name in (
+        "snarkyctl-web.service",
+        "snarkyctl-control.service",
+        "snarkyctl-control.socket",
+    ):
+        assert f"systemctl stop {unit_name}" in script
+        assert f"systemctl start {unit_name}" in script
+        assert f"systemctl is-active --quiet {unit_name}" in script
+
+
 def test_liveness_endpoint() -> None:
     async def request() -> httpx.Response:
         transport = httpx.ASGITransport(app=app)
