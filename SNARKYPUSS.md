@@ -37,6 +37,50 @@ This guide assumes:
 * Linode VPS.
 * NordVPN subscription.
 
+## Read-only setup checks
+
+The repository includes two provider-neutral helper scripts for inspecting a gateway without
+changing it. They do not install packages, write configuration, change routes or firewall
+rules, start services, or enable forwarding.
+
+Before configuring a new VPS, run:
+
+```bash
+sudo scripts/snarkypuss-preflight.sh \
+    --tunnel-interface wg0 \
+    --client-cidr 10.8.0.0/24 \
+    --listen-port 51820
+```
+
+The preflight reports the operating system, required and optional commands, systemd, the
+default route, interface-name availability, current forwarding state, UDP-port use, SSH, and
+the DNS service unit. Missing packages that a later installation increment can supply are
+warnings. A missing core host capability is a failure.
+
+After manually completing this reference guide, run:
+
+```bash
+sudo scripts/snarkypuss-verify.sh \
+    --tunnel-interface wg0 \
+    --client-cidr 10.8.0.0/24 \
+    --vps-public-ip VPS_PUBLIC_IPV4_ADDRESS
+```
+
+The verifier checks the tunnel interface and address, IPv4 forwarding, WireGuard recognition
+and handshakes, DNS service and listener state, observable firewall/NAT references, the
+default route, and HTTPS public-IP lookup. Supplying the known VPS public IP lets it issue a
+prominent warning when observed egress is clearly using the VPS address.
+
+Both scripts print `PASS`, `INFO`, `WARN`, and `FAIL` records. Exit status 0 means no
+structural check failed, although warnings may remain; status 1 means at least one structural
+failure; status 2 means invalid command-line usage. Use `--help` for all options.
+
+The verifier's public-IP request originates on the VPS. A different IP is consistent with an
+upstream VPN but does not prove the forwarded client path, and a failed request may mean
+Locked mode or an unrelated connectivity problem. Complete the client-side external-IP and
+DNS-leak tests in Sections 11 and 12 before trusting the gateway. Never use `curl -k` to make
+a certificate failure disappear.
+
 ---
 
 # 1. Create a Linode VPS

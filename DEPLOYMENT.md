@@ -110,7 +110,9 @@ snarkyctl/
 │
 ├── scripts/
 │   ├── build-deb.sh
-│   └── reinstall-deb.sh
+│   ├── reinstall-deb.sh
+│   ├── snarkypuss-preflight.sh
+│   └── snarkypuss-verify.sh
 │
 ├── src/
 │   └── snarkyctl/
@@ -150,6 +152,7 @@ snarkyctl/
 │   ├── test_client.py
 │   ├── test_config.py
 │   ├── test_daemon.py
+│   ├── test_gateway_scripts.py
 │   ├── test_package.py
 │   ├── test_preflight.py
 │   ├── test_protocol.py
