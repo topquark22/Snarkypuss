@@ -7,6 +7,7 @@ import os
 import pwd
 import socket
 import struct
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 
@@ -34,6 +35,13 @@ from snarkyctl.providers.base import (
     VpnTarget,
 )
 from snarkyctl.providers.registry import create_provider
+from snarkyctl.status import (
+    ComponentFailure,
+    DnsStatus,
+    SystemStatus,
+    collect_local_status,
+    new_gateway_status,
+)
 
 LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
@@ -48,8 +56,16 @@ class ActivationError(RuntimeError):
 class ControlService:
     """Dispatch fixed protocol operations to one configured provider."""
 
-    def __init__(self, config: LoadedConfig, provider: VpnProvider) -> None:
+    def __init__(
+        self,
+        config: LoadedConfig,
+        provider: VpnProvider,
+        local_collector: Callable[
+            [], tuple[DnsStatus | None, SystemStatus | None, list[ComponentFailure]]
+        ] = collect_local_status,
+    ) -> None:
         self._provider = provider
+        self._local_collector = local_collector
         self._targets: dict[str, VpnTarget] = {
             target.alias: target for target in config.targets.targets
         }
@@ -67,17 +83,40 @@ class ControlService:
     def dispatch(self, request: ControlRequest) -> ControlResponse:
         """Execute one already validated request."""
         if isinstance(request, StatusRequest):
-            status = self._provider.status()
+            failures: list[ComponentFailure] = []
+            status: VpnStatus | None
             try:
-                settings = self._provider.settings()
-            except ProviderError:
-                settings = None
-            status = self._with_gateway_mode(status, settings)
+                status = self._provider.status()
+            except ProviderError as exc:
+                status = None
+                failures.append(
+                    ComponentFailure(component="vpn", code=exc.code, message=str(exc))
+                )
+            if status is not None:
+                try:
+                    settings = self._provider.settings()
+                except ProviderError as exc:
+                    settings = None
+                    failures.append(
+                        ComponentFailure(
+                            component="vpn_settings",
+                            code=exc.code,
+                            message=str(exc),
+                        )
+                    )
+                status = self._with_gateway_mode(status, settings)
+            dns, system, local_failures = self._local_collector()
+            failures.extend(local_failures)
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
-                message="Upstream VPN status retrieved.",
-                vpn_status=status,
+                message="Gateway status retrieved.",
+                gateway_status=new_gateway_status(
+                    vpn_status=status,
+                    dns=dns,
+                    system=system,
+                    partial_failures=failures,
+                ),
             )
         if isinstance(request, ConnectRequest):
             try:
