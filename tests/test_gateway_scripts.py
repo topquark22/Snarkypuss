@@ -140,6 +140,7 @@ def write_setup_file(directory: Path, *, dns: str = "1.1.1.1, 1.0.0.1") -> Path:
                 "client_address = 10.8.0.2/32",
                 "protected_egress_interface = nordlynx",
                 "tunnel_fwmark = 0xe1f1",
+                "persistent_keepalive = 25",
                 f"client_public_key_file = {client_key}",
                 f"dns_upstreams = {dns}",
                 "",
@@ -172,6 +173,33 @@ def test_gateway_configuration_dry_run_writes_nothing(tmp_path: Path) -> None:
     assert "Mode: dry-run" in result.stdout
     assert "No files were written" in result.stdout
     assert not destination.exists()
+
+
+def test_gateway_configuration_defaults_keepalive_for_older_setup(
+    tmp_path: Path,
+) -> None:
+    setup = write_setup_file(tmp_path)
+    setup.write_text(
+        setup.read_text(encoding="utf-8").replace("persistent_keepalive = 25\n", ""),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and repository script
+        [
+            sys.executable,
+            str(CONFIGURE_SCRIPT),
+            "--config",
+            str(setup),
+            "--root",
+            str(tmp_path / "root"),
+            "--dry-run",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
 
 
 def test_gateway_configuration_apply_is_idempotent_and_private(
@@ -227,6 +255,7 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     assert f"PrivateKey = {PRIVATE_KEY}" in wireguard_config.read_text(encoding="utf-8")
     assert "PublicKey = " + PUBLIC_KEY in wireguard_config.read_text(encoding="utf-8")
     assert "FwMark = 0xe1f1" in wireguard_config.read_text(encoding="utf-8")
+    assert "PersistentKeepalive = 25" in wireguard_config.read_text(encoding="utf-8")
     assert "PostUp" not in wireguard_config.read_text(encoding="utf-8")
     assert "PostDown" not in wireguard_config.read_text(encoding="utf-8")
     assert "server=1.1.1.1" in dns_config.read_text(encoding="utf-8")

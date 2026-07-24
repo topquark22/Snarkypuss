@@ -110,7 +110,7 @@ def read_setup(path: Path) -> GatewayConfig:
         )
     section = document[ALLOWED_SECTION]
     unknown = set(section) - ALLOWED_OPTIONS
-    missing = ALLOWED_OPTIONS - set(section)
+    missing = (ALLOWED_OPTIONS - {"persistent_keepalive"}) - set(section)
     if unknown:
         raise ConfigurationError(f"unknown setup option(s): {', '.join(sorted(unknown))}")
     if missing:
@@ -136,7 +136,7 @@ def read_setup(path: Path) -> GatewayConfig:
     if not 0 <= tunnel_fwmark <= 0xFFFFFFFF:
         raise ConfigurationError("tunnel_fwmark must fit in an unsigned 32-bit integer")
     try:
-        persistent_keepalive = int(section["persistent_keepalive"])
+        persistent_keepalive = int(section.get("persistent_keepalive", "25"))
     except ValueError as exc:
         raise ConfigurationError("persistent_keepalive must be an integer") from exc
     if not 0 <= persistent_keepalive <= 65535:
