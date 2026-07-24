@@ -38,6 +38,11 @@ Changing the order of entries changes their order in the dashboard selector. Add
 removing targets requires editing the root-owned file, validating the configuration, and
 restarting `snarkyctl-control.service` so the daemon reloads its immutable catalogue.
 No target choice is persisted by the browser or written back to configuration.
+The daemon remembers the last alias successfully selected through SnarkyCtl for its
+process lifetime, allowing status refreshes and page reloads to restore the selector. After
+a daemon restart, or when the provider was changed outside SnarkyCtl, the alias is
+deliberately unknown and the dashboard shows **Select a target…** instead of claiming that
+the first configured entry is active.
 
 ## Security Properties
 

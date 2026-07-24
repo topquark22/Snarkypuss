@@ -270,6 +270,17 @@ def test_control_service_connects_only_configured_alias() -> None:
     assert response.vpn_status is not None
     assert response.vpn_status.target == "dallas"
 
+    status_response = service.dispatch(
+        StatusRequest(
+            version=PROTOCOL_VERSION,
+            request_id=UUID("f2299d89-5bbd-4db4-aa83-f23753fb532d"),
+            operation=Operation.STATUS,
+        )
+    )
+    assert status_response.gateway_status is not None
+    assert status_response.gateway_status.vpn_status is not None
+    assert status_response.gateway_status.vpn_status.target == "dallas"
+
 
 def test_control_service_rejects_competing_mutation_but_allows_status() -> None:
     entered = Event()

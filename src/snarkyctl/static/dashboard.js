@@ -183,6 +183,12 @@
       }
 
       targetSelect.replaceChildren();
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Select a target…";
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      targetSelect.append(placeholder);
       for (const target of payload.targets || []) {
         const option = document.createElement("option");
         option.value = target.alias;
@@ -193,7 +199,7 @@
       catalogueAvailable =
         payload.capabilities?.connect === true &&
         payload.capabilities?.target_selection === true &&
-        targetSelect.options.length > 0;
+        targetSelect.options.length > 1;
 
       if (!catalogueAvailable) {
         const option = document.createElement("option");
@@ -205,7 +211,7 @@
         if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
           targetSelect.value = currentTarget;
         }
-        setControlMessage(`${targetSelect.options.length} approved target(s) available.`);
+        setControlMessage(`${targetSelect.options.length - 1} approved target(s) available.`);
       }
     } catch (error) {
       catalogueAvailable = false;
@@ -248,6 +254,7 @@
         throw new Error(payload.error?.message || `Connection request failed (${response.status})`);
       }
       currentTarget = payload.vpn_status?.target || target;
+      targetSelect.value = currentTarget;
       setControlMessage(payload.message || "VPN connection completed.", "success");
       await refresh();
     } catch (error) {

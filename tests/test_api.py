@@ -182,6 +182,8 @@ def test_dashboard_script_uses_target_alias_api_only(tmp_path: Path) -> None:
     assert 'fetch("/api/v2/vpn/connect"' in response.text
     assert "JSON.stringify({ target })" in response.text
     assert '"X-SnarkyCtl-Request": "1"' in response.text
+    assert 'placeholder.textContent = "Select a target…"' in response.text
+    assert "targetSelect.value = currentTarget" in response.text
     assert "capabilities?.target_selection" in response.text
     assert "provider_target" not in response.text
 

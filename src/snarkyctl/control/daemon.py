@@ -80,6 +80,7 @@ class ControlService:
         self._public_ip_url = config.settings.status.public_ip_url
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
         self._operation_lock = Lock()
+        self._current_target_alias: str | None = None
         self._targets: dict[str, VpnTarget] = {
             target.alias: target for target in config.targets.targets
         }
@@ -138,6 +139,15 @@ class ControlService:
                     ComponentFailure(component="vpn", code=exc.code, message=str(exc))
                 )
             if status is not None:
+                if (
+                    self._current_target_alias is not None
+                    and status.state in {VpnState.CONNECTED, VpnState.CONNECTING}
+                ):
+                    status = status.model_copy(
+                        update={"target": self._current_target_alias}
+                    )
+                elif status.state is VpnState.DISCONNECTED:
+                    self._current_target_alias = None
                 try:
                     settings = self._provider.settings()
                 except ProviderError as exc:
@@ -194,6 +204,7 @@ class ControlService:
                 )
             status = self._provider.connect(target)
             status = status.model_copy(update={"target": target.alias})
+            self._current_target_alias = target.alias
             try:
                 settings = self._provider.settings()
             except ProviderError:
@@ -221,6 +232,7 @@ class ControlService:
                     ),
                 )
             status = self._provider.disconnect()
+            self._current_target_alias = None
             status = self._with_gateway_mode(status, settings)
             return ControlResponse(
                 request_id=request.request_id,
