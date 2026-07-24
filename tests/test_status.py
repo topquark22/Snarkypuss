@@ -1,16 +1,20 @@
 """Tests for read-only local gateway status collectors."""
 
 import subprocess
+import ssl
+from datetime import UTC
 from pathlib import Path
 
 import pytest
 
 from snarkyctl.status import (
     CommandResult,
+    PublicIpStatus,
     StatusCollectionError,
     collect_dns_status,
     collect_system_status,
     collect_local_status,
+    collect_public_ip,
     run_command,
 )
 
@@ -29,6 +33,93 @@ def test_dns_status_parses_systemd_properties() -> None:
     assert status.service == "dnsmasq.service"
     assert status.active_state == "active"
     assert status.sub_state == "running"
+
+
+def test_public_ip_collector_accepts_only_ipv4() -> None:
+    status = collect_public_ip(
+        "https://api.ipify.org",
+        5,
+        fetcher=lambda _url, _timeout: b"203.0.113.42\n",
+    )
+
+    assert str(status.address) == "203.0.113.42"
+    assert status.version == 4
+    assert status.checked_at.tzinfo == UTC
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (b"not-an-ip", "did not return an IP address"),
+        (b"2001:db8::1", "did not return an IPv4 address"),
+        (b"x" * 129, "too much data"),
+        ("\N{SNOWMAN}".encode(), "non-ASCII"),
+    ],
+)
+def test_public_ip_collector_rejects_invalid_responses(
+    payload: bytes,
+    message: str,
+) -> None:
+    with pytest.raises(StatusCollectionError, match=message):
+        collect_public_ip(
+            "https://api.ipify.org",
+            5,
+            fetcher=lambda _url, _timeout: payload,
+        )
+
+
+def test_https_fetcher_verifies_tls_and_does_not_follow_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from snarkyctl import status as status_module
+
+    class Response:
+        status = 200
+
+        def read(self, size: int) -> bytes:
+            assert size == 129
+            return b"203.0.113.42"
+
+    class Connection:
+        def __init__(
+            self,
+            host: str,
+            *,
+            port: int | None,
+            timeout: float,
+            context: ssl.SSLContext,
+        ) -> None:
+            assert host == "example.test"
+            assert port is None
+            assert timeout == 5
+            assert context.check_hostname
+            assert context.verify_mode == ssl.CERT_REQUIRED
+
+        def request(self, method: str, path: str, *, headers: dict[str, str]) -> None:
+            assert method == "GET"
+            assert path == "/ip?format=text"
+            assert headers["Accept"] == "text/plain"
+
+        def getresponse(self) -> Response:
+            return Response()
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr(status_module.http.client, "HTTPSConnection", Connection)
+
+    result = status_module._https_get("https://example.test/ip?format=text", 5)
+
+    assert result == b"203.0.113.42"
+
+
+def test_https_fetcher_rejects_non_https_endpoint() -> None:
+    from snarkyctl.status import _https_get
+
+    with pytest.raises(StatusCollectionError) as error:
+        _https_get("http://api.ipify.org", 5)
+
+    assert error.value.code == "PUBLIC_IP_URL_INVALID"
 
 
 def test_command_runner_uses_fixed_argument_array(
