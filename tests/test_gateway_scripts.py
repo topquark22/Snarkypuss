@@ -1,11 +1,14 @@
 """Tests for the read-only Snarkypuss gateway helper scripts."""
 
+import importlib.util
 import os
 import re
 import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -16,6 +19,8 @@ SCRIPT_PATHS = (
 )
 INSTALL_SCRIPT = Path("scripts/snarkypuss-install.sh")
 CONFIGURE_SCRIPT = Path("scripts/snarkypuss-configure.py")
+ACTIVATE_SCRIPT = Path("scripts/snarkypuss-activate.py")
+ROLLBACK_SCRIPT = Path("scripts/snarkypuss-rollback.py")
 PRIVATE_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 PUBLIC_KEY = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
 
@@ -133,6 +138,8 @@ def write_setup_file(directory: Path, *, dns: str = "1.1.1.1, 1.0.0.1") -> Path:
                 "server_address = 10.8.0.1/24",
                 "listen_port = 51820",
                 "client_address = 10.8.0.2/32",
+                "protected_egress_interface = nordlynx",
+                "tunnel_fwmark = 0xe1f1",
                 f"client_public_key_file = {client_key}",
                 f"dns_upstreams = {dns}",
                 "",
@@ -219,6 +226,7 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     assert private_key.read_text(encoding="ascii").strip() == PRIVATE_KEY
     assert f"PrivateKey = {PRIVATE_KEY}" in wireguard_config.read_text(encoding="utf-8")
     assert "PublicKey = " + PUBLIC_KEY in wireguard_config.read_text(encoding="utf-8")
+    assert "FwMark = 0xe1f1" in wireguard_config.read_text(encoding="utf-8")
     assert "PostUp" not in wireguard_config.read_text(encoding="utf-8")
     assert "PostDown" not in wireguard_config.read_text(encoding="utf-8")
     assert "server=1.1.1.1" in dns_config.read_text(encoding="utf-8")
@@ -263,3 +271,109 @@ def test_gateway_configuration_rejects_unknown_options(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "unknown setup option" in result.stderr
+
+
+def test_gateway_activation_dry_run_is_provider_neutral_and_read_only(
+    tmp_path: Path,
+) -> None:
+    setup = write_setup_file(tmp_path)
+
+    result = subprocess.run(  # noqa: S603 - fixed interpreter and repository script
+        [
+            sys.executable,
+            str(ACTIVATE_SCRIPT),
+            "--config",
+            str(setup),
+            "--dry-run",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "provider interface nordlynx" in result.stdout
+    assert "according to provider-managed routing" in result.stdout
+    assert "provider routes" in result.stdout
+    assert "No service, sysctl value, route, or firewall rule was changed" in result.stdout
+
+
+def test_gateway_activation_schedules_rollback_before_network_changes() -> None:
+    script = ACTIVATE_SCRIPT.read_text(encoding="utf-8")
+    schedule = script.index('"systemd-run"')
+    firewall = script.index("apply_firewall(config)", schedule)
+
+    assert schedule < firewall
+    assert '"MASQUERADE"' in script
+    assert '"ip", "route"' not in script
+    assert "netfilter-persistent" in script
+    assert "--console-confirmed" in script
+    assert "--provider-leak-protection-confirmed" in script
+
+
+def test_gateway_rollback_restores_complete_snapshot_and_service_state() -> None:
+    script = ROLLBACK_SCRIPT.read_text(encoding="utf-8")
+
+    assert '"iptables-restore"' in script
+    assert "net.ipv4.ip_forward" in script
+    assert "restore_service(" in script
+    assert "confirmed activation requires --force" in script
+
+
+def load_script_module(path: Path, name: str) -> Any:
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_gateway_apply_schedules_timer_before_firewall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_script_module(ACTIVATE_SCRIPT, "snarkypuss_activate_test")
+    events: list[str] = []
+    state: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        events.append(" ".join(command))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def fake_write_state(_path: Path, value: dict[str, Any]) -> None:
+        state.update(value)
+
+    monkeypatch.setattr(module, "run", fake_run)
+    monkeypatch.setattr(
+        module,
+        "output",
+        lambda command: "*filter\nCOMMIT\n" if command == ["iptables-save"] else "0\n",
+    )
+    monkeypatch.setattr(
+        module,
+        "service_state",
+        lambda unit: {"unit": unit, "active": False, "enabled": False},
+    )
+    monkeypatch.setattr(module, "write_state", fake_write_state)
+    monkeypatch.setattr(module, "apply_firewall", lambda _config: events.append("FIREWALL"))
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.Path, "is_file", lambda _path: True)
+    monkeypatch.setattr(module.secrets, "token_hex", lambda _length: "0123456789abcdef")
+    monkeypatch.setattr(module, "STATE_DIRECTORY", tmp_path)
+    monkeypatch.setattr(module, "PERSISTENT_RULES", tmp_path / "rules.v4")
+
+    arguments = SimpleNamespace(
+        console_confirmed=True,
+        provider_leak_protection_confirmed=True,
+        rollback_after=120,
+    )
+    config = {
+        "tunnel_interface": "wg0",
+        "protected_egress_interface": "nordlynx",
+        "client_cidr": "10.8.0.0/24",
+    }
+
+    assert module.apply(arguments, config) == 0
+    timer_index = next(i for i, event in enumerate(events) if event.startswith("systemd-run "))
+    assert timer_index < events.index("FIREWALL")
+    assert state["status"] == "pending"
+    assert state["token"] == "0123456789abcdef"

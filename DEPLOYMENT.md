@@ -112,8 +112,10 @@ snarkyctl/
 ├── scripts/
 │   ├── build-deb.sh
 │   ├── reinstall-deb.sh
+│   ├── snarkypuss-activate.py
 │   ├── snarkypuss-configure.py
 │   ├── snarkypuss-install.sh
+│   ├── snarkypuss-rollback.py
 │   ├── snarkypuss-preflight.sh
 │   └── snarkypuss-verify.sh
 │

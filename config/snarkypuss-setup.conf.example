@@ -7,6 +7,16 @@ server_address = 10.8.0.1/24
 listen_port = 51820
 client_address = 10.8.0.2/32
 
+# Interface created by the protected upstream VPN provider. This is an
+# interface name, not a provider command. NordVPN NordLynx commonly uses
+# nordlynx; another provider may use a different interface.
+protected_egress_interface = nordlynx
+
+# Mark used by the private WireGuard tunnel so the upstream provider can exempt
+# its management transport from provider policy routing. The provider must be
+# configured consistently. Set an appropriate value for that provider.
+tunnel_fwmark = 0xe1f1
+
 # Store the client's WireGuard public key as a single line in this file.
 # Never put a private key here.
 client_public_key_file = /root/snarkypuss-client.pub

@@ -27,6 +27,8 @@ ALLOWED_OPTIONS = {
     "client_address",
     "client_public_key_file",
     "dns_upstreams",
+    "protected_egress_interface",
+    "tunnel_fwmark",
 }
 
 
@@ -42,6 +44,8 @@ class GatewayConfig:
     client_interface: ipaddress.IPv4Interface
     client_public_key: str
     dns_upstreams: tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...]
+    protected_egress_interface: str
+    tunnel_fwmark: int
 
 
 def parser() -> argparse.ArgumentParser:
@@ -113,6 +117,22 @@ def read_setup(path: Path) -> GatewayConfig:
     interface = section["tunnel_interface"].strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", interface):
         raise ConfigurationError("tunnel_interface is not a valid Linux interface name")
+    egress_interface = section["protected_egress_interface"].strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", egress_interface):
+        raise ConfigurationError(
+            "protected_egress_interface is not a valid Linux interface name"
+        )
+    if egress_interface == interface:
+        raise ConfigurationError(
+            "protected_egress_interface must differ from tunnel_interface"
+        )
+    raw_fwmark = section["tunnel_fwmark"].strip()
+    try:
+        tunnel_fwmark = int(raw_fwmark, 0)
+    except ValueError as exc:
+        raise ConfigurationError("tunnel_fwmark must be a decimal or 0x-prefixed integer") from exc
+    if not 0 <= tunnel_fwmark <= 0xFFFFFFFF:
+        raise ConfigurationError("tunnel_fwmark must fit in an unsigned 32-bit integer")
 
     try:
         server = ipaddress.IPv4Interface(section["server_address"].strip())
@@ -155,6 +175,8 @@ def read_setup(path: Path) -> GatewayConfig:
         client_interface=client,
         client_public_key=client_key,
         dns_upstreams=dns,
+        protected_egress_interface=egress_interface,
+        tunnel_fwmark=tunnel_fwmark,
     )
 
 
@@ -192,6 +214,7 @@ def render_wireguard(config: GatewayConfig, private_key: str) -> str:
         f"Address = {config.server_interface}\n"
         f"ListenPort = {config.listen_port}\n"
         f"PrivateKey = {private_key}\n"
+        f"FwMark = {config.tunnel_fwmark:#x}\n"
         "SaveConfig = false\n"
         "\n"
         "[Peer]\n"

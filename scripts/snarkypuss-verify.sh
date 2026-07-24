@@ -212,8 +212,8 @@ fi
 
 firewall_observed=false
 if command -v iptables >/dev/null 2>&1; then
-    forward_rules=$(iptables -S FORWARD 2>/dev/null || true)
-    nat_rules=$(iptables -t nat -S POSTROUTING 2>/dev/null || true)
+    forward_rules=$(iptables -S 2>/dev/null || true)
+    nat_rules=$(iptables -t nat -S 2>/dev/null || true)
     if printf '%s\n' "$forward_rules" | grep -Fq "$tunnel_interface"; then
         pass "Firewall forwarding rules reference $tunnel_interface."
         firewall_observed=true

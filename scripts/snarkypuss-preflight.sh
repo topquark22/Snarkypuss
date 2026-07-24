@@ -155,7 +155,8 @@ for command in ip sysctl systemctl ss; do
     fi
 done
 
-for command in wg dnsmasq iptables iptables-save curl; do
+for command in wg dnsmasq iptables iptables-save iptables-restore \
+    netfilter-persistent systemd-run curl; do
     if command -v "$command" >/dev/null 2>&1; then
         pass "Gateway command is available: $command"
     else

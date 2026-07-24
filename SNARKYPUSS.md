@@ -130,9 +130,10 @@ sudo install -m 0600 \
 sudoedit /etc/snarkypuss-setup.conf
 ```
 
-The setup file contains the interface name, server and client tunnel addresses, UDP listen
-port, DNS upstream IP addresses, and the path to a file containing the **client's public
-WireGuard key**. It must never contain either the client or server private key.
+The setup file contains the private tunnel and protected-provider interface names, the
+WireGuard firewall mark used by provider routing policy, server and client tunnel addresses,
+UDP listen port, DNS upstream IP addresses, and the path to a file containing the **client's
+public WireGuard key**. It must never contain either the client or server private key.
 
 Generate the client key in the WireGuard client application, copy only its public key, and
 place that single line on the VPS:
@@ -189,6 +190,94 @@ dnsmasq, add routes, create NAT or firewall rules, or change upstream VPN state.
 activation and rollback operations belong to iteration 3. When using generated files, do not
 overwrite them with the manual file-creation examples later in this reference; use those
 sections to understand and verify their contents.
+
+---
+
+## Activate forwarding with automatic rollback
+
+Activation is deliberately separate from configuration generation. Before continuing:
+
+1. Confirm that independent VPS console access works.
+2. Connect and configure the upstream VPN provider.
+3. Verify that its kill switch or equivalent fail-closed policy is enabled.
+4. Verify that `protected_egress_interface` names the interface created by that provider.
+5. Verify that `tunnel_fwmark` matches the provider policy that exempts the private
+   WireGuard transport from the upstream tunnel.
+
+The base activation script does not decide whether the provider is Protected, Locked, or in
+an explicitly selected Direct VPS state. It installs generic forwarding and NAT so traffic
+follows provider-managed routing. This preserves SnarkyCtl's provider-neutral mode model.
+
+### Review the activation plan
+
+```bash
+sudo scripts/snarkypuss-activate.py \
+    --config /etc/snarkypuss-setup.conf \
+    --dry-run
+```
+
+The plan makes no changes. It identifies the private network and interfaces and describes
+the proposed forwarding and NAT behavior.
+
+### Apply with a rollback timer
+
+Only after checking console access and provider leak protection, run:
+
+```bash
+sudo scripts/snarkypuss-activate.py \
+    --config /etc/snarkypuss-setup.conf \
+    --apply \
+    --console-confirmed \
+    --provider-leak-protection-confirmed \
+    --rollback-after 120
+```
+
+Before its first network change, the script stores a root-only activation record and
+schedules a transient systemd rollback timer. It then:
+
+- Replaces only the dedicated `SNARKYPUSS_FORWARD` and `SNARKYPUSS_NAT` chains.
+- Accepts forwarded traffic arriving from the configured private tunnel.
+- Masquerades the private client network on the egress selected by provider routing.
+- Enables IPv4 forwarding at runtime.
+- Enables and starts the configured `wg-quick@` unit and `dnsmasq`.
+- Leaves `INPUT`, `OUTPUT`, routes, policy-routing tables, provider firewall rules, and
+  provider commands untouched.
+
+The script prints a random activation token. Before the timer expires, verify the private
+tunnel from another session and run the read-only verifier. If access and egress are correct,
+confirm using the exact printed token:
+
+```bash
+sudo scripts/snarkypuss-activate.py --confirm ACTIVATION_TOKEN
+```
+
+Confirmation cancels the timer and runs `netfilter-persistent save`. Firewall rules are not
+made persistent before confirmation. If confirmation never arrives, the timer restores the
+complete pre-activation firewall snapshot, previous runtime forwarding value, and previous
+active/enabled state of WireGuard and dnsmasq.
+
+Activation records are mode `0600` beneath `/var/lib/snarkypuss/activations/`. They
+contain firewall and service state but no WireGuard private key.
+
+### Roll back a confirmed activation
+
+Retain the printed token. A confirmed activation can later be reversed explicitly:
+
+```bash
+sudo scripts/snarkypuss-rollback.py \
+    --token ACTIVATION_TOKEN \
+    --force
+```
+
+A forced rollback restores the complete firewall snapshot and persistent rules file captured
+before activation, as well as the former forwarding and service states. Because it restores a
+complete snapshot, firewall changes made after that activation are discarded. Review current
+firewall state and arrange console access before forcing a later rollback.
+
+The rollback protects against accidental lockout; it cannot prove that an upstream provider's
+kill switch is correct. With provider-managed routing, a missing or disabled provider kill
+switch can expose the VPS public IP. Do not pass
+`--provider-leak-protection-confirmed` until that policy has actually been tested.
 
 ---
 
@@ -411,11 +500,8 @@ ListenPort = 51820
 PrivateKey = SERVER_PRIVATE_KEY
 FwMark = 0xe1f1
 
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT
-PostUp = iptables -A FORWARD -o wg0 -j ACCEPT
-
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT
-PostDown = iptables -D FORWARD -o wg0 -j ACCEPT
+# Forwarding and NAT are managed transactionally by
+# scripts/snarkypuss-activate.py, not by wg-quick hooks.
 
 [Peer]
 PublicKey = CLIENT_PUBLIC_KEY
@@ -539,39 +625,28 @@ dig @10.8.0.1 example.com
 
 ---
 
-# 8. Configure NAT
+# 8. Configure Forwarding and NAT
 
-Flush old rules:
+The supported method is the transactional activation workflow near the top of this document.
+Do not flush the built-in `POSTROUTING` chain: it may contain provider or administrator
+rules unrelated to Snarkypuss.
 
-```bash
-iptables -t nat -F POSTROUTING
-```
-
-Create:
-
-```bash
-iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -j RETURN
-iptables -t nat -A POSTROUTING -o nordlynx -j MASQUERADE
-```
-
-Persist:
+The activation script creates dedicated chains and inserts one jump into each parent chain.
+Inspect them with:
 
 ```bash
-netfilter-persistent save
+iptables -S SNARKYPUSS_FORWARD
+iptables -t nat -S SNARKYPUSS_NAT
+iptables -S FORWARD
+iptables -t nat -S POSTROUTING
 ```
 
-Verify:
+The forwarding chain accepts established return traffic and client traffic arriving from the
+private WireGuard interface. The NAT chain masquerades the private client network without
+choosing a route. The configured VPN provider remains responsible for routing, its kill
+switch, Locked mode, and an explicitly requested Direct VPS mode.
 
-```bash
-iptables -t nat -L -n -v
-```
-
-Expected:
-
-```text
-RETURN      all  --  10.8.0.0/24
-MASQUERADE  all  --  out nordlynx
-```
+Use the activation token and rollback script rather than manually deleting these chains.
 
 ---
 
