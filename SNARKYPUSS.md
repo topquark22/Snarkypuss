@@ -186,6 +186,37 @@ The generated systemd drop-in declares `Requires=` and `After=` for the configur
 WireGuard creates the interface during boot. Activation runs `systemctl daemon-reload` before
 starting either service.
 
+### Apply the startup-order fix to an existing managed gateway
+
+A gateway configured before this drop-in was introduced can add it without rerunning
+activation or changing live firewall and routing state. From an updated source checkout, run:
+
+```bash
+cd ~/snarkyctl
+git pull
+
+sudo scripts/snarkypuss-configure.py \
+    --config /etc/snarkypuss-setup.conf \
+    --apply
+
+sudo systemctl daemon-reload
+sudo systemctl restart dnsmasq.service
+```
+
+Verify both services, the effective unit definition, and DNS resolution:
+
+```bash
+systemctl cat dnsmasq.service
+systemctl is-active wg-quick@wg0.service dnsmasq.service
+dig @10.8.0.1 example.com
+```
+
+The effective dnsmasq unit must show
+`Requires=wg-quick@wg0.service` and `After=wg-quick@wg0.service`. Both services should
+report `active`, and the DNS query should return an answer. A new activation is not required
+for this correction. Test one subsequent reboot while independent VPS console access remains
+available.
+
 If an existing WireGuard configuration is found without the separately managed private-key
 file, the generator refuses to continue rather than silently rotating the server identity.
 This is particularly important on an existing manually configured gateway: use
