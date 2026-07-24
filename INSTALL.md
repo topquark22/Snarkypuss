@@ -521,6 +521,18 @@ SnarkyCtl unit must be corrected before continuing.
 
 #### 5.7 Start socket activation
 
+The canonical socket path is:
+
+```text
+/run/snarkyctl/control.sock
+```
+
+It is `control.sock`, not `snarkyctl.sock`. The `/run/snarkyctl` directory normally does
+not exist yet. `/run` is volatile and is recreated at boot, so do not create this directory
+as permanent installation state. When the socket unit starts, systemd creates the parent
+directory using `DirectoryMode=0750`, then creates the socket as
+`root:snarkyctl` with mode `0660`.
+
 Reload systemd and enable the socket:
 
 ```bash
@@ -532,6 +544,27 @@ sudo systemctl status snarkyctl-control.socket --no-pager
 Do not start `snarkyctl-control.service` directly. The socket unit creates
 `/run/snarkyctl/control.sock`; the first client request then starts the privileged daemon
 and passes the already-open socket to it.
+
+If `/run/snarkyctl` is still absent after the commands above, the socket unit did not start.
+Do not work around that by creating a differently named socket. Check the installed unit,
+the required group, and the socket journal:
+
+```bash
+getent group snarkyctl
+sudo systemctl cat snarkyctl-control.socket
+sudo systemctl status snarkyctl-control.socket --no-pager
+sudo journalctl -u snarkyctl-control.socket -n 50 --no-pager
+```
+
+The installed unit must contain:
+
+```ini
+ListenStream=/run/snarkyctl/control.sock
+SocketUser=root
+SocketGroup=snarkyctl
+SocketMode=0660
+DirectoryMode=0750
+```
 
 Verify the socket:
 
