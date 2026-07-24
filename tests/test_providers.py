@@ -14,6 +14,7 @@ from snarkyctl.providers import (
     create_provider,
 )
 from snarkyctl.providers.nordvpn import (
+    MAX_ERROR_DETAIL_LENGTH,
     MAX_OUTPUT_LENGTH,
     CommandResult,
     NordVpnProvider,
@@ -163,6 +164,42 @@ def test_nordvpn_command_failure_is_controlled() -> None:
     with pytest.raises(ProviderError) as error:
         provider.status()
     assert error.value.code == "PROVIDER_COMMAND_FAILED"
+    assert str(error.value) == "NordVPN command failed with exit status 7: failure"
+
+
+def test_nordvpn_command_failure_uses_stdout_when_stderr_is_empty() -> None:
+    provider = NordVpnProvider(
+        runner=lambda *_args: CommandResult(1, "Permission denied\nTry again.\n", "")
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.status()
+    assert str(error.value) == (
+        "NordVPN command failed with exit status 1: Permission denied Try again."
+    )
+
+
+def test_nordvpn_command_failure_without_output_keeps_generic_message() -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(1, "", ""))
+    with pytest.raises(ProviderError) as error:
+        provider.status()
+    assert str(error.value) == "NordVPN command failed with exit status 1"
+
+
+def test_nordvpn_command_failure_sanitizes_and_bounds_detail() -> None:
+    provider = NordVpnProvider(
+        runner=lambda *_args: CommandResult(
+            1,
+            "",
+            "denied\x00\n" + "x" * MAX_ERROR_DETAIL_LENGTH,
+        )
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.status()
+    detail = str(error.value).partition(": ")[2]
+    assert "\x00" not in detail
+    assert "\n" not in detail
+    assert len(detail) == MAX_ERROR_DETAIL_LENGTH
+    assert detail.endswith("...")
 
 
 def test_command_runner_uses_argument_array(monkeypatch: pytest.MonkeyPatch) -> None:
