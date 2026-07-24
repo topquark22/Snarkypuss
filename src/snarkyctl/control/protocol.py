@@ -12,8 +12,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 
 from snarkyctl.providers.base import VpnStatus
+from snarkyctl.status import GatewayStatus
 
-PROTOCOL_VERSION: Final = 1
+PROTOCOL_VERSION: Final = 2
 MAX_MESSAGE_SIZE = 4096
 _FRAME_HEADER = struct.Struct("!I")
 
@@ -45,7 +46,7 @@ class Operation(StrEnum):
 class _RequestBase(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[1]
+    version: Literal[2]
     request_id: RequestId
 
 
@@ -84,12 +85,13 @@ class ControlResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[1] = 1
+    version: Literal[2] = 2
     request_id: RequestId
     success: bool
     error_code: str | None = None
     message: str
     vpn_status: VpnStatus | None = None
+    gateway_status: GatewayStatus | None = None
 
 
 def parse_request(payload: bytes) -> ControlRequest:
