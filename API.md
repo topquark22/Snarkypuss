@@ -103,6 +103,11 @@ Returns the complete, partially degradable local gateway snapshot:
     "diagnostic_code": null,
     "details": {}
   },
+  "public_ip": {
+    "address": "203.0.113.42",
+    "version": 4,
+    "checked_at": "2026-07-24T15:30:00Z"
+  },
   "dns": {
     "service": "dnsmasq.service",
     "load_state": "loaded",
@@ -124,6 +129,11 @@ Returns the complete, partially degradable local gateway snapshot:
 ```
 
 The daemon gathers `dnsmasq.service` state and host health without changing either.
+It queries the root-configured public-IP endpoint only when the gateway mode is confirmed
+as `VPN` or `DIRECT`. The request uses HTTPS certificate and hostname verification,
+does not follow redirects, accepts only a bounded plain-text IPv4 response, and is skipped
+in `LOCKED` or indeterminate modes.
+
 `partial_failures` contains bounded component errors. A component failure leaves its
 corresponding object `null`; the endpoint still returns HTTP 200 when a valid partial
 snapshot is available. A missing VPN component produces an indeterminate exposure state,
