@@ -137,6 +137,10 @@ def _format_gateway_status(status: GatewayStatus) -> str:
         sections.append("Upstream VPN\n  Status:          Unavailable")
     else:
         sections.append(_format_vpn_status(status.vpn_status))
+    sections.append(
+        "Public exit IPv4:"
+        f" {status.public_ip.address if status.public_ip is not None else 'Unavailable'}"
+    )
     if status.dns is None:
         sections.append("DNS\n  Status:          Unavailable")
     else:
