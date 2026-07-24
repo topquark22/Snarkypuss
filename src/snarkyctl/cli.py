@@ -11,6 +11,7 @@ from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, load_config
 from snarkyctl.control.client import ControlClient, ControlClientError
 from snarkyctl.preflight import format_report, run_preflight
 from snarkyctl.providers.base import GatewayMode, VpnStatus
+from snarkyctl.status import GatewayStatus
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -112,14 +113,70 @@ def _run_control_command(args: argparse.Namespace) -> int:
             f"snarkyctl: {response.error_code or 'CONTROL_ERROR'}: {response.message}",
             file=sys.stderr,
         )
-    elif response.vpn_status is None:
-        print("snarkyctl: INVALID_RESPONSE: response has no VPN status", file=sys.stderr)
-        return 2
     else:
-        if args.command != "status":
+        if args.command == "status":
+            if response.gateway_status is None:
+                print(
+                    "snarkyctl: INVALID_RESPONSE: response has no gateway status",
+                    file=sys.stderr,
+                )
+                return 2
+            print(_format_gateway_status(response.gateway_status))
+        elif response.vpn_status is None:
+            print("snarkyctl: INVALID_RESPONSE: response has no VPN status", file=sys.stderr)
+            return 2
+        else:
             print(response.message)
-        print(_format_vpn_status(response.vpn_status))
+            print(_format_vpn_status(response.vpn_status))
     return 0 if response.success else 1
+
+
+def _format_gateway_status(status: GatewayStatus) -> str:
+    sections: list[str] = []
+    if status.vpn_status is None:
+        sections.append("Upstream VPN\n  Status:          Unavailable")
+    else:
+        sections.append(_format_vpn_status(status.vpn_status))
+    if status.dns is None:
+        sections.append("DNS\n  Status:          Unavailable")
+    else:
+        sections.append(
+            "\n".join(
+                (
+                    "DNS",
+                    f"  Service:         {status.dns.service}",
+                    f"  State:           {status.dns.active_state} ({status.dns.sub_state})",
+                )
+            )
+        )
+    if status.system is None:
+        sections.append("System\n  Status:          Unavailable")
+    else:
+        system = status.system
+        sections.append(
+            "\n".join(
+                (
+                    "System",
+                    f"  Uptime:          {_format_duration(system.uptime_seconds)}",
+                    "  Load:            "
+                    + " / ".join(f"{value:.2f}" for value in system.load_average),
+                    "  Memory available:"
+                    f" {_format_bytes(system.memory_available_bytes)}"
+                    f" / {_format_bytes(system.memory_total_bytes)}",
+                    "  Root disk free:  "
+                    f" {_format_bytes(system.root_disk_free_bytes)}"
+                    f" / {_format_bytes(system.root_disk_total_bytes)}",
+                )
+            )
+        )
+    if status.partial_failures:
+        failures = ["Partial failures"]
+        failures.extend(
+            f"  {failure.component}: {failure.code}: {failure.message}"
+            for failure in status.partial_failures
+        )
+        sections.append("\n".join(failures))
+    return "\n\n".join(sections)
 
 
 def _format_vpn_status(status: VpnStatus) -> str:
@@ -145,3 +202,26 @@ def _format_optional_bool(value: bool | None) -> str:
     if value is None:
         return "Unknown"
     return "Enabled" if value else "Disabled"
+
+
+def _format_duration(seconds: int) -> str:
+    days, remainder = divmod(seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, _seconds = divmod(remainder, 60)
+    values = []
+    if days:
+        values.append(f"{days}d")
+    if hours or days:
+        values.append(f"{hours}h")
+    values.append(f"{minutes}m")
+    return " ".join(values)
+
+
+def _format_bytes(value: int) -> str:
+    amount = float(value)
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            return f"{amount:.1f} {unit}"
+        amount /= 1024
+    raise AssertionError("unreachable")
