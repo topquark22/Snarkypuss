@@ -19,12 +19,30 @@ python_version=$(
         'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
 )
 debian_version=$(dpkg-parsechangelog -S Version)
-expected_debian_version=$(printf '%s' "$python_version" | sed 's/\.dev/~dev/')-1
+expected_upstream_version=$(printf '%s' "$python_version" | sed 's/\.dev/~dev/')
 
-if [ "$debian_version" != "$expected_debian_version" ]; then
+case "$debian_version" in
+    "$expected_upstream_version"-*)
+        debian_revision=${debian_version#"$expected_upstream_version"-}
+        ;;
+    *)
+        debian_revision=
+        ;;
+esac
+
+case "$debian_revision" in
+    ""|*[!0-9]*)
+        printf '%s\n' \
+            "Version mismatch: pyproject.toml $python_version expects Debian" \
+            "$expected_upstream_version-<positive revision>, but debian/changelog contains" \
+            "$debian_version." >&2
+        exit 2
+        ;;
+esac
+
+if [ "$debian_revision" -lt 1 ]; then
     printf '%s\n' \
-        "Version mismatch: pyproject.toml $python_version expects Debian $expected_debian_version," \
-        "but debian/changelog contains $debian_version." >&2
+        "Invalid Debian revision: $debian_revision; expected a positive integer." >&2
     exit 2
 fi
 

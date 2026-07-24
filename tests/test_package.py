@@ -22,7 +22,11 @@ def test_debian_version_matches_python_development_version() -> None:
     match = re.fullmatch(r"snarkyctl \(([^)]+)\) unstable; urgency=medium", changelog_first_line)
 
     assert match is not None
-    assert match.group(1) == python_version.replace(".dev", "~dev") + "-1"
+    debian_version = match.group(1)
+    upstream_version, revision = debian_version.rsplit("-", maxsplit=1)
+    assert upstream_version == python_version.replace(".dev", "~dev")
+    assert revision.isdecimal()
+    assert int(revision) >= 1
 
 
 def test_debian_package_installs_all_systemd_units_inactive() -> None:

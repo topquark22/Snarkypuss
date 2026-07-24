@@ -71,6 +71,21 @@ def get(
     return asyncio.run(request())
 
 
+def post(
+    app: object,
+    *,
+    path: str,
+    json: object,
+    auth: tuple[str, str] | None = None,
+) -> httpx.Response:
+    async def request() -> httpx.Response:
+        transport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+        async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+            return await client.post(path, json=json, auth=auth)
+
+    return asyncio.run(request())
+
+
 def test_status_requires_authentication(tmp_path: Path) -> None:
     response = get(create_app(make_runtime(tmp_path)))
 
@@ -425,6 +440,173 @@ def test_invalid_target_catalogue_results_are_structured(
 
     assert response.status_code == 502
     assert response.json()["error"]["code"] == expected_code
+
+
+def test_connect_requires_authentication(tmp_path: Path) -> None:
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json={"target": "dallas"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
+
+
+def test_connect_passes_only_target_alias_to_control_daemon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    received: list[str] = []
+
+    def connect(_self: object, target: str) -> ControlResponse:
+        received.append(target)
+        return ControlResponse(
+            request_id=REQUEST_ID,
+            success=True,
+            message="Connected using target alias dallas.",
+            vpn_status=VpnStatus(
+                state=VpnState.CONNECTED,
+                provider="nordvpn",
+                gateway_mode=GatewayMode.VPN,
+                target="dallas",
+                display_name="United States #6275",
+                interface="nordlynx",
+            ),
+        )
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.connect", connect)
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json={"target": "dallas"},
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 200
+    assert received == ["dallas"]
+    assert response.json()["version"] == 2
+    assert response.json()["vpn_status"]["target"] == "dallas"
+    assert response.json()["vpn_status"]["provider"] == "nordvpn"
+    assert response.json()["public_ip_exposed"] is False
+    assert "provider_target" not in response.text
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"target": "Dallas, United States"},
+        {"target": "../../bin/sh"},
+        {"target": "dallas", "command": "id"},
+    ],
+)
+def test_connect_rejects_malformed_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    body: dict[str, object],
+) -> None:
+    def forbidden(_self: object, _target: str) -> ControlResponse:
+        raise AssertionError("invalid request must not reach the control daemon")
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.connect", forbidden)
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json=body,
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": {
+            "code": "INVALID_REQUEST",
+            "message": "request body does not match the API schema",
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("control_response", "expected_status", "expected_code"),
+    [
+        (
+            ControlResponse(
+                request_id=REQUEST_ID,
+                success=False,
+                error_code="UNKNOWN_TARGET",
+                message="The requested target alias is not configured.",
+            ),
+            404,
+            "UNKNOWN_TARGET",
+        ),
+        (
+            ControlResponse(
+                request_id=REQUEST_ID,
+                success=False,
+                error_code="PROVIDER_TIMEOUT",
+                message="Provider timed out.",
+            ),
+            504,
+            "PROVIDER_TIMEOUT",
+        ),
+        (
+            ControlResponse(
+                request_id=REQUEST_ID,
+                success=False,
+                error_code="PROVIDER_COMMAND_FAILED",
+                message="Provider command failed.",
+            ),
+            502,
+            "PROVIDER_COMMAND_FAILED",
+        ),
+        (
+            ControlResponse(request_id=REQUEST_ID, success=True, message="missing status"),
+            502,
+            "INVALID_RESPONSE",
+        ),
+    ],
+)
+def test_connect_daemon_results_are_structured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    control_response: ControlResponse,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.connect",
+        lambda _self, _target: control_response,
+    )
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json={"target": "dallas"},
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == expected_code
+
+
+def test_connect_transport_timeout_returns_gateway_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def timeout(_self: object, _target: str) -> ControlResponse:
+        raise ControlClientError("DAEMON_TIMEOUT", "control daemon did not respond in time")
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.connect", timeout)
+
+    response = post(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v2/vpn/connect",
+        json={"target": "dallas"},
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 504
+    assert response.json()["error"]["code"] == "DAEMON_TIMEOUT"
 
 
 def test_daemon_failure_is_structured(

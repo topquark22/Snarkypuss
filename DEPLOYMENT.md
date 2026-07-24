@@ -225,7 +225,7 @@ This model provides:
 If any dependency includes native code, the resulting Debian package is architecture-specific. The first supported target is Ubuntu 24.04 on `amd64`, so the expected package name is:
 
 ```text
-snarkyctl_0.1.0~dev3-1_amd64.deb
+snarkyctl_0.1.0~dev3-2_amd64.deb
 ```
 
 A future `arm64` package must be built and tested separately.
@@ -353,13 +353,13 @@ The Debian control data will declare operating-system dependencies that must be 
 The package version has two components:
 
 ```text
-0.1.0~dev3-1
+0.1.0~dev3-2
 │          └── Debian packaging revision
 └───────────── PEP 440 development version mapped for Debian ordering
 ```
 
 PEP 440 spells the current version `0.1.0.dev3`; Debian spells it
-`0.1.0~dev3-1` so it sorts before a future `0.1.0-1`. The build helper checks this
+`0.1.0~dev3-2` so it sorts before a future `0.1.0-1`. The build helper checks this
 mapping. The Python package version, command output, wheel metadata, Debian changelog, and
 release tag must otherwise agree.
 
@@ -530,7 +530,7 @@ Checksums should be generated from final, immutable release artifacts. If releas
 Install a locally obtained release with:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.1.0~dev3-1_amd64.deb
+sudo apt-get install ./snarkyctl_0.1.0~dev3-2_amd64.deb
 ```
 
 After configuration and successful preflight:

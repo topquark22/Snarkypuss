@@ -1,3 +1,9 @@
+snarkyctl (0.1.0~dev3-2) unstable; urgency=medium
+
+  * Add the provider-neutral target catalogue and connect API.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Fri, 24 Jul 2026 12:30:00 -0400
+
 snarkyctl (0.1.0~dev3-1) unstable; urgency=medium
 
   * Advance the development package version to 0.1.0.dev3.

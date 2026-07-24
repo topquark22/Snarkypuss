@@ -176,6 +176,57 @@ The capabilities allow future dashboard controls to adapt to the configured prov
 without embedding provider names or assumptions in JavaScript. This endpoint is
 authenticated and read-only; it does not connect or disconnect the VPN.
 
+## `POST /api/v2/vpn/connect`
+
+Requests a connection using one provider-neutral alias from the root-owned target
+catalogue:
+
+```json
+{
+  "target": "dallas"
+}
+```
+
+The web service validates the request schema and sends only the alias through the Unix
+socket. The privileged daemon performs the authoritative lookup and passes the associated
+private `provider_target` to the configured adapter. Arbitrary provider values, command
+options, executable names, and extra request fields are rejected.
+
+A successful response contains normalized provider status:
+
+```json
+{
+  "version": 2,
+  "message": "Connected using target alias dallas.",
+  "vpn_status": {
+    "state": "CONNECTED",
+    "provider": "nordvpn",
+    "gateway_mode": "VPN",
+    "leak_protection_active": true,
+    "target": "dallas",
+    "display_name": "United States #6275",
+    "interface": "nordlynx",
+    "connected_since": null,
+    "diagnostic_code": null,
+    "details": {}
+  },
+  "public_ip_exposed": false,
+  "exposure_warning": null
+}
+```
+
+The endpoint returns:
+
+- HTTP 400 with `INVALID_REQUEST` for a malformed body or alias.
+- HTTP 401 for missing or invalid Basic authentication.
+- HTTP 404 with `UNKNOWN_TARGET` when the alias is not root-approved.
+- HTTP 502 for provider failures or invalid daemon responses.
+- HTTP 504 for provider or control-daemon timeouts.
+
+This endpoint does not accept raw NordVPN country codes or server names. Cross-origin
+request protection for browser use is added separately before dashboard controls are
+enabled.
+
 Errors use one stable envelope:
 
 ```json

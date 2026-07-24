@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Annotated, Final, Literal
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +19,7 @@ from snarkyctl import __version__
 from snarkyctl.auth import AuthFileError, verify_credentials
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, load_config
 from snarkyctl.control.client import ControlClient, ControlClientError
-from snarkyctl.control.protocol import ControlResponse
+from snarkyctl.control.protocol import ControlResponse, TargetAlias
 from snarkyctl.providers.base import GatewayMode, VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
 
@@ -67,6 +68,26 @@ class GatewayStatusResponse(GatewayStatus):
     """Complete, partially degradable gateway snapshot."""
 
     version: Literal[2] = 2
+    public_ip_exposed: bool | None
+    exposure_warning: str | None
+
+
+class VpnConnectRequest(BaseModel):
+    """Provider-neutral request to connect using one approved target alias."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    target: TargetAlias
+
+
+class VpnOperationResponse(BaseModel):
+    """Normalized result of a provider operation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[2] = 2
+    message: str
+    vpn_status: VpnStatus
     public_ip_exposed: bool | None
     exposure_warning: str | None
 
@@ -155,6 +176,19 @@ def create_app(
             content=body.model_dump(mode="json"),
             headers=headers,
         )
+
+    @application.exception_handler(RequestValidationError)
+    async def handle_request_validation_error(
+        _request: Request,
+        _exc: RequestValidationError,
+    ) -> JSONResponse:
+        body = ErrorResponse(
+            error=ErrorBody(
+                code="INVALID_REQUEST",
+                message="request body does not match the API schema",
+            )
+        )
+        return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
 
     @application.get("/api/health/live", response_model=LivenessResponse)
     def liveness() -> LivenessResponse:
@@ -255,6 +289,55 @@ def create_app(
         if response.target_catalog is None:
             raise ApiError(502, "INVALID_RESPONSE", "control response has no target catalogue")
         return response.target_catalog
+
+    @application.post(
+        "/api/v2/vpn/connect",
+        response_model=VpnOperationResponse,
+        responses={
+            400: {"model": ErrorResponse},
+            401: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+            502: {"model": ErrorResponse},
+            504: {"model": ErrorResponse},
+        },
+    )
+    def vpn_connect(
+        connect_request: VpnConnectRequest,
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> VpnOperationResponse:
+        """Connect the configured provider using one approved target alias."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        client = ControlClient(
+            socket_path=active_runtime.control_socket,
+            timeout_seconds=active_runtime.control_timeout_seconds,
+        )
+        try:
+            response = client.connect(connect_request.target)
+        except ControlClientError as exc:
+            status_code = 504 if exc.code == "DAEMON_TIMEOUT" else 502
+            raise ApiError(status_code, exc.code, str(exc)) from exc
+        if not response.success:
+            error_code = response.error_code or "CONTROL_ERROR"
+            status_code = {
+                "UNKNOWN_TARGET": 404,
+                "PROVIDER_TIMEOUT": 504,
+            }.get(error_code, 502)
+            raise ApiError(
+                status_code,
+                error_code,
+                response.message,
+            )
+        if response.vpn_status is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no VPN status")
+        exposed, warning = _exposure(response.vpn_status.gateway_mode)
+        return VpnOperationResponse(
+            message=response.message,
+            vpn_status=response.vpn_status,
+            public_ip_exposed=exposed,
+            exposure_warning=warning,
+        )
 
     return application
 
