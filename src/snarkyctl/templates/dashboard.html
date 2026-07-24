@@ -75,6 +75,33 @@
           </div>
         </dl>
       </section>
+
+      <section class="local-status" aria-label="Local gateway status">
+        <article class="status-card">
+          <p class="eyebrow">Local service</p>
+          <h2>DNS</h2>
+          <dl>
+            <div><dt>Unit</dt><dd id="dns-service">—</dd></div>
+            <div><dt>State</dt><dd id="dns-state">—</dd></div>
+          </dl>
+        </article>
+
+        <article class="status-card">
+          <p class="eyebrow">VPS health</p>
+          <h2>System</h2>
+          <dl>
+            <div><dt>Uptime</dt><dd id="system-uptime">—</dd></div>
+            <div><dt>Load</dt><dd id="system-load">—</dd></div>
+            <div><dt>Memory available</dt><dd id="system-memory">—</dd></div>
+            <div><dt>Root disk free</dt><dd id="system-disk">—</dd></div>
+          </dl>
+        </article>
+      </section>
+
+      <section id="partial-failures" class="partial-failures" aria-live="polite" hidden>
+        <strong>Incomplete status</strong>
+        <ul id="partial-failure-list"></ul>
+      </section>
     </main>
 
     <footer>
