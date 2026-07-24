@@ -18,7 +18,9 @@ from snarkyctl import __version__
 from snarkyctl.auth import AuthFileError, verify_credentials
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, load_config
 from snarkyctl.control.client import ControlClient, ControlClientError
+from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.providers.base import GatewayMode, VpnStatus
+from snarkyctl.status import GatewayStatus
 
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
 UNKNOWN_WARNING = "The gateway's public-IP exposure state cannot be determined."
@@ -57,6 +59,14 @@ class StatusResponse(BaseModel):
 
     version: Literal[1] = 1
     vpn_status: VpnStatus
+    public_ip_exposed: bool | None
+    exposure_warning: str | None
+
+
+class GatewayStatusResponse(GatewayStatus):
+    """Complete, partially degradable gateway snapshot."""
+
+    version: Literal[2] = 2
     public_ip_exposed: bool | None
     exposure_warning: str | None
 
@@ -177,25 +187,41 @@ def create_app(
         """Return normalized status obtained only through the control daemon."""
         active_runtime = _get_runtime(request)
         _authenticate(active_runtime.auth_file, credentials)
-        client = ControlClient(
-            socket_path=active_runtime.control_socket,
-            timeout_seconds=active_runtime.control_timeout_seconds,
-        )
-        try:
-            response = client.status()
-        except ControlClientError as exc:
-            raise ApiError(502, exc.code, str(exc)) from exc
-        if not response.success:
-            raise ApiError(
-                502,
-                response.error_code or "CONTROL_ERROR",
-                response.message,
-            )
-        if response.vpn_status is None:
+        response = _control_status(active_runtime)
+        if response.gateway_status is None or response.gateway_status.vpn_status is None:
             raise ApiError(502, "INVALID_RESPONSE", "control response has no VPN status")
-        exposed, warning = _exposure(response.vpn_status.gateway_mode)
+        vpn_status = response.gateway_status.vpn_status
+        exposed, warning = _exposure(vpn_status.gateway_mode)
         return StatusResponse(
-            vpn_status=response.vpn_status,
+            vpn_status=vpn_status,
+            public_ip_exposed=exposed,
+            exposure_warning=warning,
+        )
+
+    @application.get(
+        "/api/v2/status",
+        response_model=GatewayStatusResponse,
+        responses={401: {"model": ErrorResponse}, 502: {"model": ErrorResponse}},
+    )
+    def gateway_status(
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> GatewayStatusResponse:
+        """Return a complete local gateway snapshot with partial failures."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        response = _control_status(active_runtime)
+        if response.gateway_status is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no gateway status")
+        snapshot = response.gateway_status
+        mode = (
+            snapshot.vpn_status.gateway_mode
+            if snapshot.vpn_status is not None
+            else GatewayMode.UNKNOWN
+        )
+        exposed, warning = _exposure(mode)
+        return GatewayStatusResponse(
+            **snapshot.model_dump(),
             public_ip_exposed=exposed,
             exposure_warning=warning,
         )
@@ -239,6 +265,24 @@ def _authenticate(path: Path, credentials: HTTPBasicCredentials | None) -> None:
             "invalid username or password",
             authenticate=True,
         )
+
+
+def _control_status(runtime: WebRuntime) -> ControlResponse:
+    client = ControlClient(
+        socket_path=runtime.control_socket,
+        timeout_seconds=runtime.control_timeout_seconds,
+    )
+    try:
+        response = client.status()
+    except ControlClientError as exc:
+        raise ApiError(502, exc.code, str(exc)) from exc
+    if not response.success:
+        raise ApiError(
+            502,
+            response.error_code or "CONTROL_ERROR",
+            response.message,
+        )
+    return response
 
 
 def _exposure(mode: GatewayMode) -> tuple[bool | None, str | None]:
