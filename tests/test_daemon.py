@@ -3,7 +3,9 @@
 import os
 import pwd
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from threading import Event
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -267,6 +269,78 @@ def test_control_service_connects_only_configured_alias() -> None:
     assert provider.connected_target.provider_target == "us9167"
     assert response.vpn_status is not None
     assert response.vpn_status.target == "dallas"
+
+
+def test_control_service_rejects_competing_mutation_but_allows_status() -> None:
+    entered = Event()
+    release = Event()
+
+    class BlockingProvider(FakeProvider):
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            entered.set()
+            assert release.wait(timeout=2)
+            return super().connect(target)
+
+    provider = BlockingProvider()
+    service = control_service(provider)
+    connect_request = ConnectRequest(
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.CONNECT,
+        target="dallas",
+    )
+    disconnect_request = DisconnectRequest(
+        version=PROTOCOL_VERSION,
+        request_id=UUID("e67d7ea1-34b4-481d-a16d-f2d33031af68"),
+        operation=Operation.DISCONNECT,
+    )
+    status_request = StatusRequest(
+        version=PROTOCOL_VERSION,
+        request_id=UUID("5976f162-3a2b-473e-8ffc-c8d65cad4d40"),
+        operation=Operation.STATUS,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(service.dispatch, connect_request)
+        assert entered.wait(timeout=2)
+
+        competing = service.dispatch(disconnect_request)
+        status = service.dispatch(status_request)
+        release.set()
+        completed = first.result(timeout=2)
+
+    assert not competing.success
+    assert competing.error_code == "OPERATION_IN_PROGRESS"
+    assert status.success
+    assert status.gateway_status is not None
+    assert completed.success
+
+
+def test_control_service_releases_operation_lock_after_provider_failure() -> None:
+    class FailOnceProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail = True
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            if self.fail:
+                self.fail = False
+                raise ProviderError("PROVIDER_COMMAND_FAILED", "first call failed")
+            return super().connect(target)
+
+    request = ConnectRequest(
+        version=PROTOCOL_VERSION,
+        request_id=REQUEST_ID,
+        operation=Operation.CONNECT,
+        target="dallas",
+    )
+    service = control_service(FailOnceProvider())
+
+    with pytest.raises(ProviderError):
+        service.dispatch(request)
+    response = service.dispatch(request)
+
+    assert response.success
 
 
 def test_control_service_returns_sanitized_target_catalogue() -> None:

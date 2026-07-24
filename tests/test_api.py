@@ -640,6 +640,16 @@ def test_connect_rejects_malformed_request(
             ControlResponse(
                 request_id=REQUEST_ID,
                 success=False,
+                error_code="OPERATION_IN_PROGRESS",
+                message="Another VPN control operation is already in progress.",
+            ),
+            409,
+            "OPERATION_IN_PROGRESS",
+        ),
+        (
+            ControlResponse(
+                request_id=REQUEST_ID,
+                success=False,
                 error_code="PROVIDER_TIMEOUT",
                 message="Provider timed out.",
             ),

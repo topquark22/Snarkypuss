@@ -241,6 +241,8 @@ The endpoint returns:
 - HTTP 401 for missing or invalid Basic authentication.
 - HTTP 403 with `CROSS_ORIGIN_REQUEST` for a missing request marker or an origin mismatch.
 - HTTP 404 with `UNKNOWN_TARGET` when the alias is not root-approved.
+- HTTP 409 with `OPERATION_IN_PROGRESS` when another VPN mutation holds the daemon's
+  operation lock.
 - HTTP 502 for provider failures or invalid daemon responses.
 - HTTP 504 for provider or control-daemon timeouts.
 

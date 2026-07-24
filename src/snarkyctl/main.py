@@ -299,6 +299,7 @@ def create_app(
             400: {"model": ErrorResponse},
             401: {"model": ErrorResponse},
             404: {"model": ErrorResponse},
+            409: {"model": ErrorResponse},
             502: {"model": ErrorResponse},
             504: {"model": ErrorResponse},
         },
@@ -325,6 +326,7 @@ def create_app(
             error_code = response.error_code or "CONTROL_ERROR"
             status_code = {
                 "UNKNOWN_TARGET": 404,
+                "OPERATION_IN_PROGRESS": 409,
                 "PROVIDER_TIMEOUT": 504,
             }.get(error_code, 502)
             raise ApiError(

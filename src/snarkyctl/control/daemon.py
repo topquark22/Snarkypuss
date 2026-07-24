@@ -8,8 +8,10 @@ import pwd
 import socket
 import struct
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
+from threading import Lock
 
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, LoadedConfig, load_config
 from snarkyctl.control.protocol import (
@@ -52,6 +54,7 @@ from snarkyctl.status import (
 LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
 CONTROL_IO_TIMEOUT_SECONDS = 5.0
+CONTROL_WORKER_COUNT = 8
 _PEER_CREDENTIALS = struct.Struct("3i")
 
 
@@ -76,6 +79,7 @@ class ControlService:
         self._public_ip_collector = public_ip_collector
         self._public_ip_url = config.settings.status.public_ip_url
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
+        self._operation_lock = Lock()
         self._targets: dict[str, VpnTarget] = {
             target.alias: target for target in config.targets.targets
         }
@@ -92,6 +96,22 @@ class ControlService:
 
     def dispatch(self, request: ControlRequest) -> ControlResponse:
         """Execute one already validated request."""
+        if not isinstance(request, (ConnectRequest, DisconnectRequest)):
+            return self._dispatch_unlocked(request)
+        if not self._operation_lock.acquire(blocking=False):
+            return ControlResponse(
+                request_id=request.request_id,
+                success=False,
+                error_code="OPERATION_IN_PROGRESS",
+                message="Another VPN control operation is already in progress.",
+            )
+        try:
+            return self._dispatch_unlocked(request)
+        finally:
+            self._operation_lock.release()
+
+    def _dispatch_unlocked(self, request: ControlRequest) -> ControlResponse:
+        """Execute a request after any required operation lock is acquired."""
         if isinstance(request, TargetsRequest):
             catalog = VpnTargetCatalog(
                 provider=self._provider.name,
@@ -328,14 +348,26 @@ def handle_connection(
         LOGGER.warning("rejected invalid control request pid=%d uid=%d: %s", pid, uid, exc)
 
 
+def _handle_and_close(
+    connection: socket.socket,
+    permitted_uids: frozenset[int],
+    service: ControlService,
+) -> None:
+    with closing(connection):
+        handle_connection(connection, permitted_uids, service)
+
+
 def serve(listener: socket.socket, service: ControlService) -> None:  # pragma: no cover
-    """Serve local requests serially until systemd stops the process."""
+    """Serve local requests concurrently while serializing provider mutations."""
     permitted_uids = allowed_uids()
     LOGGER.info("SnarkyCtl control daemon ready")
-    while True:
-        connection, _address = listener.accept()
-        with closing(connection):
-            handle_connection(connection, permitted_uids, service)
+    with ThreadPoolExecutor(
+        max_workers=CONTROL_WORKER_COUNT,
+        thread_name_prefix="snarkyctl-control",
+    ) as executor:
+        while True:
+            connection, _address = listener.accept()
+            executor.submit(_handle_and_close, connection, permitted_uids, service)
 
 
 def main() -> int:  # pragma: no cover - exercised by systemd integration tests
