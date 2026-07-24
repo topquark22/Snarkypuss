@@ -28,7 +28,7 @@ The project is designed to:
 
 - Provide a private web dashboard.
 - Expose a small, well-defined REST API.
-- Monitor WireGuard and the configured upstream VPN.
+- Monitor the configured upstream VPN and local gateway health.
 - Switch VPN exit locations.
 - Display the current public exit IP.
 - Manage selected system services (such as `dnsmasq`).
@@ -52,7 +52,6 @@ The project is designed to:
 
 ## Dashboard
 
-- WireGuard status
 - Upstream VPN status, provider, and connection details
 - Current exit IP
 - DNS service status
@@ -68,10 +67,8 @@ The project is designed to:
 
 The initial release will include a NordVPN adapter. Future adapters may support other command-line clients, WireGuard configurations, OpenVPN configurations, or commercial VPN services. An adapter must be compiled into the trusted package registry; configuration cannot load arbitrary modules or executables.
 
-## DNS Management
+## DNS Status
 
-- Restart `dnsmasq`
-- Reload blocklists
 - View DNS status
 
 ## System Information
@@ -186,11 +183,11 @@ debian/
 
 1. Establish the command parsers and typed status models.
 2. Implement the root control daemon and versioned Unix-socket protocol.
-3. Implement firewall-enforced Locked, upstream-VPN, and Direct VPS transitions.
+3. Delegate routing and leak protection to the configured VPN provider.
 4. Establish the unprivileged `snarkyctl` account and systemd socket/service units.
 5. Build the authenticated, HTTPS-only read-only API.
 6. Build the status dashboard.
-7. Enable serialized state-changing controls through the control daemon.
+7. Enable serialized CLI controls through the control daemon.
 8. Complete Debian packaging, preflight, hardening, and operational tests.
 
 Detailed implementation requirements are contained in [**SNARKYCTL.md**](SNARKYCTL.md), with settled architectural choices in [**DECISIONS.md**](DECISIONS.md).
