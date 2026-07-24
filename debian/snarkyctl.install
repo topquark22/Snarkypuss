@@ -6,7 +6,6 @@ config/targets.yaml.example usr/share/doc/snarkyctl/examples/
 API.md usr/share/doc/snarkyctl/
 ARCHITECTURE.md usr/share/doc/snarkyctl/
 CONFIGURATION.md usr/share/doc/snarkyctl/
-DECISIONS.md usr/share/doc/snarkyctl/
 DEPLOYMENT.md usr/share/doc/snarkyctl/
 INSTALL.md usr/share/doc/snarkyctl/
 NORDVPN.md usr/share/doc/snarkyctl/

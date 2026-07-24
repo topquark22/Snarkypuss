@@ -134,8 +134,8 @@ The documentation is divided by purpose:
 - [**PREFLIGHT.md**](PREFLIGHT.md) — deployment validation and safety checks.
 - [**API.md**](API.md) — authenticated HTTPS API.
 - [**DEPLOYMENT.md**](DEPLOYMENT.md) — wheel and Debian packaging, upgrades, and release process.
-- [**DECISIONS.md**](DECISIONS.md) — settled architectural decisions.
-- [**SNARKYCTL.md**](SNARKYCTL.md) — detailed management-utility requirements and roadmap.
+- [**development/**](development/README.md) — requirements, roadmap, and architectural
+  decision artifacts used during development.
 
 A practical deployment proceeds in two stages:
 
@@ -150,9 +150,8 @@ Do not expose the management listener publicly as a shortcut during installation
 ```text
 README.md                 Project overview
 SNARKYPUSS.md             Private VPN gateway technical reference
-SNARKYCTL.md              Management utility requirements
 ARCHITECTURE.md           Software and security architecture
-DECISIONS.md              Architecture decision records
+development/              Requirements and design-process artifacts
 INSTALL.md                Administrator installation guide
 CONFIGURATION.md          Runtime configuration reference
 NORDVPN.md                NordVPN provider-adapter reference

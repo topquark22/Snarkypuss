@@ -89,7 +89,10 @@ snarkyctl/
 ├── ARCHITECTURE.md
 ├── DEPLOYMENT.md
 ├── INSTALL.md
-├── SNARKYCTL.md
+├── development/
+│   ├── README.md
+│   ├── SNARKYCTL.md
+│   └── DECISIONS.md
 │
 ├── src/
 │   └── snarkyctl/
