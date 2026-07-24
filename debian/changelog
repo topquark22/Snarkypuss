@@ -1,3 +1,10 @@
+snarkyctl (0.1.0~dev4-1) unstable; urgency=medium
+
+  * Add provider-neutral Protected VPN, Locked, and Direct VPS controls.
+  * Add guarded Direct-mode confirmation and leak-protection rollback.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Fri, 24 Jul 2026 07:56:22 -0400
+
 snarkyctl (0.1.0~dev3-2) unstable; urgency=medium
 
   * Add the provider-neutral target catalogue and connect API.
