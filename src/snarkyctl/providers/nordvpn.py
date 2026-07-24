@@ -12,6 +12,9 @@ import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated, Literal, cast
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from snarkyctl.providers.base import (
     ProviderCapabilities,
@@ -22,6 +25,14 @@ from snarkyctl.providers.base import (
     VpnStatus,
     VpnTarget,
 )
+from snarkyctl.targets.models import (
+    JsonObject,
+    ProviderTargetSchema,
+    SelectorField,
+    SelectorFieldType,
+    SelectorKind,
+    StoredTarget,
+)
 
 NORDVPN_EXECUTABLE = Path("/usr/bin/nordvpn")
 DEFAULT_TIMEOUT_SECONDS = 45.0
@@ -29,6 +40,64 @@ MAX_OUTPUT_LENGTH = 64 * 1024
 MAX_ERROR_DETAIL_LENGTH = 512
 MAX_FIELD_LENGTH = 256
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._#-]{0,99}$")
+CODE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
+
+
+class _RecommendedSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["recommended"]
+
+
+class _CountrySelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["country"]
+    country: str = Field(min_length=2, max_length=32)
+
+
+class _CitySelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["city"]
+    country: str = Field(min_length=2, max_length=32)
+    city: str = Field(min_length=1, max_length=100)
+
+
+class _GroupSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["group"]
+    group: str = Field(min_length=1, max_length=100)
+
+
+class _ServerSelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["server"]
+    server: str = Field(min_length=1, max_length=100)
+
+
+class _LegacySelector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["legacy"]
+    value: str = Field(min_length=1, max_length=100)
+
+
+type NordVpnSelector = Annotated[
+    _RecommendedSelector
+    | _CountrySelector
+    | _CitySelector
+    | _GroupSelector
+    | _ServerSelector
+    | _LegacySelector,
+    Field(discriminator="kind"),
+]
+SELECTOR_ADAPTER: TypeAdapter[NordVpnSelector] = TypeAdapter(NordVpnSelector)
+
+
+def _text_field(name: str, label: str) -> SelectorField:
+    return SelectorField(
+        name=name,
+        label=label,
+        field_type=SelectorFieldType.TEXT,
+        max_length=100,
+    )
 
 
 @dataclass(frozen=True)
@@ -218,13 +287,94 @@ class NordVpnProvider(VpnProvider):
         result = self._run("settings")
         return parse_settings(result.stdout)
 
-    def connect(self, target: VpnTarget) -> VpnStatus:
-        if TARGET_PATTERN.fullmatch(target.provider_target) is None:
-            raise ProviderError("INVALID_TARGET", "NordVPN target contains unsupported characters")
-        self._run("connect", target.provider_target)
+    def target_schema(self) -> ProviderTargetSchema:
+        return ProviderTargetSchema(
+            provider=self.name,
+            selector_kinds=(
+                SelectorKind(kind="recommended", label="Fastest available server"),
+                SelectorKind(
+                    kind="country",
+                    label="Country",
+                    fields=(_text_field("country", "Country"),),
+                ),
+                SelectorKind(
+                    kind="city",
+                    label="City",
+                    fields=(
+                        _text_field("country", "Country"),
+                        _text_field("city", "City"),
+                    ),
+                ),
+                SelectorKind(
+                    kind="group",
+                    label="Server group",
+                    fields=(_text_field("group", "Group"),),
+                ),
+                SelectorKind(
+                    kind="server",
+                    label="Specific server",
+                    fields=(_text_field("server", "Server"),),
+                ),
+                SelectorKind(
+                    kind="legacy",
+                    label="Legacy configured target",
+                    fields=(_text_field("value", "Provider target"),),
+                ),
+            ),
+        )
+
+    def validate_selector(self, selector: JsonObject) -> JsonObject:
+        try:
+            validated = SELECTOR_ADAPTER.validate_python(selector)
+        except ValidationError as exc:
+            raise ProviderError("INVALID_TARGET", "NordVPN selector is invalid.") from exc
+        result = cast(JsonObject, validated.model_dump())
+        for key, value in result.items():
+            if key == "kind":
+                continue
+            if not isinstance(value, str) or TARGET_PATTERN.fullmatch(value) is None:
+                raise ProviderError(
+                    "INVALID_TARGET", f"NordVPN selector field {key!r} is invalid."
+                )
+        if isinstance(validated, (_CountrySelector, _CitySelector)):
+            if CODE_PATTERN.fullmatch(validated.country) is None:
+                raise ProviderError("INVALID_TARGET", "NordVPN country is invalid.")
+            result["country"] = validated.country.casefold()
+        return result
+
+    def import_legacy_target(self, value: str) -> JsonObject:
+        return self.validate_selector({"kind": "legacy", "value": value})
+
+    def connect_stored(self, target: StoredTarget) -> VpnStatus:
+        selector = self.validate_selector(target.selector)
+        kind = selector["kind"]
+        arguments: tuple[str, ...]
+        if kind == "recommended":
+            arguments = ()
+        elif kind == "city":
+            arguments = (str(selector["city"]),)
+        elif kind == "country":
+            arguments = (str(selector["country"]),)
+        elif kind == "group":
+            arguments = (str(selector["group"]),)
+        elif kind == "server":
+            arguments = (str(selector["server"]),)
+        else:
+            arguments = (str(selector["value"]),)
+        self._run("connect", *arguments)
         status = self.status()
         return status.model_copy(
             update={"target": target.alias, "display_name": status.display_name or target.label}
+        )
+
+    def connect(self, target: VpnTarget) -> VpnStatus:
+        return self.connect_stored(
+            StoredTarget(
+                alias=target.alias,
+                label=target.label,
+                position=0,
+                selector=self.import_legacy_target(target.provider_target),
+            )
         )
 
     def disconnect(self) -> VpnStatus:

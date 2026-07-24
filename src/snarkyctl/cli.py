@@ -12,6 +12,13 @@ from snarkyctl.control.client import ControlClient, ControlClientError
 from snarkyctl.preflight import format_report, run_preflight
 from snarkyctl.providers.base import GatewayMode, VpnStatus
 from snarkyctl.status import GatewayStatus
+from snarkyctl.targets.lifecycle import (
+    DEFAULT_TARGET_DATABASE_PATH,
+    backup_database,
+    check_database,
+    initialize_database,
+)
+from snarkyctl.targets.repository import RepositoryError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -60,6 +67,29 @@ def build_parser() -> argparse.ArgumentParser:
     connect = commands.add_parser("connect", help="connect to a configured target alias")
     connect.add_argument("target", help="target alias from the root-owned allowlist")
     connect.add_argument("--json", action="store_true", help="emit the complete JSON response")
+    database = commands.add_parser(
+        "targets-db", help="administer the provider target catalogue database"
+    )
+    database_commands = database.add_subparsers(dest="database_command", required=True)
+    for name, help_text in (
+        ("initialize", "create and verify an empty database"),
+        ("check", "verify permissions, schema, and integrity"),
+    ):
+        command = database_commands.add_parser(name, help=help_text)
+        command.add_argument(
+            "--database",
+            type=Path,
+            default=DEFAULT_TARGET_DATABASE_PATH,
+            help=f"database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
+        )
+    backup = database_commands.add_parser("backup", help="create a consistent database backup")
+    backup.add_argument(
+        "--database",
+        type=Path,
+        default=DEFAULT_TARGET_DATABASE_PATH,
+        help=f"source database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
+    )
+    backup.add_argument("--output", type=Path, required=True, help="new backup file path")
     return parser
 
 
@@ -87,6 +117,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if report.passed else 1
     elif args.command in {"status", "connect", "disconnect"}:
         return _run_control_command(args)
+    elif args.command == "targets-db":
+        return _run_database_command(args)
+    return 0
+
+
+def _run_database_command(args: argparse.Namespace) -> int:
+    try:
+        if args.database_command == "initialize":
+            initialize_database(args.database)
+            message = f"Initialized and verified target database: {args.database}"
+        elif args.database_command == "check":
+            check_database(args.database)
+            message = f"Target database is valid: {args.database}"
+        else:
+            backup_database(args.output, args.database)
+            message = f"Backed up target database to: {args.output}"
+    except RepositoryError as exc:
+        print(f"snarkyctl: {exc.code}: {exc}", file=sys.stderr)
+        return 2
+    print(message)
     return 0
 
 

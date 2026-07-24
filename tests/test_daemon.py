@@ -38,6 +38,8 @@ from snarkyctl.providers.base import (
     VpnTarget,
 )
 from snarkyctl.status import PublicIpStatus, StatusCollectionError
+from snarkyctl.targets.models import StoredTarget, TargetCatalogue
+from snarkyctl.targets.repository import MemoryTargetRepository, TargetRepository
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
 
@@ -84,6 +86,7 @@ def control_service(
     provider: VpnProvider | None = None,
     *,
     public_ip_collector: object | None = None,
+    target_repository: TargetRepository | None = None,
 ) -> daemon.ControlService:
     configured_target = VpnTarget(
         alias="dallas", label="Dallas, United States", provider_target="us9167"
@@ -108,6 +111,7 @@ def control_service(
         provider or FakeProvider(),
         local_collector=lambda: (None, None, []),
         public_ip_collector=collector,
+        target_repository=target_repository,
     )
 
 
@@ -225,6 +229,38 @@ def test_connected_status_includes_public_exit_ip() -> None:
     assert response.gateway_status is not None
     assert response.gateway_status.public_ip is not None
     assert str(response.gateway_status.public_ip.address) == "203.0.113.42"
+
+
+def test_daemon_resolves_connection_alias_through_repository() -> None:
+    provider = FakeProvider()
+    repository = MemoryTargetRepository(
+        (
+            TargetCatalogue(
+                provider="fake",
+                revision=3,
+                targets=(
+                    StoredTarget(
+                        alias="prague",
+                        label="Prague",
+                        position=0,
+                        selector={"kind": "legacy", "value": "cz"},
+                    ),
+                ),
+            ),
+        )
+    )
+    service = control_service(provider, target_repository=repository)
+    response = service.dispatch(
+        ConnectRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.CONNECT,
+            target="prague",
+        )
+    )
+    assert response.success
+    assert provider.connected_target is not None
+    assert provider.connected_target.provider_target == "cz"
 
 
 def test_locked_status_does_not_make_external_request() -> None:

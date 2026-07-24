@@ -36,7 +36,6 @@ from snarkyctl.providers.base import (
     VpnSettings,
     VpnState,
     VpnStatus,
-    VpnTarget,
     VpnTargetCatalog,
     VpnTargetSummary,
 )
@@ -51,6 +50,7 @@ from snarkyctl.status import (
     collect_public_ip,
     new_gateway_status,
 )
+from snarkyctl.targets.repository import TargetRepository, YamlTargetRepository
 
 LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
@@ -74,6 +74,7 @@ class ControlService:
             [], tuple[DnsStatus | None, SystemStatus | None, list[ComponentFailure]]
         ] = collect_local_status,
         public_ip_collector: Callable[[str, float], PublicIpStatus] = collect_public_ip,
+        target_repository: TargetRepository | None = None,
     ) -> None:
         self._provider = provider
         self._local_collector = local_collector
@@ -82,9 +83,14 @@ class ControlService:
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
         self._operation_lock = Lock()
         self._current_target_alias: str | None = None
-        self._targets: dict[str, VpnTarget] = {
-            target.alias: target for target in config.targets.targets
-        }
+        repository = target_repository or YamlTargetRepository(
+            provider.name,
+            config.targets.targets,
+            provider.import_legacy_target,
+        )
+        self._target_repository = repository
+        catalogue = repository.get_catalogue(provider.name)
+        self._targets = {target.alias: target for target in catalogue.targets}
 
     @classmethod
     def from_config(cls, path: Path = DEFAULT_CONFIG_PATH) -> ControlService:
@@ -213,7 +219,7 @@ class ControlService:
                     "PROTECTION_NOT_ENABLED",
                     "Provider did not confirm that leak protection is enabled.",
                 )
-            status = self._provider.connect(target)
+            status = self._provider.connect_stored(target)
             status = status.model_copy(update={"target": target.alias})
             self._current_target_alias = target.alias
             status = self._with_gateway_mode(status, self._provider.settings())
@@ -238,7 +244,7 @@ class ControlService:
                     error_code="UNKNOWN_TARGET",
                     message="The requested target alias is not configured.",
                 )
-            status = self._provider.connect(target)
+            status = self._provider.connect_stored(target)
             status = status.model_copy(update={"target": target.alias})
             self._current_target_alias = target.alias
             try:

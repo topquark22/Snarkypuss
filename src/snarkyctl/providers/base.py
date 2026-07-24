@@ -9,6 +9,8 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from snarkyctl.targets.models import JsonObject, ProviderTargetSchema, StoredTarget
+
 
 class VpnState(StrEnum):
     """Common lifecycle states reported by every upstream VPN adapter."""
@@ -127,6 +129,36 @@ class VpnProvider(ABC):
     @abstractmethod
     def connect(self, target: VpnTarget) -> VpnStatus:
         """Connect to one root-configured target and return resulting status."""
+
+    def target_schema(self) -> ProviderTargetSchema:
+        """Return the provider's reviewed target selector schema."""
+        raise ProviderError(
+            "UNSUPPORTED_TARGET_SELECTION",
+            f"{self.name} does not support target selection.",
+        )
+
+    def validate_selector(self, selector: JsonObject) -> JsonObject:
+        """Validate and normalize one provider-owned selector document."""
+        if selector.get("kind") != "legacy" or set(selector) != {"kind", "value"}:
+            raise ProviderError("INVALID_TARGET", "Only a legacy selector is supported.")
+        value = selector.get("value")
+        if not isinstance(value, str) or not value or len(value) > 200:
+            raise ProviderError("INVALID_TARGET", "Legacy target value is invalid.")
+        return {"kind": "legacy", "value": value}
+
+    def import_legacy_target(self, value: str) -> JsonObject:
+        """Convert an existing YAML provider target without guessing its meaning."""
+        return self.validate_selector({"kind": "legacy", "value": value})
+
+    def connect_stored(self, target: StoredTarget) -> VpnStatus:
+        """Connect using a validated structured target."""
+        selector = self.validate_selector(target.selector)
+        value = selector.get("value")
+        if selector.get("kind") != "legacy" or not isinstance(value, str):
+            raise ProviderError("INVALID_TARGET", "Provider cannot connect with this selector.")
+        return self.connect(
+            VpnTarget(alias=target.alias, label=target.label, provider_target=value)
+        )
 
     @abstractmethod
     def disconnect(self) -> VpnStatus:

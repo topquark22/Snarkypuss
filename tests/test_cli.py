@@ -18,6 +18,7 @@ from snarkyctl.status import (
     PublicIpStatus,
     SystemStatus,
 )
+from snarkyctl.targets.repository import RepositoryError
 
 
 def test_version_option(capsys: pytest.CaptureFixture[str]) -> None:
@@ -163,3 +164,38 @@ def test_control_client_error(
     monkeypatch.setattr("snarkyctl.cli.ControlClient.disconnect", fail)
     assert main(["disconnect"]) == 2
     assert "DAEMON_UNAVAILABLE" in capsys.readouterr().err
+
+
+def test_targets_database_lifecycle_commands(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    database = tmp_path / "targets.db"
+    backup = tmp_path / "targets.backup.db"
+    assert main(["targets-db", "initialize", "--database", str(database)]) == 0
+    assert main(["targets-db", "check", "--database", str(database)]) == 0
+    assert (
+        main(
+            [
+                "targets-db",
+                "backup",
+                "--database",
+                str(database),
+                "--output",
+                str(backup),
+            ]
+        )
+        == 0
+    )
+    assert backup.exists()
+    assert "Backed up" in capsys.readouterr().out
+
+
+def test_targets_database_error_is_controlled(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(_path: Path) -> None:
+        raise RepositoryError("DATABASE_NOT_FOUND", "missing")
+
+    monkeypatch.setattr("snarkyctl.cli.check_database", fail)
+    assert main(["targets-db", "check", "--database", "/tmp/missing.db"]) == 2
+    assert "DATABASE_NOT_FOUND: missing" in capsys.readouterr().err

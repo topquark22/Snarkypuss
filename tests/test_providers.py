@@ -23,6 +23,7 @@ from snarkyctl.providers.nordvpn import (
     run_command,
 )
 from snarkyctl.providers.placeholder import PlaceholderProvider
+from snarkyctl.targets.models import StoredTarget
 
 
 def target() -> VpnTarget:
@@ -136,6 +137,53 @@ def test_nordvpn_connect_uses_one_configured_target_argument() -> None:
     status = NordVpnProvider(runner=runner).connect(target())
     assert calls == [("connect", "us9167"), ("status",)]
     assert status.target == "dallas"
+
+
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        ({"kind": "recommended"}, ("connect",)),
+        ({"kind": "country", "country": "US"}, ("connect", "us")),
+        (
+            {"kind": "city", "country": "us", "city": "Dallas"},
+            ("connect", "Dallas"),
+        ),
+        ({"kind": "group", "group": "P2P"}, ("connect", "P2P")),
+        ({"kind": "server", "server": "us4955"}, ("connect", "us4955")),
+        ({"kind": "legacy", "value": "United States"}, ("connect", "United States")),
+    ],
+)
+def test_nordvpn_structured_selectors_use_fixed_arguments(
+    selector: dict[str, str], expected: tuple[str, ...]
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
+        args = tuple(arguments)  # type: ignore[arg-type]
+        calls.append(args)
+        return CommandResult(0, CONNECTED_STATUS if args == ("status",) else "", "")
+
+    stored = StoredTarget(alias="test", label="Test", position=0, selector=selector)
+    NordVpnProvider(runner=runner).connect_stored(stored)
+    assert calls == [expected, ("status",)]
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"kind": "unknown"},
+        {"kind": "recommended", "extra": "bad"},
+        {"kind": "country"},
+        {"kind": "server", "server": "--help"},
+    ],
+)
+def test_nordvpn_rejects_malformed_structured_selectors(
+    selector: dict[str, str],
+) -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    with pytest.raises(ProviderError) as error:
+        provider.validate_selector(selector)
+    assert error.value.code == "INVALID_TARGET"
 
 
 def test_nordvpn_disconnect_then_reads_status() -> None:
