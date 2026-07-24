@@ -3,6 +3,7 @@
 import os
 import pwd
 import socket
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -31,6 +32,7 @@ from snarkyctl.providers.base import (
     VpnStatus,
     VpnTarget,
 )
+from snarkyctl.status import PublicIpStatus, StatusCollectionError
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
 
@@ -64,15 +66,34 @@ class FakeProvider(VpnProvider):
         return VpnStatus(state=VpnState.DISCONNECTED, provider="fake")
 
 
-def control_service(provider: VpnProvider | None = None) -> daemon.ControlService:
+def control_service(
+    provider: VpnProvider | None = None,
+    *,
+    public_ip_collector: object | None = None,
+) -> daemon.ControlService:
     configured_target = VpnTarget(
         alias="dallas", label="Dallas, United States", provider_target="us9167"
     )
-    config = SimpleNamespace(targets=SimpleNamespace(targets=(configured_target,)))
+    config = SimpleNamespace(
+        settings=SimpleNamespace(
+            status=SimpleNamespace(
+                public_ip_url="https://api.ipify.org",
+                public_ip_timeout_seconds=5,
+            )
+        ),
+        targets=SimpleNamespace(targets=(configured_target,)),
+    )
+    collector = public_ip_collector or (
+        lambda _url, _timeout: PublicIpStatus(
+            address="203.0.113.42",
+            checked_at=datetime.now(UTC),
+        )
+    )
     return daemon.ControlService(  # type: ignore[arg-type]
         config,
         provider or FakeProvider(),
         local_collector=lambda: (None, None, []),
+        public_ip_collector=collector,
     )
 
 
@@ -173,6 +194,61 @@ def test_valid_status_request_is_dispatched() -> None:
     assert response.gateway_status.vpn_status is not None
     assert response.gateway_status.vpn_status.state is VpnState.DISCONNECTED
     assert response.gateway_status.vpn_status.gateway_mode is GatewayMode.LOCKED
+    assert response.gateway_status.public_ip is None
+
+
+def test_connected_status_includes_public_exit_ip() -> None:
+    provider = FakeProvider()
+    provider.connected_target = VpnTarget(
+        alias="dallas", label="Dallas", provider_target="us9167"
+    )
+    request = StatusRequest(
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.STATUS
+    )
+
+    response = control_service(provider).dispatch(request)
+
+    assert response.gateway_status is not None
+    assert response.gateway_status.public_ip is not None
+    assert str(response.gateway_status.public_ip.address) == "203.0.113.42"
+
+
+def test_locked_status_does_not_make_external_request() -> None:
+    def forbidden(_url: str, _timeout: float) -> PublicIpStatus:
+        raise AssertionError("public-IP lookup must not run in Locked mode")
+
+    request = StatusRequest(
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.STATUS
+    )
+
+    response = control_service(public_ip_collector=forbidden).dispatch(request)
+
+    assert response.success
+    assert response.gateway_status is not None
+    assert response.gateway_status.public_ip is None
+
+
+def test_public_ip_failure_is_partial() -> None:
+    provider = FakeProvider()
+    provider.connected_target = VpnTarget(
+        alias="dallas", label="Dallas", provider_target="us9167"
+    )
+
+    def fail(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError(
+            "PUBLIC_IP_TLS_FAILED",
+            "public-IP service certificate verification failed",
+        )
+
+    request = StatusRequest(
+        version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.STATUS
+    )
+    response = control_service(provider, public_ip_collector=fail).dispatch(request)
+
+    assert response.success
+    assert response.gateway_status is not None
+    assert response.gateway_status.public_ip is None
+    assert response.gateway_status.partial_failures[0].component == "public_ip"
 
 
 def test_control_service_connects_only_configured_alias() -> None:
