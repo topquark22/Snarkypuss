@@ -244,10 +244,10 @@ Build a Python command layer that gathers and parses system status before creati
 It should collect:
 
 - Provider-adapter status
-- `wg show`
 - Provider-specific dependency status, when applicable
 - Current public IPv4 address
-- Uptime, load, memory, and disk information as needed
+- DNS service status
+- Uptime, load, memory, and disk information
 
 Example command:
 
@@ -269,29 +269,26 @@ Example output:
     "technology": "NORDLYNX",
     "checked_at": "2026-07-22T10:42:11Z"
   },
-  "wireguard": {
-    "interface": "wg0",
-    "interface_up": true,
-    "peer_configured": true,
-    "latest_handshake_at": "2026-07-22T10:41:29Z",
-    "handshake_age_seconds": 42,
-    "recently_active": true
-  },
   "public_ip": {
     "address": "2.56.190.136",
     "version": 4,
     "checked_at": "2026-07-22T10:42:11Z"
   },
-  "services": {
-    "provider_dependency": "active"
+  "dns": {
+    "service": "dnsmasq.service",
+    "active_state": "active",
+    "sub_state": "running"
   },
   "system": {
-    "uptime_seconds": 48291
+    "uptime_seconds": 48291,
+    "load_average": [0.08, 0.11, 0.09],
+    "memory_total_bytes": 2097152000,
+    "memory_available_bytes": 1325400064
   }
 }
 ```
 
-The example VPN details are supplied by the NordVPN adapter; the core model depends only on the common fields. WireGuard has no persistent connected state. `recently_active` is only an interpretation of handshake age using a documented threshold, initially 180 seconds. The raw handshake time and age must also be returned.
+The example VPN details are supplied by the NordVPN adapter; the core model depends only on the common fields. WireGuard is the private transport used to reach SnarkyCtl. Its operational state is outside the application status model and remains an administrator-managed deployment prerequisite.
 
 Use `subprocess.run()` with:
 
@@ -805,7 +802,7 @@ Deliverables:
 
 ## Milestone 5: Status Dashboard
 
-Deliverable: a browser page showing WireGuard activity, upstream-VPN and provider status, exit IPv4, and VPS health, including partial failures and stale-data indicators.
+Deliverable: a browser page showing upstream-VPN and provider status, DNS status, exit IPv4, and VPS health, including partial failures and stale-data indicators.
 
 ## Milestone 6: Restricted Upstream VPN Controls
 
