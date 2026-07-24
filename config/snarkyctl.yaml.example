@@ -20,6 +20,11 @@ control:
   socket_path: /run/snarkyctl/control.sock
   operation_timeout_seconds: 60
 
+status:
+  # HTTPS verification uses the operating system trust store and cannot be disabled.
+  public_ip_url: https://api.ipify.org
+  public_ip_timeout_seconds: 5
+
 upstream_vpn:
   # This is a fixed registry name compiled into SnarkyCtl, not a module name.
   provider: nordvpn
