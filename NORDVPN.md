@@ -65,7 +65,7 @@ change, so the Kill Switch can be disabled locally if the remote session is inte
 The following example uses the current deployment values:
 
 ```text
-WireGuard UDP listener: 51822
+WireGuard UDP listener: 51820
 WireGuard subnet:        10.8.0.0/24
 ```
 
@@ -86,14 +86,14 @@ sudo nordvpn set killswitch off
 Recent NordVPN clients use `allowlist`:
 
 ```bash
-sudo nordvpn allowlist add port 51822 protocol UDP
+sudo nordvpn allowlist add port 51820 protocol UDP
 sudo nordvpn allowlist add subnet 10.8.0.0/24
 ```
 
 Some installed Linux client versions use the older `whitelist` spelling:
 
 ```bash
-sudo nordvpn whitelist add port 51822
+sudo nordvpn whitelist add port 51820
 sudo nordvpn whitelist add subnet 10.8.0.0/24
 ```
 
