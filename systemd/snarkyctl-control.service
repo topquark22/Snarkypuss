@@ -9,6 +9,7 @@ Requires=snarkyctl-control.socket wg-quick@wg0.service
 Type=simple
 User=root
 Group=root
+SupplementaryGroups=nordvpn
 
 # The daemon must consume the listening socket passed by systemd rather than
 # creating a second socket at /run/snarkyctl/control.sock.
