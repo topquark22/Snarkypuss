@@ -1,876 +1,419 @@
-# Snarkypuss Control Panel
+# SnarkyCtl Requirements
 
-## Project Goal
+## 1. Purpose
 
-Turn the `snarkypuss` VPS into a remotely controlled network appliance with a small private API and web dashboard.
+SnarkyCtl is a private control plane for observing and controlling an optional upstream
+VPN on the `snarkypuss` Linux gateway.
 
-The management interface will be reachable only through the existing WireGuard tunnel:
+It provides:
 
-```text
-Windows browser
-      ↓ HTTPS over WireGuard
-10.8.0.1 management service
-      ↓
-Configured upstream VPN and selected system services
-```
+- An authenticated HTTPS dashboard.
+- Provider-neutral VPN and gateway status.
+- A catalogue of administrator-approved VPN targets.
+- Connection and target switching through the dashboard and CLI.
+- Guarded disconnection through the CLI.
+- Public exit IPv4, DNS service state, and basic VPS health.
+- A least-privilege boundary between the network-facing web process and provider commands.
 
-The first release will support:
+SnarkyCtl manages the upstream VPN. The gateway's underlying private management network is
+an external prerequisite and is not configured, monitored, or controlled by this project.
 
-- Displaying provider-neutral upstream-VPN status.
-- Connecting the configured upstream VPN to a predefined target alias.
-- Disconnecting the configured upstream VPN.
-- Selecting an explicit fail-closed or Direct VPS operating mode.
-- Displaying the current public IPv4 address.
-- Displaying WireGuard interface and peer activity.
-- Displaying essential VPS health information.
+## 2. Current Scope
 
-Restarting `dnsmasq`, viewing logs, restarting services, and rebooting the VPS are deliberately deferred until the core control path is proven safe and reliable.
+The development release implements:
 
----
+- The built-in NordVPN adapter.
+- A compiled registry of trusted provider adapters.
+- Root-owned YAML configuration and target definitions.
+- A socket-activated privileged control daemon.
+- An unprivileged FastAPI and Uvicorn web service.
+- HTTP Basic authentication backed by an `htpasswd` file.
+- Provider-neutral status and target APIs.
+- Dashboard connection and target switching.
+- Serialized provider mutations with HTTP `409 Conflict`.
+- External public-IP detection with TLS certificate verification.
+- Preflight validation, systemd units, wheel builds, and Debian packaging.
 
-## Core Safety Invariants
+The following remain outside the current implementation:
 
-The following are requirements, not optional enhancements.
+- Intentional Direct VPS mode.
+- Dashboard disconnection.
+- Persistent default targets or DNS preferences.
+- Dashboard editing of the target catalogue.
+- Runtime installation of provider adapters.
+- Restarting unrelated services or rebooting the VPS.
 
-1. **The control plane survives upstream-VPN changes**
+## 3. Safety Invariants
 
-   The dashboard must remain reachable over `wg0` while the upstream VPN connects, disconnects, changes targets, restarts, or modifies routes.
+### 3.1 Private management surface
 
-   The management path must always remain:
+The HTTPS service must bind only to the configured private management address. It must
+never bind to `0.0.0.0`, a wildcard IPv6 address, or the VPS public address. The hosting
+firewall and VPS firewall must not expose the management port publicly.
 
-   ```text
-   Windows → WireGuard → 10.8.0.1
-   ```
+Changing VPN targets, reconnecting the provider, provider failures, and provider firewall
+changes must not make the independent management path depend on the upstream VPN exit.
 
-   It must not depend on the upstream-VPN exit path.
+### 3.2 No arbitrary execution
 
-2. **Private by default**
+No browser, API, CLI, or configuration field may supply:
 
-   The service must listen only on the WireGuard address:
+- An executable path.
+- Shell source text.
+- Command options.
+- Environment assignments.
+- A Python module or plugin name.
+- An unvalidated provider target.
 
-   ```text
-   10.8.0.1
-   ```
+Provider commands use a compiled adapter, a fixed executable path, argument arrays,
+bounded timeouts, captured output, and `shell=False`.
 
-   It must never listen on the public interface or on `0.0.0.0`. Port `8443` must not be exposed by the Linode Cloud Firewall or the VPS firewall.
+### 3.3 Least privilege
 
-3. **No arbitrary shell execution**
-
-   The API exposes a fixed set of operations. User-supplied text is never interpolated into a shell command. Commands use argument arrays, absolute executable paths, timeouts, and `shell=False`.
-
-4. **Least privilege from the beginning**
-
-   The web application never runs as `root`. Privileged operations are available only through the separate root control daemon and its fixed, schema-validated Unix-socket protocol.
-
-5. **No unauthenticated state changes**
-
-   Read-only development endpoints may temporarily rely on WireGuard access control. No state-changing endpoint may be enabled unless application authentication is configured and tested.
-
-6. **Read-only first**
-
-   Status collection, parsing, and failure reporting must be dependable before connect or disconnect controls are added.
-
-7. **Fail visibly and degrade gracefully**
-
-   A failed dependency must not erase otherwise valid status. Each subsystem reports its own state, check time, and controlled error. Full command output and raw `stderr` remain in server-side logs.
-
-8. **Serialize control operations**
-
-   Only one upstream-VPN-changing operation may run at a time. Concurrent requests receive HTTP `409 Conflict`; disconnect is idempotent.
-
-9. **Never expose the VPS public IP by default**
-
-   If the upstream VPN disconnects unexpectedly, fails to connect, times out, or is unavailable after boot, forwarded client traffic must enter **Locked** mode. It must not silently fall back to the VPS's public Internet connection.
-
-   Direct use of the VPS public IP is permitted only after the user deliberately selects **Direct VPS** mode. The dashboard must display a prominent warning and require confirmation before enabling it. The WireGuard management path remains available in every mode.
-
-## Operating Modes
-
-The application distinguishes the desired policy from the observed network state:
-
-| Mode | Upstream VPN | Forwarded client traffic |
-|---|---|---|
-| **VPN** | Connected or connecting | Exits through the configured provider; locks if the VPN fails |
-| **Direct VPS** | Disconnected | Exits through the VPS public IP after explicit confirmation |
-| **Locked** | Disconnected | Blocked; WireGuard management remains available |
-
-`Upstream VPN disconnected` is an observed condition, not a routing policy. A generic disconnect action must not silently choose Direct VPS mode.
-
-The status model should expose at least:
-
-```json
-{
-  "desired_mode": "vpn",
-  "actual_mode": "locked",
-  "vpn": { "provider": "nordvpn", "state": "DISCONNECTED" },
-  "forwarding_allowed": false,
-  "exit_ip": null,
-  "warning": "Upstream VPN failed; forwarded traffic is locked"
-}
-```
-
-On reboot, the safe initial state is **Locked**. If the saved desired mode is VPN, forwarding remains locked until the selected provider reconnects successfully. Direct VPS mode must not be restored automatically unless a future, explicit policy decision changes this rule.
-
----
-
-## Upstream VPN Provider Model
-
-The client-to-VPS tunnel remains WireGuard. Forwarded Internet traffic may optionally use a separate upstream VPN selected through a trusted provider adapter.
-
-The root control daemon uses a fixed provider registry:
-
-```text
-VpnProvider
-├── NordVpnProvider
-├── WireGuardProvider (future)
-└── OpenVpnProvider (future)
-```
-
-Every provider implements provider-neutral `status`, `connect`, and `disconnect` operations and returns the common lifecycle states `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `DISCONNECTING`, `FAILED`, or `UNKNOWN`.
-
-Provider adapters own provider-specific commands and output parsing. They report a verified upstream interface but never generate firewall rules. The independent firewall layer implements VPN, Direct VPS, and Locked modes.
-
-Configuration selects a name from the compiled registry. It must never supply a Python module, executable path, raw command, or arbitrary browser-provided provider target.
-
-The first built-in adapter is NordVPN. Its CLI commands and output fixtures are implementation examples, not core protocol or API requirements.
-
-## Recommended Technology Stack
-
-- Python 3
-- FastAPI
-- Uvicorn
-- Pydantic models
-- Jinja2 templates
-- Plain HTML and CSS
-- Minimal browser JavaScript
-- YAML or JSON configuration
-- `systemd`
-- `pytest`
-
-Do not add a database initially. Server aliases and display metadata belong in a small configuration file; transient command serialization can use a process or filesystem lock.
-
----
-
-## Suggested Directory Layout
-
-```text
-/usr/lib/snarkyctl/
-├── app/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── commands.py
-│   ├── models.py
-│   ├── security.py
-│   ├── config.py
-│   ├── operations.py
-│   ├── static/
-│   │   ├── dashboard.js
-│   │   └── style.css
-│   └── templates/
-│       └── index.html
-├── config/
-│   └── servers.yaml
-├── tests/
-│   ├── test_commands.py
-│   ├── test_api.py
-│   ├── test_security.py
-│   ├── test_operations.py
-│   └── fixtures/
-│       ├── vpn-connected.txt
-│       └── vpn-disconnected.txt
-├── requirements.txt
-├── README.md
-└── SNARKYCTL.md
-```
-
-The root control daemon runs separately from the web service; secrets and authoritative privileged configuration do not live in the web application tree.
-
----
-
-# Phase 1: Environment Survey and Connectivity Invariant
-
-Before writing the application, record the VPS's actual configuration:
-
-- Public and private interfaces and addresses.
-- `wg0` address, peer networks, and listen port.
-- Main and policy routing tables.
-- Firewall implementation and active rules.
-- Selected provider, expected interface, routing behaviour, capabilities, and any provider daemon service.
-- Exact paths and representative output for the selected provider, `wg`, `systemctl`, `ip`, and the chosen public-IP client.
-- DNS configuration in both upstream-VPN-connected and disconnected states.
-
-Capture a diagnostic baseline using read-only commands such as:
-
-```bash
-ip -brief address
-ip route show table all
-ip rule show
-wg show
-```
-
-For the initial NordVPN adapter, capture the following provider-specific diagnostics:
-
-```bash
-nordvpn settings
-nordvpn status
-systemctl status nordvpnd --no-pager
-```
-
-Then prove manually that the WireGuard management path survives the corresponding provider operations:
-
-- `nordvpn connect`
-- `nordvpn disconnect`
-- Switching NordVPN servers.
-- Restarting `nordvpnd`.
-- NordVPN kill-switch and firewall changes.
-- A VPS reboot.
-
-Verify specifically that:
-
-- Incoming WireGuard packets remain accepted on the VPS public interface.
-- Replies to the Windows WireGuard client leave through `wg0`.
-- Policy routing does not send those replies through NordLynx.
-- Provider or external-client firewall rules do not block the WireGuard control path.
-- DNS behaves correctly in connected and disconnected modes.
-
-Do not proceed to remote state-changing controls until this invariant is demonstrated.
-
----
-
-# Phase 2: Structured Status Library
-
-Build a Python command layer that gathers and parses system status before creating a web service.
-
-It should collect:
-
-- Provider-adapter status
-- Provider-specific dependency status, when applicable
-- Current public IPv4 address
-- DNS service status
-- Uptime, load, memory, and disk information
-
-Example command:
-
-```bash
-python -m app.commands status
-```
-
-Example output:
-
-```json
-{
-  "vpn": {
-    "provider": "nordvpn",
-    "state": "connected",
-    "server": "us9167",
-    "hostname": "us9167.nordvpn.com",
-    "country": "United States",
-    "city": "Dallas",
-    "technology": "NORDLYNX",
-    "checked_at": "2026-07-22T10:42:11Z"
-  },
-  "public_ip": {
-    "address": "2.56.190.136",
-    "version": 4,
-    "checked_at": "2026-07-22T10:42:11Z"
-  },
-  "dns": {
-    "service": "dnsmasq.service",
-    "active_state": "active",
-    "sub_state": "running"
-  },
-  "system": {
-    "uptime_seconds": 48291,
-    "load_average": [0.08, 0.11, 0.09],
-    "memory_total_bytes": 2097152000,
-    "memory_available_bytes": 1325400064
-  }
-}
-```
-
-The example VPN details are supplied by the NordVPN adapter; the core model depends only on the common fields. WireGuard is the private transport used to reach SnarkyCtl. Its operational state is outside the application status model and remains an administrator-managed deployment prerequisite.
-
-Use `subprocess.run()` with:
-
-- Argument arrays rather than shell strings.
-- Absolute executable paths where practical.
-- A bounded timeout for every command.
-- Captured standard output and standard error.
-- Explicit handling of nonzero exit status.
-- `shell=False`.
-
-```python
-subprocess.run(
-    ["/usr/bin/nordvpn", "status"],  # Inside the NordVPN adapter only
-    capture_output=True,
-    text=True,
-    timeout=15,
-    check=False,
-    shell=False,
-)
-```
-
-Independent checks should run concurrently so that a slow public-IP provider does not delay local status. The combined result should contain partial data when one check fails.
-
-Use a controlled error structure:
-
-```json
-{
-  "state": "unavailable",
-  "checked_at": "2026-07-22T10:42:11Z",
-  "error_code": "COMMAND_TIMEOUT",
-  "message": "Upstream VPN status check timed out"
-}
-```
-
-Do not send raw command `stderr` to the browser. Log detailed diagnostics server-side.
-
-## Public-IP behaviour
-
-Define explicitly:
-
-- IPv4 is the first-release target.
-- Requests follow the current default route, so the result represents the apparent exit address.
-- Each request has a short timeout.
-- A second independent provider is used as fallback.
-- Failure is reported only for the public-IP component, not the whole status response.
-- A later check may compare the observed address or location with the expected upstream-VPN state.
-
----
-
-# Phase 3: Privilege Boundary
-
-Create the privilege boundary before adding state-changing API routes.
-
-## Dedicated account
-
-```bash
-sudo useradd --system \
-  --home /nonexistent \
-  --shell /usr/sbin/nologin \
-  snarkyctl
-```
-
-Application code is `root:root` and not writable by `snarkyctl). Secrets needed by the web service are `root:snarkyctl` with mode `0640). Writable runtime paths are narrowly scoped under `/run/snarkyctl`.
-
-## Root control daemon
-
-Install three systemd units:
-
-```text
-snarkyctl-web.service
-snarkyctl-control.socket
-snarkyctl-control.service
-```
-
-The web service runs as `snarkyctl`. The control daemon runs as root. They communicate only through:
+The web service runs as the dedicated `snarkyctl` account and has no sudo privilege. It
+communicates with the root control daemon only through:
 
 ```text
 /run/snarkyctl/control.sock
 ```
 
-The socket is owned by `root:snarkyctl` with mode `0660`. The daemon verifies Linux peer credentials and accepts requests only from root or the configured `snarkyctl` UID.
+The socket is owned by `root:snarkyctl`, has mode `0660`, and resides in a directory that
+permits traversal by the `snarkyctl` group. The daemon verifies Linux peer credentials and
+accepts only root or the configured service UID.
 
-The versioned protocol exposes a fixed operation enumeration and strict schema. It never accepts shell text, executable paths, command arguments, firewall fragments, filenames, or arbitrary provider targets.
+### 3.4 No silent public-IP fallback
 
-Every request has:
+An upstream VPN disconnection is an observed condition, not permission to use the VPS
+public connection.
 
-- A protocol version.
-- A request identifier.
-- A fixed operation name.
-- A strict size limit.
-- Schema-validated fields.
-- A bounded execution timeout.
+| Gateway mode | Meaning |
+|---|---|
+| `VPN` | The upstream VPN is connected. |
+| `LOCKED` | Public Internet forwarding is blocked by verified provider leak protection. |
+| `DIRECT` | Traffic may expose the VPS public IP. |
+| `UNKNOWN` | SnarkyCtl cannot verify the effective policy. |
 
-The daemon serializes all mode-changing operations, validates aliases against root-owned configuration, uses subprocess argument arrays with `shell=False`, and returns structured results.
+`DIRECT` must always produce a conspicuous public-IP exposure warning. Intentional Direct
+VPS mode requires a separate future implementation and explicit confirmation.
 
-## Firewall-enforced fail-closed policy
+### 3.5 Fail visibly
 
-The root daemon owns atomic mode transitions:
+Partial collector failures must not erase valid status from other components. Browser
+responses contain controlled error codes and messages. Raw provider output and `stderr`
+remain server-side.
 
-- **VPN:** permit forwarded client traffic only through the verified interface reported by the configured provider.
-- **Direct VPS:** permit forwarded traffic through the explicitly configured public interface.
-- **Locked:** permit neither forwarding path.
-- **All modes:** preserve WireGuard management traffic.
+### 3.6 Serialize mutations
 
-If the verified upstream interface disappears, the VPN forwarding rule no longer matches, so traffic becomes blocked without waiting for a monitor to detect failure. Boot begins Locked. Direct VPS mode is never restored automatically.
+The privileged daemon admits only one connect or disconnect operation at a time. A
+competing mutation fails immediately with `OPERATION_IN_PROGRESS`; the web API maps this
+to HTTP `409 Conflict`.
 
-The public interface is explicitly configured in root-owned configuration and validated during preflight. It is not silently guessed during an operation.
+Status and target-catalogue reads remain available during a mutation. The operation lock
+must be released after success, timeout, provider failure, or an unexpected exception.
 
-The web service never calls `sudo`, never gains privileges, and may use `NoNewPrivileges=true`.
-
----
-
-# Phase 4: Read-Only Private API
-
-Create a FastAPI service bound only to `10.8.0.1`.
-
-Initial endpoints:
+## 4. Component Model
 
 ```text
-GET /api/status
-GET /api/health/live
-GET /api/health/ready
+Browser
+   │ authenticated HTTPS
+   ▼
+Unprivileged web service
+   │ typed versioned protocol
+   ▼
+Protected Unix socket
+   │ verified peer credentials
+   ▼
+Privileged control daemon
+   │ trusted adapter
+   ▼
+Configured VPN provider
 ```
 
-Optional component endpoints may be added if they prove useful, but the dashboard should normally retrieve all display data through one `/api/status` request.
+### 4.1 Web service
 
-Health semantics:
+The web service is responsible for:
 
-- `/api/health/live` answers whether the management application is running.
-- `/api/health/ready` answers whether the application can perform its essential local checks.
-- `/api/status` reports each dependency independently and normally returns structured partial results rather than converting every dependency failure into HTTP `503`.
+- HTTP Basic authentication.
+- Same-origin request protection.
+- Strict request and response schemas.
+- Serving the dashboard and same-origin assets.
+- Sending typed requests to the control daemon.
+- Mapping controlled daemon failures to HTTP status codes.
 
-Bind Uvicorn only to:
+It does not execute provider commands, read private provider target values, alter routing,
+or write root-owned configuration.
+
+### 4.2 Control daemon
+
+The root daemon is responsible for:
+
+- Loading immutable validated configuration.
+- Resolving public aliases to private provider targets.
+- Enforcing provider capabilities.
+- Serializing provider mutations.
+- Executing the configured trusted adapter.
+- Normalizing status and gateway mode.
+- Returning only controlled protocol responses.
+
+### 4.3 Provider adapters
+
+Every adapter implements the same trusted interface:
+
+- `status()`
+- `settings()`
+- `connect(target)`
+- `disconnect()`
+- Provider capabilities
+
+The adapter owns provider-specific commands, parsing, timeouts, target validation, and
+interpretation of leak-protection settings. SnarkyCtl does not manipulate routing tables
+when the provider owns its routing.
+
+## 5. Configuration
+
+SnarkyCtl reads:
 
 ```text
-10.8.0.1:8443
+/etc/snarkyctl/snarkyctl.yaml
+/etc/snarkyctl/targets.yaml
+/etc/snarkyctl/auth.htpasswd
 ```
 
-```bash
-uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 --ssl-certfile /etc/snarkyctl/tls/server.crt --ssl-keyfile /etc/snarkyctl/tls/server.key
-```
+Configuration is versioned, schema-validated, size-limited, and loaded with a safe YAML
+parser. Provider names must exist in the compiled trusted registry. Configuration cannot
+load executable code.
 
-Never use `0.0.0.0`. Verify the actual listener with `ss` and verify from an external host that the public VPS address does not accept connections on port `8443`.
+There is no application database. Passwords are not stored; the authentication file
+contains a username and salted password hash in standard `htpasswd` format.
 
----
+## 6. Provider-Neutral Target Catalogue
 
-# Phase 5: Authentication
-
-WireGuard provides network-level access control, but application authentication is still required before control endpoints are enabled.
-
-For the first browser-based version, use HTTP Basic authentication over HTTPS:
-
-- The browser displays its native username-and-password prompt.
-- There is no user database, login page, session cookie, or server-side session store.
-- Store the username and salted password hash in `/etc/snarkyctl/auth.htpasswd`.
-- Use the standard `htpasswd` format with a modern password hash; never store the plaintext password.
-- Own the file as `root:snarkyctl` with mode `0640`, so the service can read but not modify it.
-- Apply authentication to the dashboard and every API endpoint except narrowly defined liveness checks, if any.
-- Rate-limit or progressively delay failed authentication attempts.
-
-HTTP Basic credentials are encoded rather than encrypted, so Basic authentication must never be served over plaintext HTTP. HTTPS is mandatory.
-
-State-changing endpoints must additionally require a same-origin request, JSON content type, and a dedicated request header. Reject cross-origin requests and do not enable CORS. This protects control operations from cross-site requests that might otherwise reuse browser-cached Basic credentials.
-
-Later improvements may include mutual TLS and a separate client certificate per authorized management device.
-
-No state-changing route may be registered or enabled until authentication and cross-origin request protections pass their tests.
-
----
-
-# Phase 6: Status Dashboard
-
-Serve a small dashboard from the same FastAPI application.
-
-```text
-┌────────────────────────────────────────────┐
-│ Snarkypuss Control Panel                   │
-│                                            │
-│ WireGuard: Active  • handshake 42s ago     │
-│ Mode: VPN                                  │
-│ VPN: NordVPN / Dallas #9167                      │
-│ Exit IPv4: 2.56.190.136                    │
-│ VPS: Healthy                               │
-│                                            │
-│ [ Dallas ] [ Prague ] [ Warsaw ]           │
-│ [ Lock Internet ] [ Use VPS Directly ]     │
-│                                            │
-│ Last refresh: 21:42:17                     │
-└────────────────────────────────────────────┘
-```
-
-Initially, the controls may be displayed as disabled until Phase 7.
-
-Dashboard behaviour:
-
-- Refresh status periodically without overlapping requests.
-- Show the age of the last successful check.
-- Distinguish WireGuard interface state, recent peer activity, upstream-VPN and provider state, exit IPv4, and VPS health.
-- Display desired mode and actual mode separately when they differ.
-- Use a persistent, conspicuous warning whenever Direct VPS mode exposes the VPS public IP.
-- Require an explicit confirmation before entering Direct VPS mode.
-- Never describe an unexpected upstream-VPN failure as Direct VPS mode; show that traffic has been locked.
-- Preserve valid component data when another component fails.
-- Display controlled success and failure messages.
-- Mark stale data clearly.
-
-Use browser `fetch()` calls against same-origin API endpoints.
-
----
-
-# Phase 7: Serialized Upstream VPN Controls
-
-Add authenticated state-changing endpoints:
-
-```text
-POST /api/vpn/connect
-POST /api/vpn/disconnect
-POST /api/mode/locked
-POST /api/mode/direct
-```
-
-A connection request accepts only a predefined alias:
-
-```json
-{
-  "target": "dallas"
-}
-```
-
-Display configuration may look like:
+Each root-approved target contains:
 
 ```yaml
 schema_version: 1
 
-network:
-  client_interface: wg0
-  public_interface: eth0
+targets:
+  - alias: dallas
+    label: Dallas, United States
+    provider_target: us
 
-vpn:
-  provider: nordvpn
-  expected_interfaces:
-    - nordlynx
-  targets:
-    dallas:
-      label: Dallas, United States
-      provider_target: us9167
-    prague:
-      label: Prague, Czechia
-      provider_target: Czech_Republic
+  - alias: prague
+    label: Prague, Czechia
+    provider_target: cz
 ```
 
-The authoritative alias-to-provider-target mapping remains root-owned at the privileged boundary. The browser never submits arbitrary server names or raw command arguments.
+- `alias` is the stable public identifier used by the browser, API, and CLI.
+- `label` is presentation text.
+- `provider_target` is private adapter input read only by the privileged daemon.
 
-Execution example:
+Aliases begin with a lowercase letter and contain only lowercase letters, digits,
+underscores, and hyphens. Unknown aliases never reach the provider.
 
-```python
-control_client.request(
-    operation="CONNECT",
-    target=server_alias,
-    timeout=45,
-)
+The browser-facing catalogue contains only:
+
+- Provider name.
+- Normalized provider capabilities.
+- Target aliases.
+- Target labels.
+
+It must never contain `provider_target`.
+
+## 7. VPN Target Switching
+
+### 7.1 Dashboard behavior
+
+The dashboard:
+
+1. Retrieves `GET /api/v2/vpn/targets`.
+2. Confirms that the provider advertises connect and target-selection capabilities.
+3. Populates the selector from approved aliases and labels.
+4. Retrieves current status from `GET /api/v2/status`.
+5. Selects the current alias when it is known.
+6. Sends the selected alias to `POST /api/v2/vpn/connect`.
+7. Disables the controls while the request is running.
+8. Displays controlled success or failure text.
+9. Refreshes status after completion.
+
+The selector must not default to the first target and thereby claim it is active. If the
+current alias is unknown, it displays **Select a target…**.
+
+The daemon remembers the last alias successfully selected through SnarkyCtl for its
+process lifetime. This keeps polling and page reloads synchronized. The alias is
+deliberately unknown after a daemon restart or when the provider was changed outside
+SnarkyCtl; no persistent default is inferred.
+
+### 7.2 Connect API
+
+The request body is:
+
+```json
+{
+  "target": "prague"
+}
 ```
 
-Required behaviour:
+The web process validates the alias and sends only that alias through the Unix socket.
+The daemon repeats the authoritative lookup and gives the adapter the configured private
+provider value.
 
-1. Authenticate the request and validate the same-origin control-request requirements.
-2. Validate the alias at the application boundary.
-3. Send the validated operation to the root control daemon with a bounded timeout.
-4. Let the control daemon acquire the authoritative operation lock.
-5. Return HTTP `409 Conflict` if the daemon reports another operation is active.
-6. Let the configured provider resolve the root-owned target and perform the operation.
-7. Query common provider status after completion or failure.
-8. Return the resulting provider-neutral state and a controlled error message.
+The connect endpoint rejects:
 
-Disconnecting an already disconnected client should succeed idempotently. The dashboard disables controls and displays a connecting or disconnecting state while an operation is active.
+- Missing, malformed, or option-like aliases.
+- Extra request fields.
+- Unknown aliases.
+- Raw provider server names or locations.
+- Competing provider mutations.
+- Cross-origin requests.
 
-`POST /api/vpn/disconnect` must not enable direct forwarding. It transitions to Locked mode unless it is an internal step in an already-confirmed switch to Direct VPS mode. `POST /api/mode/direct` requires explicit confirmation data and enables direct forwarding only after the upstream VPN is disconnected and the routing/firewall policy has been verified.
+### 7.3 Connection sequence
 
-If the upstream VPN exits unexpectedly, fails to connect, times out, or disagrees with the observed exit state, the backend immediately applies Locked mode. This fail-closed transition must not depend on the browser remaining connected.
+The privileged sequence is:
 
----
+1. Validate the protocol request.
+2. Attempt to acquire the non-blocking operation lock.
+3. Resolve the alias from the immutable root-owned catalogue.
+4. Invoke the adapter with the corresponding provider target.
+5. Query the provider's resulting status.
+6. Normalize the response target back to the public alias.
+7. Record that alias in daemon memory.
+8. Release the operation lock in `finally`.
 
-# Phase 8: HTTPS and Certificate Trust
+## 8. HTTP Security
 
-Use HTTPS even inside WireGuard. This supplies browser integrity checks and protects against accidental plaintext exposure if network configuration changes later.
+All operational routes require HTTP Basic authentication over HTTPS. The liveness route is
+the only intentionally unauthenticated endpoint.
 
-The initial deployment must include a concrete trust plan:
+Every state-changing request requires:
 
-1. Create a small private certificate authority or a deliberately trusted self-signed certificate.
-2. Install its trust anchor in the Windows trusted-root store.
-3. Issue the server certificate with Subject Alternative Names matching how the dashboard is opened.
+```http
+Content-Type: application/json
+X-SnarkyCtl-Request: 1
+```
 
-If the Windows hosts file contains:
+Browser requests must also be same-origin according to Fetch Metadata, and any supplied
+`Origin` must exactly match the service origin. CORS is not enabled. These checks occur
+before the privileged daemon is contacted.
+
+The deployed service disables interactive API documentation and applies restrictive
+security, framing, referrer, permissions, and no-store response headers.
+
+## 9. Stable Errors
+
+Errors use:
+
+```json
+{
+  "error": {
+    "code": "OPERATION_IN_PROGRESS",
+    "message": "Another VPN control operation is already in progress."
+  }
+}
+```
+
+Important mappings include:
+
+| HTTP status | Error |
+|---|---|
+| `400` | `INVALID_REQUEST` |
+| `401` | `AUTHENTICATION_REQUIRED` |
+| `403` | `CROSS_ORIGIN_REQUEST` |
+| `404` | `UNKNOWN_TARGET` |
+| `409` | `OPERATION_IN_PROGRESS` |
+| `502` | Provider or daemon response failure |
+| `504` | Provider or daemon timeout |
+
+## 10. Packaging and Services
+
+The deployment package contains:
+
+- The Python application and dependencies in `/usr/lib/snarkyctl/venv`.
+- Static dashboard assets and templates.
+- The control socket, control daemon, and web systemd units.
+- Example configuration.
+- CLI commands.
+
+Package installation must not connect or disconnect a VPN, modify routes or firewall
+rules, create credentials, or enable services automatically.
+
+The three systemd units are:
 
 ```text
-10.8.0.1 snarkypuss
+snarkyctl-control.socket
+snarkyctl-control.service
+snarkyctl-web.service
 ```
 
-the certificate must include `snarkypuss` as a DNS SAN. It may also include `10.8.0.1` as an IP SAN.
-
-Access the dashboard at:
-
-```text
-https://snarkypuss:8443/
-```
-
-Do not train the operator to ignore certificate warnings. Protect the private key as a secret readable only by the service through the minimum necessary group permissions.
-
----
-
-# Phase 9: systemd Services and Hardening
-
-Install a protected socket, a root control daemon, and an unprivileged HTTPS web service.
-
-`snarkyctl-control.socket`:
-
-```ini
-[Unit]
-Description=SnarkyCtl privileged control socket
-
-[Socket]
-ListenStream=/run/snarkyctl/control.sock
-SocketUser=root
-SocketGroup=snarkyctl
-SocketMode=0660
-RemoveOnStop=true
-
-[Install]
-WantedBy=sockets.target
-```
-
-`snarkyctl-control.service`:
-
-```ini
-[Unit]
-Description=SnarkyCtl privileged control daemon
-Requires=snarkyctl-control.socket
-After=network-online.target wg-quick@wg0.service
-
-[Service]
-Type=simple
-ExecStart=/usr/lib/snarkyctl/venv/bin/python -m snarkyctl.control
-User=root
-Group=root
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectHome=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`snarkyctl-web.service`:
-
-```ini
-[Unit]
-Description=SnarkyCtl HTTPS control panel
-After=network-online.target wg-quick@wg0.service snarkyctl-control.socket
-Wants=network-online.target
-Requires=wg-quick@wg0.service snarkyctl-control.socket
-
-[Service]
-Type=simple
-User=snarkyctl
-Group=snarkyctl
-WorkingDirectory=/usr/lib/snarkyctl
-EnvironmentFile=-/etc/snarkyctl/snarkyctl.env
-ExecStart=/usr/lib/snarkyctl/venv/bin/uvicorn snarkyctl.main:app --host 10.8.0.1 --port 8443 --ssl-certfile /etc/snarkyctl/tls/server.crt --ssl-keyfile /etc/snarkyctl/tls/server.key
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-LockPersonality=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable the socket and web service only after preflight:
+## 11. Verification Requirements
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now snarkyctl-control.socket
-sudo systemctl enable --now snarkyctl-web.service
-```
+Automated verification includes:
 
-The control service is socket-activated. Hardening is applied incrementally and verified against required configuration, TLS, socket, and networking access. The web service must never receive `CAP_NET_ADMIN` or general root access.
+- Provider parsing and controlled command failures.
+- Protocol validation and message-size limits.
+- Root-authoritative alias resolution.
+- Confirmation that private provider targets never reach browser responses.
+- Successful target switching away from the first catalogue entry.
+- Preservation of the current alias through status refreshes.
+- Neutral selector behavior when the alias is unknown.
+- Cross-origin and wrong-content-type rejection before daemon access.
+- Concurrent mutation rejection with read availability.
+- Lock release after successful and failed provider operations.
+- Authentication and security headers.
+- Configuration, preflight, packaging, and systemd-unit checks.
+- A minimum 90% branch-coverage gate.
 
----
+Operational acceptance must confirm:
 
-# Phase 10: Testing Strategy
+- The HTTPS listener is private.
+- Authentication is required.
+- Provider transitions do not break the independent management path.
+- Target switching changes the provider and dashboard selection consistently.
+- Provider failure does not silently expose the VPS public IP.
 
-## Unit tests
+## 12. Roadmap
 
-Test parsers and command handling using saved output:
+### 12.1 Provider-neutral target administration
 
-- Connected and disconnected common VPN status.
-- Provider-specific output versions or formats actually observed on the VPS.
-- WireGuard with a recent, old, or absent handshake.
-- Malformed output and missing fields.
-- Command timeout and nonzero exit.
-- Public-IP primary failure and fallback success.
-- Complete public-IP failure without loss of local status.
+Add authenticated dashboard operations to create, edit, and remove targets.
 
-## API and security tests
+Each installed adapter will publish declarative target-field metadata. The common
+dashboard will render those fields without provider-specific JavaScript. The privileged
+daemon will:
 
-Test:
+- Validate and normalize adapter-specific fields.
+- Reject duplicates, unsafe lengths, option-like values, symlinks, and extra fields.
+- Serialize catalogue changes against provider mutations.
+- Write the root-owned catalogue atomically with safe ownership and permissions.
+- Preserve a rollback copy.
+- Reload the catalogue only after a successful write.
 
-- Successful and partially degraded status responses.
-- Liveness versus readiness semantics.
-- Authentication success and failure.
-- Auth-file hash verification and file-permission expectations.
-- Cross-origin control-request rejection.
-- Invalid connection target.
-- Connection timeout.
-- Successful and repeated disconnect.
-- Unexpected upstream-VPN loss transitions to Locked rather than Direct VPS mode.
-- Entering Direct VPS mode requires explicit confirmation.
-- Direct VPS mode displays the VPS exit IP and warning state.
-- Reboot begins Locked and does not automatically restore Direct VPS mode.
-- Two simultaneous operations, with the second receiving `409`.
-- Controlled browser errors that do not expose raw command output.
+Ordinary connection requests will remain alias-only.
 
-## Privilege tests
+### 12.2 Additional trusted providers
 
-Verify that:
+Add trusted adapters for:
 
-- Only root and the `snarkyctl` UID can connect to the control socket.
-- Peer credentials are checked even when socket permissions are correct.
-- Unknown operations, aliases, fields, protocol versions, and oversized requests fail.
-- Shell text, executable paths, firewall fragments, and arbitrary targets are never accepted.
-- Concurrent operations are serialized.
-- The web service cannot change routes or firewall state directly.
-- The web service runs with `NoNewPrivileges=true`.
-- Application code, root configuration, and control-daemon code cannot be modified by `snarkyctl`.
-- Killing either service leaves the active firewall policy fail-closed.
+- Administrator-supplied OpenVPN-compatible configurations.
+- Mullvad using a supported client or configuration mechanism.
 
-## Operational tests
+Every adapter must provide normalized capabilities, status, settings, target validation,
+connect, disconnect, timeouts, controlled errors, preflight checks, and parser fixtures.
 
-Test real failures:
+Provider installation is not a browser upload feature. New executable code, command
+paths, or plugins must arrive through a reviewed package or software upgrade. The UI may
+select only among installed adapters in the trusted registry.
 
-- Stop the selected provider dependency, if any.
-- Disconnect the upstream VPN.
-- Connect to an unavailable target.
-- Restart WireGuard.
-- Reboot the VPS.
-- Disconnect the Windows WireGuard client during an API operation.
-- Replace the auth file or test invalid Basic credentials.
-- Make the public-IP providers unavailable.
+### 12.3 Later controls
 
-## Critical connectivity regression test
+Possible later additions include:
 
-For every networking or provider-adapter change, verify that the dashboard remains reachable during:
+- Dashboard disconnection.
+- Explicit Locked mode.
+- Explicitly confirmed Direct VPS mode.
+- Audit history for management actions.
+- Latency tests for approved targets.
+- Selection among installed trusted providers.
+- Carefully reviewed service administration.
 
-- `nordvpn connect`
-- `nordvpn disconnect`
-- Upstream-VPN target switching
-- Provider daemon restart, when applicable
-- Kill-switch or firewall rule reload
-
-This test is required before release and after any change to routing, WireGuard, an upstream provider, firewall, or systemd network ordering.
-
----
-
-# Milestone Plan
-
-## Milestone 1: Environment and Connectivity Baseline
-
-Deliverables:
-
-- Recorded interface, route, firewall, WireGuard, selected-provider, and DNS state.
-- Demonstrated management connectivity through upstream-VPN transitions.
-- Representative command-output fixtures.
-
-## Milestone 2: Structured Status Command
-
-Deliverable:
-
-```bash
-python -m app.commands status
-```
-
-It produces typed, reliable, partially degradable JSON.
-
-## Milestone 3: Privilege Boundary
-
-Deliverables:
-
-- Dedicated `snarkyctl` account.
-- Root-owned application and control-daemon files.
-- Protected systemd Unix socket with peer credential verification.
-- Versioned, schema-validated control protocol.
-- Authoritative root-owned target allowlist.
-- Firewall-enforced atomic mode transitions.
-- No sudo permission or networking capability in the web service.
-
-## Milestone 4: Authenticated Read-Only API
-
-Deliverables:
-
-- `GET /api/status`
-- Liveness and readiness endpoints.
-- Service available only at `10.8.0.1`.
-- HTTP Basic authentication backed by a root-controlled `htpasswd` file.
-
-## Milestone 5: Status Dashboard
-
-Deliverable: a browser page showing upstream-VPN and provider status, DNS status, exit IPv4, and VPS health, including partial failures and stale-data indicators.
-
-## Milestone 6: Restricted Upstream VPN Controls
-
-Deliverables:
-
-- Connect to predefined aliases.
-- Idempotent disconnect.
-- Fail-closed Locked mode for failures, disconnects, and startup.
-- Explicit, confirmed Direct VPS mode with a persistent exposure warning.
-- Serialized operations and HTTP `409` handling.
-- Progress and controlled error reporting.
-
-## Milestone 7: Trusted HTTPS and Hardened Deployment
-
-Deliverables:
-
-- A certificate trusted by the Windows management computer.
-- Authenticated and encrypted browser connection.
-- A systemd unit with tested hardening.
-- Confirmation that port `8443` is not publicly reachable.
-
-## Milestone 8: Extended Management
-
-Possible additions, each requiring a new fixed control-protocol operation and security review:
-
-- Display and restart `dnsmasq`.
-- Reload DNS blocklists.
-- Show narrowly filtered recent logs.
-- Restart a configured provider dependency.
-- Safe VPS reboot.
-- Display traffic counters.
-- Show latency to predefined exit locations.
-
----
-
-# Possible Later Features
-
-- Provider-neutral target dropdown backed by approved aliases.
-- Saved favourite servers.
-- Latency tests for predefined exits.
-- WireGuard and NordLynx transfer counters.
-- CPU, memory, disk, and load graphs.
-- DNS blocklist-category toggles.
-- Safe, filtered log viewer.
-- Safe reboot with explicit confirmation.
-- Warning when the apparent exit location is unexpected.
-- Windows system-tray client.
-- Desktop notifications after connection changes.
-- Audit log of management actions.
-- Multiple authorized WireGuard clients.
-- Per-client permissions or certificates.
-
----
-
-# Initial Implementation Priority
-
-Build and verify in this order:
-
-1. Survey the real network and service environment.
-2. Prove the WireGuard control-path invariant.
-3. Implement reliable command execution and parsing.
-4. Produce typed, partially degradable status data.
-5. Establish the dedicated account, control daemon, protected socket, and firewall-enforced mode boundary.
-6. Build the private read-only API.
-7. Add HTTP Basic authentication and cross-origin request protection.
-8. Build the status dashboard.
-9. Add serialized, restricted upstream-VPN controls.
-10. Establish trusted HTTPS and harden the systemd service.
-11. Run connectivity, privilege, security, and failure tests.
-
-The visual dashboard is intentionally not the first implementation task. The difficult part is preserving the WireGuard management path while an upstream VPN modifies routing and interface state; that requirement governs the architecture and release criteria.
+Each addition requires its own authorization, privilege-boundary, failure-mode, and
+public-IP-exposure review.

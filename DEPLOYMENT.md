@@ -89,7 +89,7 @@ snarkyctl/
 ├── ARCHITECTURE.md
 ├── DEPLOYMENT.md
 ├── INSTALL.md
-├── SNARKYCTL.revised.md
+├── SNARKYCTL.md
 │
 ├── src/
 │   └── snarkyctl/

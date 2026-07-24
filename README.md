@@ -2,15 +2,21 @@
 
 **SnarkyCtl** is a lightweight management service and web dashboard for the [**snarkypuss**](SNARKYPUSS.md) privacy gateway.
 
-The project turns a Linux VPS into a remotely managed network appliance that is accessible **only through a private WireGuard tunnel**. It provides a secure control plane for monitoring and controlling an optional upstream VPN, WireGuard, DNS services, and selected system functions without exposing any management interface to the public Internet.
+The project turns a Linux VPS into a remotely managed network appliance that is accessible
+only through an independently configured private management network. It provides a secure
+control plane for monitoring and controlling an optional upstream VPN, DNS status, and
+selected system information without exposing a management interface to the public Internet.
 
-SnarkyCtl is not tied to one VPN technology or commercial provider. Its provider-adapter interface can support command-line VPN clients, WireGuard-based services, OpenVPN-based services, or other VPN implementations. NordVPN is the first implemented adapter, not an architectural requirement.
+SnarkyCtl is not tied to one VPN technology or commercial provider. Its provider-adapter
+interface can support command-line clients, configuration-based VPNs, or commercial VPN
+services. NordVPN is the first implemented adapter, not an architectural requirement.
 
 ---
 
 ## Motivation
 
-The `snarkypuss` gateway routes traffic through a private WireGuard tunnel to a VPS, and optionally onward through a separately configured upstream VPN.
+The `snarkypuss` gateway accepts client traffic through its separately configured private
+network and optionally forwards it through an upstream VPN.
 
 While this architecture provides strong privacy and jurisdictional control, day-to-day administration currently requires provider-specific SSH commands. For example, the initial NordVPN deployment uses:
 
@@ -39,7 +45,7 @@ The project is designed to:
 
 # Core Principles
 
-- **Private by design** — reachable only via WireGuard.
+- **Private by design** — reachable only through the configured management network.
 - **No public management ports**.
 - **Minimal dependencies**.
 - **No arbitrary shell execution**.
@@ -65,7 +71,10 @@ The project is designed to:
 - Display normalized connection state and provider-specific details
 - Support additional VPN technologies without changing the web API, control protocol, or firewall policy
 
-The development release includes a NordVPN adapter. Future adapters may support other command-line clients, WireGuard configurations, OpenVPN configurations, or commercial VPN services. An adapter must be compiled into the trusted package registry; configuration cannot load arbitrary modules or executables.
+The development release includes a NordVPN adapter. Future adapters may support other
+command-line clients, OpenVPN-compatible configurations, or commercial VPN services. An
+adapter must be compiled into the trusted package registry; configuration cannot load
+arbitrary modules or executables.
 
 ## DNS Status
 
@@ -90,14 +99,13 @@ The intended deployment is:
 ```text
 Browser
       │
-WireGuard
-      │
-10.8.0.1
+private management network
       │
 SnarkyCtl
 ```
 
-The application binds only to the WireGuard interface and is additionally protected by authentication.
+The application binds only to the configured private management address and is
+additionally protected by authentication.
 
 ---
 
@@ -167,7 +175,7 @@ INSTALL.md
 CONFIGURATION.md
 PREFLIGHT.md
 NORDVPN.md
-SNARKYCTL.revised.md
+SNARKYCTL.md
 SNARKYPUSS.md
 pyproject.toml
 src/snarkyctl/
@@ -207,14 +215,15 @@ shell commands, or provider plugins. Adding executable provider support remains 
 installation or software-upgrade operation.
 
 Detailed implementation requirements are contained in
-[**SNARKYCTL.revised.md**](SNARKYCTL.revised.md), with settled architectural choices in
+[**SNARKYCTL.md**](SNARKYCTL.md), with settled architectural choices in
 [**DECISIONS.md**](DECISIONS.md).
 
 ---
 
 # Intended Audience
 
-This project is intended for technically proficient users who operate their own Linux VPS and want a secure, self-hosted management interface for a WireGuard-based privacy gateway.
+This project is intended for technically proficient users who operate their own Linux VPS
+and want a secure, self-hosted management interface for an upstream VPN gateway.
 
 ---
 
