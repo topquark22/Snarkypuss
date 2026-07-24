@@ -43,6 +43,7 @@ def test_builtin_venv_does_not_receive_virtualenv_only_options() -> None:
 
     assert "--builtin-venv" in rules
     assert "--setuptools" not in rules
+    assert "DH_VERBOSE" not in rules
 
 
 def test_debian_postinst_has_no_network_or_service_activation() -> None:
