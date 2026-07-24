@@ -195,23 +195,23 @@ Python dependency ranges in `pyproject.toml`. This is acceptable for the develop
 package, but a stable release additionally requires a committed, hash-verified dependency
 lock. Package installation never runs `pip` or accesses PyPI.
 
-The PEP 440 development version `0.1.0.dev2` maps to Debian version
-`0.1.0~dev2-1`. The tilde ensures that the development package sorts before the eventual
+The PEP 440 development version `0.1.0.dev3` maps to Debian version
+`0.1.0~dev3-1`. The tilde ensures that the development package sorts before the eventual
 `0.1.0-1` release. The build helper refuses to continue if `pyproject.toml` and
 `debian/changelog` do not match.
 
 After a successful build, inspect the artifact created in the parent directory:
 
 ```bash
-dpkg-deb --info ../snarkyctl_0.1.0~dev2-1_amd64.deb
-dpkg-deb --contents ../snarkyctl_0.1.0~dev2-1_amd64.deb
-lintian ../snarkyctl_0.1.0~dev2-1_amd64.deb
+dpkg-deb --info ../snarkyctl_0.1.0~dev3-1_amd64.deb
+dpkg-deb --contents ../snarkyctl_0.1.0~dev3-1_amd64.deb
+lintian ../snarkyctl_0.1.0~dev3-1_amd64.deb
 ```
 
 Install it with:
 
 ```bash
-sudo apt-get install ./../snarkyctl_0.1.0~dev2-1_amd64.deb
+sudo apt-get install ./../snarkyctl_0.1.0~dev3-1_amd64.deb
 ```
 
 The package creates the `snarkyctl` system account and the empty directories
