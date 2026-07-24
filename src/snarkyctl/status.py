@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
 import os
 import shutil
+import ssl
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import SplitResult, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -54,6 +58,16 @@ class SystemStatus(BaseModel):
     root_disk_free_bytes: int = Field(ge=0)
 
 
+class PublicIpStatus(BaseModel):
+    """Observed public IPv4 address from a verified HTTPS endpoint."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    address: ipaddress.IPv4Address
+    version: int = 4
+    checked_at: datetime
+
+
 class GatewayStatus(BaseModel):
     """Partially degradable status snapshot returned by the control daemon."""
 
@@ -63,6 +77,7 @@ class GatewayStatus(BaseModel):
     vpn_status: VpnStatus | None
     dns: DnsStatus | None
     system: SystemStatus | None
+    public_ip: PublicIpStatus | None = None
     partial_failures: tuple[ComponentFailure, ...] = ()
 
 
@@ -84,6 +99,7 @@ class CommandResult:
 
 
 type CommandRunner = Callable[[Path, tuple[str, ...], float], CommandResult]
+type HttpsFetcher = Callable[[str, float], bytes]
 
 
 def run_command(executable: Path, arguments: tuple[str, ...], timeout: float) -> CommandResult:
@@ -156,6 +172,37 @@ def collect_dns_status(runner: CommandRunner = run_command) -> DnsStatus:
     )
 
 
+def collect_public_ip(
+    url: str,
+    timeout_seconds: float,
+    fetcher: HttpsFetcher | None = None,
+) -> PublicIpStatus:
+    """Retrieve and validate one public IPv4 address over verified HTTPS."""
+    active_fetcher = fetcher or _https_get
+    try:
+        payload = active_fetcher(url, timeout_seconds)
+        if len(payload) > 128:
+            raise StatusCollectionError(
+                "PUBLIC_IP_RESPONSE_INVALID", "public-IP service returned too much data"
+            )
+        address = ipaddress.ip_address(payload.decode("ascii").strip())
+    except StatusCollectionError:
+        raise
+    except UnicodeError as exc:
+        raise StatusCollectionError(
+            "PUBLIC_IP_RESPONSE_INVALID", "public-IP service returned non-ASCII data"
+        ) from exc
+    except ValueError as exc:
+        raise StatusCollectionError(
+            "PUBLIC_IP_RESPONSE_INVALID", "public-IP service did not return an IP address"
+        ) from exc
+    if not isinstance(address, ipaddress.IPv4Address):
+        raise StatusCollectionError(
+            "PUBLIC_IP_RESPONSE_INVALID", "public-IP service did not return an IPv4 address"
+        )
+    return PublicIpStatus(address=address, checked_at=datetime.now(UTC))
+
+
 def collect_system_status(
     *,
     uptime_path: Path = Path("/proc/uptime"),
@@ -205,6 +252,7 @@ def collect_local_status() -> tuple[DnsStatus | None, SystemStatus | None, list[
 def new_gateway_status(
     *,
     vpn_status: VpnStatus | None,
+    public_ip: PublicIpStatus | None,
     dns: DnsStatus | None,
     system: SystemStatus | None,
     partial_failures: list[ComponentFailure],
@@ -213,6 +261,7 @@ def new_gateway_status(
     return GatewayStatus(
         checked_at=datetime.now(UTC),
         vpn_status=vpn_status,
+        public_ip=public_ip,
         dns=dns,
         system=system,
         partial_failures=tuple(partial_failures),
@@ -248,3 +297,70 @@ def _command_failure(prefix: str, result: CommandResult) -> str:
         return f"{prefix} with exit status {result.returncode}"
     detail = detail[:400]
     return f"{prefix} with exit status {result.returncode}: {detail}"
+
+
+def _https_get(url: str, timeout_seconds: float) -> bytes:
+    parsed = urlsplit(url)
+    _validate_https_endpoint(parsed)
+    host = parsed.hostname
+    assert host is not None
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    connection = http.client.HTTPSConnection(
+        host,
+        port=parsed.port,
+        timeout=timeout_seconds,
+        context=ssl.create_default_context(),
+    )
+    try:
+        connection.request(
+            "GET",
+            path,
+            headers={
+                "Accept": "text/plain",
+                "User-Agent": "SnarkyCtl/0.1",
+            },
+        )
+        response = connection.getresponse()
+        if response.status != 200:
+            raise StatusCollectionError(
+                "PUBLIC_IP_HTTP_FAILED",
+                f"public-IP service returned HTTP {response.status}",
+            )
+        payload = response.read(129)
+        if len(payload) > 128:
+            raise StatusCollectionError(
+                "PUBLIC_IP_RESPONSE_INVALID", "public-IP service returned too much data"
+            )
+        return payload
+    except ssl.SSLCertVerificationError as exc:
+        raise StatusCollectionError(
+            "PUBLIC_IP_TLS_FAILED",
+            "public-IP service certificate verification failed",
+        ) from exc
+    except (OSError, http.client.HTTPException) as exc:
+        raise StatusCollectionError(
+            "PUBLIC_IP_REQUEST_FAILED", "public-IP service request failed"
+        ) from exc
+    finally:
+        connection.close()
+
+
+def _validate_https_endpoint(parsed: SplitResult) -> None:
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise StatusCollectionError(
+            "PUBLIC_IP_URL_INVALID", "public-IP endpoint contains an invalid port"
+        ) from exc
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise StatusCollectionError(
+            "PUBLIC_IP_URL_INVALID", "public-IP endpoint is not a safe HTTPS URL"
+        )
