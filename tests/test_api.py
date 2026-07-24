@@ -14,7 +14,13 @@ from snarkyctl.control.client import ControlClientError
 from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.main import WebRuntime, create_app
 from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
-from snarkyctl.status import ComponentFailure, DnsStatus, GatewayStatus, SystemStatus
+from snarkyctl.status import (
+    ComponentFailure,
+    DnsStatus,
+    GatewayStatus,
+    PublicIpStatus,
+    SystemStatus,
+)
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
 
@@ -255,6 +261,10 @@ def test_v2_status_returns_local_components_and_partial_failures(
                 root_disk_total_bytes=4000,
                 root_disk_free_bytes=3000,
             ),
+            public_ip=PublicIpStatus(
+                address="203.0.113.42",
+                checked_at=datetime(2026, 7, 24, 15, 30, tzinfo=UTC),
+            ),
             partial_failures=(
                 ComponentFailure(
                     component="vpn_settings",
@@ -276,6 +286,7 @@ def test_v2_status_returns_local_components_and_partial_failures(
     assert response.json()["version"] == 2
     assert response.json()["dns"]["active_state"] == "active"
     assert response.json()["system"]["uptime_seconds"] == 120
+    assert response.json()["public_ip"]["address"] == "203.0.113.42"
     assert response.json()["partial_failures"][0]["component"] == "vpn_settings"
 
 
