@@ -1,8 +1,12 @@
-# snarkypuss: A Private Multi-Hop VPN Gateway
+# Snarkypuss Private VPN Gateway: Technical Reference
 
-## Overview
+## Purpose and scope
 
-This document describes how to build a personal VPN gateway that routes traffic as follows:
+This is the technical implementation reference for the **Snarkypuss** private VPN gateway.
+For the project overview, safety model, and the relationship between Snarkypuss and its
+SnarkyCtl management utility, begin with [README.md](README.md).
+
+The reference deployment routes traffic as follows:
 
 ```text
 Home PC
