@@ -167,6 +167,6 @@ tests/                    Automated tests
 
 ## Project status
 
-Snarkypuss and SnarkyCtl are under active development. The current release is suitable for
-testing on a controlled VPS, but administrators should review the technical references,
-retain console access, and verify leak protection before relying on it for sensitive traffic.
+Snarkypuss 0.9.0 is the first feature-complete beta and is intended for user acceptance
+testing on a controlled VPS. Administrators should review the technical references, retain
+console access, and verify leak protection before relying on it for sensitive traffic.

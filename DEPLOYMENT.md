@@ -210,7 +210,7 @@ The build must fail if:
 No unconstrained `pip install` command is permitted in the stable release pipeline or
 Debian maintainer scripts.
 
-The `0.1.0.dev4` package is a development package. Its `dh-virtualenv` build currently
+The `0.9.0` package is a development package. Its `dh-virtualenv` build currently
 resolves the bounded dependency ranges from `pyproject.toml` while assembling the package.
 This never causes package installation to contact PyPI, but it is not yet a reproducible
 release build. Adding and enforcing the hashed lock file remains a release gate.
@@ -236,7 +236,7 @@ This model provides:
 If any dependency includes native code, the resulting Debian package is architecture-specific. The first supported target is Ubuntu 24.04 on `amd64`, so the expected package name is:
 
 ```text
-snarkyctl_0.1.0~dev4-1_amd64.deb
+snarkyctl_0.9.0-1_amd64.deb
 ```
 
 A future `arm64` package must be built and tested separately.
@@ -364,13 +364,13 @@ The Debian control data will declare operating-system dependencies that must be 
 The package version has two components:
 
 ```text
-0.1.0~dev4-1
+0.9.0-1
 │          └── Debian packaging revision
 └───────────── PEP 440 development version mapped for Debian ordering
 ```
 
-PEP 440 spells the current version `0.1.0.dev4`; Debian spells it
-`0.1.0~dev4-1` so it sorts before a future `0.1.0-1`. The build helper checks this
+PEP 440 spells the current version `0.9.0`; Debian spells it
+`0.9.0-1` so it sorts before a future `0.1.0-1`. The build helper checks this
 mapping. The Python package version, command output, wheel metadata, Debian changelog, and
 release tag must otherwise agree.
 
@@ -541,14 +541,14 @@ Checksums should be generated from final, immutable release artifacts. If releas
 Install a locally obtained release with:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.1.0~dev4-1_amd64.deb
+sudo apt-get install ./snarkyctl_0.9.0-1_amd64.deb
 ```
 
 When replacing an installed development build from a source checkout, the guarded helper
 performs the stop, reinstall, daemon reload, restart, and status sequence:
 
 ```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_0.1.0~dev4-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_0.9.0-1_amd64.deb
 ```
 
 After configuration and successful preflight:

@@ -1,3 +1,12 @@
+snarkyctl (0.9.0-1) unstable; urgency=medium
+
+  * Publish the first feature-complete beta for user acceptance testing.
+  * Include provider-neutral target selection and protected, locked, and direct
+    gateway modes.
+  * Reorganize user documentation around the Snarkypuss private VPN gateway.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Fri, 24 Jul 2026 08:25:49 -0400
+
 snarkyctl (0.1.0~dev4-1) unstable; urgency=medium
 
   * Add provider-neutral Protected VPN, Locked, and Direct VPS controls.
