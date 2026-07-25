@@ -183,6 +183,56 @@ The capabilities allow future dashboard controls to adapt to the configured prov
 without embedding provider names or assumptions in JavaScript. This endpoint is
 authenticated and read-only; it does not connect or disconnect the VPN.
 
+## Administrative target catalogue API
+
+The management editor uses three authenticated endpoints:
+
+```text
+GET /api/v3/admin/vpn/target-schema
+GET /api/v3/admin/vpn/targets
+PUT /api/v3/admin/vpn/targets
+```
+
+The schema endpoint returns the active compiled provider's data-only selector schema.
+Reviewed field types are limited to `text`, `choice`, `boolean`, and `integer`. Provider
+HTML or JavaScript is never returned or executed.
+
+The administrative catalogue endpoint includes structured selectors and the current
+revision. Unlike `GET /api/v2/vpn/targets`, it is intended only for authenticated
+administration:
+
+```json
+{
+  "provider": "nordvpn",
+  "revision": 3,
+  "targets": [
+    {
+      "alias": "dallas",
+      "label": "Dallas",
+      "position": 0,
+      "selector": {
+        "kind": "city",
+        "country": "us",
+        "city": "Dallas"
+      }
+    }
+  ]
+}
+```
+
+Replacement submits the complete catalogue with `provider`, `expected_revision`, and a
+nonempty `targets` array. It requires `Content-Type: application/json` and
+`X-SnarkyCtl-Request: 1`; the same Fetch Metadata and exact-origin checks used by other
+state-changing endpoints apply.
+
+A stale revision returns HTTP 409 with `CATALOG_CONFLICT`; the client must reload rather
+than overwrite. Provider validation failures return HTTP 400, unsupported selection or a
+non-migrated YAML backend returns HTTP 409, and daemon or storage failures return HTTP 502.
+
+The web process does not open SQLite. It forwards bounded typed requests through the Unix
+socket, and the daemon updates its active snapshot only after the database transaction
+commits. Ordinary API responses continue omitting selectors.
+
 ## `POST /api/v2/vpn/connect`
 
 Requests a connection using one provider-neutral alias from the root-owned target
@@ -254,6 +304,30 @@ The privileged daemon serializes connect and disconnect operations with one non-
 operation lock. Read-only status and target-catalogue requests remain available while a
 mutation runs. A competing mutation fails immediately instead of waiting behind the
 provider command.
+
+## Gateway mode operations
+
+The dashboard places the following policy operations inside a collapsed **Advanced
+gateway modes — Danger zone** section. They are available only when the active adapter
+advertises leak-protection configuration support:
+
+| Endpoint | Request body | Ordered daemon actions | Required result |
+|---|---|---|---|
+| `POST /api/v2/mode/protected` | `{"target":"dallas"}` | Enable protection, connect to the approved alias | `VPN` |
+| `POST /api/v2/mode/locked` | `{}` | Enable protection, disconnect the VPN | `LOCKED` |
+| `POST /api/v2/mode/direct` | `{"confirmation":"EXPOSE VPS IP"}` | Disable protection, disconnect the VPN | `DIRECT` |
+
+All three endpoints require Basic authentication, JSON, the
+`X-SnarkyCtl-Request: 1` marker, and the same browser-origin checks described above.
+The protected endpoint accepts an alias only; its provider target remains root-owned.
+Requests without `Content-Type: application/json` receive HTTP `415` with
+`INVALID_CONTENT_TYPE`.
+
+Direct VPS mode exposes the VPS public IP. The API schema accepts only the exact
+confirmation phrase `EXPOSE VPS IP`, and the dashboard keeps its Direct button disabled
+until that phrase is entered. If the disconnect or final-state verification fails after
+protection is disabled, the daemon attempts to restore leak protection before returning
+the provider error.
 
 Errors use one stable envelope:
 

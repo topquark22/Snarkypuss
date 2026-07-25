@@ -193,6 +193,26 @@ sudo snarkyctl targets-db backup --output /root/targets.db.backup
 
 The production directory and database are root-owned with modes `0700` and `0600`. SQLite sidecar journal files inherit the protection of the root-only directory.
 
+
+After SQLite is selected, authenticated administrators can maintain the catalogue in the
+dashboard's **Manage VPN targets** section. The editor is generated from the active
+provider's schema, so provider-specific selector fields are validated without embedding
+provider rules in the web application. Saving replaces the complete catalogue atomically;
+if another administrator saved first, reload the newer revision before trying again.
+
+The equivalent command-line workflow is:
+
+```bash
+sudo snarkyctl targets list
+sudo snarkyctl targets schema
+sudo snarkyctl targets export > /root/targets.json
+sudoedit /root/targets.json
+sudo snarkyctl targets replace /root/targets.json
+```
+
+Keep the exported `expected_revision` unchanged. It prevents a stale file from silently
+overwriting a newer catalogue.
+
 ## Security Properties
 
 - YAML is parsed with the safe loader and each document is limited to 64 KiB.

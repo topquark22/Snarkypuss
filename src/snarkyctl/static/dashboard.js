@@ -17,11 +17,23 @@
   const directButton = document.querySelector("#mode-direct");
   const directConfirmation = document.querySelector("#direct-confirmation");
   const modeControlMessage = document.querySelector("#mode-control-message");
+  const targetManager = document.querySelector(".target-manager");
+  const managerProvider = document.querySelector("#manager-provider");
+  const managerRevision = document.querySelector("#manager-revision");
+  const editorList = document.querySelector("#target-editor-list");
+  const addTargetButton = document.querySelector("#target-add");
+  const reloadTargetsButton = document.querySelector("#target-reload");
+  const saveTargetsButton = document.querySelector("#target-save");
+  const managerMessage = document.querySelector("#target-manager-message");
 
   let catalogueAvailable = false;
   let modeControlsAvailable = false;
   let operationInProgress = false;
   let currentTarget = null;
+  let managerLoaded = false;
+  let managerBusy = false;
+  let targetSchema = null;
+  let editableCatalogue = null;
 
   const fields = {
     provider: document.querySelector("#provider"),
@@ -104,6 +116,325 @@
       modeControlMessage.dataset.state = state;
     } else {
       delete modeControlMessage.dataset.state;
+    }
+  }
+
+  function setManagerMessage(message, state = "") {
+    managerMessage.textContent = message;
+    if (state) {
+      managerMessage.dataset.state = state;
+    } else {
+      delete managerMessage.dataset.state;
+    }
+  }
+
+  function managerRequest(path, options = {}) {
+    return fetch(path, {
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { Accept: "application/json", ...(options.headers || {}) },
+      ...options,
+    });
+  }
+
+  function selectorDefaults(kindSchema) {
+    const selector = { kind: kindSchema.kind };
+    for (const field of kindSchema.fields || []) {
+      selector[field.name] =
+        field.field_type === "boolean"
+          ? false
+          : field.field_type === "integer"
+            ? 0
+            : field.choices?.[0] || "";
+    }
+    return selector;
+  }
+
+  function fieldControl(field, value, onChange) {
+    const wrapper = document.createElement("label");
+    wrapper.className = "editor-field";
+    const caption = document.createElement("span");
+    caption.textContent = field.label;
+    wrapper.append(caption);
+    let control;
+    if (field.field_type === "choice") {
+      control = document.createElement("select");
+      for (const choice of field.choices || []) {
+        const option = document.createElement("option");
+        option.value = choice;
+        option.textContent = choice;
+        control.append(option);
+      }
+      control.value = String(value ?? "");
+    } else {
+      control = document.createElement("input");
+      control.type =
+        field.field_type === "boolean"
+          ? "checkbox"
+          : field.field_type === "integer"
+            ? "number"
+            : "text";
+      if (control.type === "checkbox") {
+        control.checked = value === true;
+      } else {
+        control.value = String(value ?? "");
+      }
+      if (field.max_length) {
+        control.maxLength = field.max_length;
+      }
+    }
+    control.required = field.required === true;
+    control.addEventListener("input", () => {
+      const nextValue =
+        control.type === "checkbox"
+          ? control.checked
+          : field.field_type === "integer"
+            ? Number(control.value)
+            : control.value;
+      onChange(nextValue);
+    });
+    wrapper.append(control);
+    return wrapper;
+  }
+
+  function renderEditor() {
+    editorList.replaceChildren();
+    if (!editableCatalogue || !targetSchema) {
+      return;
+    }
+    editableCatalogue.targets.forEach((target, index) => {
+      const card = document.createElement("article");
+      card.className = "target-editor-card";
+      const heading = document.createElement("div");
+      heading.className = "editor-card-heading";
+      const title = document.createElement("strong");
+      title.textContent = `Destination ${index + 1}`;
+      const controls = document.createElement("div");
+      for (const [label, offset] of [["↑", -1], ["↓", 1]]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.title = offset < 0 ? "Move up" : "Move down";
+        button.disabled =
+          managerBusy ||
+          (offset < 0 && index === 0) ||
+          (offset > 0 && index === editableCatalogue.targets.length - 1);
+        button.addEventListener("click", () => {
+          const other = index + offset;
+          [editableCatalogue.targets[index], editableCatalogue.targets[other]] = [
+            editableCatalogue.targets[other],
+            editableCatalogue.targets[index],
+          ];
+          renderEditor();
+        });
+        controls.append(button);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.disabled = managerBusy;
+      remove.addEventListener("click", () => {
+        if (window.confirm(`Remove destination “${target.label || target.alias || index + 1}”?`)) {
+          editableCatalogue.targets.splice(index, 1);
+          renderEditor();
+        }
+      });
+      controls.append(remove);
+      heading.append(title, controls);
+      card.append(heading);
+
+      const core = document.createElement("div");
+      core.className = "editor-fields";
+      core.append(
+        fieldControl(
+          { label: "Alias", field_type: "text", required: true, max_length: 32 },
+          target.alias,
+          (value) => {
+            target.alias = value;
+          },
+        ),
+        fieldControl(
+          { label: "Label", field_type: "text", required: true, max_length: 100 },
+          target.label,
+          (value) => {
+            target.label = value;
+          },
+        ),
+      );
+      const kindLabel = document.createElement("label");
+      kindLabel.className = "editor-field";
+      const kindCaption = document.createElement("span");
+      kindCaption.textContent = "Target type";
+      const kindSelect = document.createElement("select");
+      for (const kind of targetSchema.selector_kinds) {
+        const option = document.createElement("option");
+        option.value = kind.kind;
+        option.textContent = kind.label;
+        kindSelect.append(option);
+      }
+      kindSelect.value = target.selector.kind;
+      kindSelect.addEventListener("change", () => {
+        const kind = targetSchema.selector_kinds.find((item) => item.kind === kindSelect.value);
+        target.selector = selectorDefaults(kind);
+        renderEditor();
+      });
+      kindLabel.append(kindCaption, kindSelect);
+      core.append(kindLabel);
+      card.append(core);
+
+      const selectedKind = targetSchema.selector_kinds.find(
+        (item) => item.kind === target.selector.kind,
+      );
+      const selectorFields = document.createElement("div");
+      selectorFields.className = "editor-fields selector-fields";
+      for (const field of selectedKind?.fields || []) {
+        selectorFields.append(
+          fieldControl(field, target.selector[field.name], (value) => {
+            target.selector[field.name] = value;
+          }),
+        );
+      }
+      card.append(selectorFields);
+      editorList.append(card);
+    });
+    addTargetButton.disabled = managerBusy || editableCatalogue.targets.length >= 100;
+    reloadTargetsButton.disabled = managerBusy;
+    saveTargetsButton.disabled = managerBusy;
+  }
+
+  async function loadManager() {
+    if (managerBusy) {
+      return;
+    }
+    managerBusy = true;
+    setManagerMessage("Loading editable catalogue…");
+    renderEditor();
+    try {
+      const [schemaResponse, catalogueResponse] = await Promise.all([
+        managerRequest("/api/v3/admin/vpn/target-schema"),
+        managerRequest("/api/v3/admin/vpn/targets"),
+      ]);
+      const schemaPayload = await schemaResponse.json();
+      const cataloguePayload = await catalogueResponse.json();
+      if (!schemaResponse.ok) {
+        throw new Error(schemaPayload.error?.message || "Target schema request failed.");
+      }
+      if (!catalogueResponse.ok) {
+        throw new Error(cataloguePayload.error?.message || "Editable catalogue request failed.");
+      }
+      targetSchema = schemaPayload;
+      editableCatalogue = {
+        ...cataloguePayload,
+        targets: cataloguePayload.targets.map((target) => ({
+          ...target,
+          selector: { ...target.selector },
+        })),
+      };
+      managerProvider.textContent = editableCatalogue.provider;
+      managerRevision.textContent = String(editableCatalogue.revision);
+      managerLoaded = true;
+      setManagerMessage(`${editableCatalogue.targets.length} destination(s) loaded.`);
+    } catch (error) {
+      managerLoaded = false;
+      setManagerMessage(error instanceof Error ? error.message : "Catalogue loading failed.", "error");
+    } finally {
+      managerBusy = false;
+      renderEditor();
+    }
+  }
+
+  function addDestination() {
+    if (!targetSchema || !editableCatalogue || editableCatalogue.targets.length >= 100) {
+      return;
+    }
+    const kind = targetSchema.selector_kinds[0];
+    editableCatalogue.targets.push({ alias: "", label: "", selector: selectorDefaults(kind) });
+    renderEditor();
+  }
+
+  function validateEditor() {
+    if (!editableCatalogue?.targets.length) {
+      return "The catalogue must contain at least one destination.";
+    }
+    const aliases = new Set();
+    for (const target of editableCatalogue.targets) {
+      if (!/^[a-z][a-z0-9_-]{0,31}$/.test(target.alias)) {
+        return `Invalid alias: ${target.alias || "(empty)"}`;
+      }
+      if (aliases.has(target.alias)) {
+        return `Duplicate alias: ${target.alias}`;
+      }
+      aliases.add(target.alias);
+      if (!target.label || target.label.length > 100) {
+        return `Destination ${target.alias} requires a label of at most 100 characters.`;
+      }
+      const kind = targetSchema.selector_kinds.find(
+        (item) => item.kind === target.selector.kind,
+      );
+      if (!kind) {
+        return `Destination ${target.alias} has an unsupported target type.`;
+      }
+      for (const field of kind.fields || []) {
+        if (field.required && (target.selector[field.name] === "" || target.selector[field.name] == null)) {
+          return `Destination ${target.alias} requires ${field.label}.`;
+        }
+      }
+    }
+    return null;
+  }
+
+  async function saveManager() {
+    if (!managerLoaded || managerBusy) {
+      return;
+    }
+    const validation = validateEditor();
+    if (validation) {
+      setManagerMessage(validation, "error");
+      return;
+    }
+    managerBusy = true;
+    setManagerMessage("Saving complete catalogue…");
+    renderEditor();
+    const targets = editableCatalogue.targets.map((target, position) => ({
+      alias: target.alias,
+      label: target.label,
+      position,
+      selector: target.selector,
+    }));
+    try {
+      const response = await managerRequest("/api/v3/admin/vpn/targets", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-SnarkyCtl-Request": "1",
+        },
+        body: JSON.stringify({
+          provider: editableCatalogue.provider,
+          expected_revision: editableCatalogue.revision,
+          targets,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        const conflict = payload.error?.code === "CATALOG_CONFLICT";
+        throw new Error(
+          conflict
+            ? "The catalogue changed in another session. Reload before saving again."
+            : payload.error?.message || `Catalogue save failed (${response.status}).`,
+        );
+      }
+      editableCatalogue = { ...payload, targets: payload.targets.map((target) => ({
+        ...target,
+        selector: { ...target.selector },
+      })) };
+      managerRevision.textContent = String(editableCatalogue.revision);
+      setManagerMessage("Catalogue saved.", "success");
+      await loadTargets();
+    } catch (error) {
+      setManagerMessage(error instanceof Error ? error.message : "Catalogue save failed.", "error");
+    } finally {
+      managerBusy = false;
+      renderEditor();
     }
   }
 
@@ -399,6 +730,14 @@
   lockedButton.addEventListener("click", enableLockedMode);
   directConfirmation.addEventListener("input", syncModeControls);
   directButton.addEventListener("click", enableDirectMode);
+  targetManager.addEventListener("toggle", () => {
+    if (targetManager.open && !managerLoaded) {
+      loadManager();
+    }
+  });
+  addTargetButton.addEventListener("click", addDestination);
+  reloadTargetsButton.addEventListener("click", loadManager);
+  saveTargetsButton.addEventListener("click", saveManager);
   refresh();
   loadTargets();
   window.setInterval(refresh, 5000);

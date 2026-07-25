@@ -1,6 +1,7 @@
 """Tests for the read-only HTTP API."""
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,6 +28,12 @@ from snarkyctl.status import (
     GatewayStatus,
     PublicIpStatus,
     SystemStatus,
+)
+from snarkyctl.targets.models import (
+    ProviderTargetSchema,
+    SelectorKind,
+    StoredTarget,
+    TargetCatalogue,
 )
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
@@ -94,6 +101,32 @@ def post(
     return asyncio.run(request())
 
 
+def put(
+    app: object,
+    *,
+    path: str,
+    json_body: object,
+    auth: tuple[str, str] | None = None,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
+    request_headers = {
+        "Origin": "https://test",
+        "Sec-Fetch-Site": "same-origin",
+        "X-SnarkyCtl-Request": "1",
+        "Content-Type": "application/json",
+    }
+    if headers is not None:
+        request_headers = headers
+    return request(
+        app,
+        method="PUT",
+        path=path,
+        content=json.dumps(json_body).encode(),
+        auth=auth,
+        headers=request_headers,
+    )
+
+
 def request(
     app: object,
     *,
@@ -149,6 +182,9 @@ def test_dashboard_has_provider_neutral_controls_and_external_assets(
     assert 'id="mode-protected"' in response.text
     assert 'id="mode-locked"' in response.text
     assert 'id="mode-direct"' in response.text
+    assert 'class="target-manager"' in response.text
+    assert 'id="target-editor-list"' in response.text
+    assert 'id="target-save"' in response.text
     assert "EXPOSE VPS IP" in response.text
     assert "provider_target" not in response.text
     assert "<form" not in response.text
@@ -465,6 +501,166 @@ def test_target_catalogue_is_provider_neutral(
         ],
     }
     assert "provider_target" not in response.text
+
+
+def _active_provider_response() -> ControlResponse:
+    return ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="ok",
+        target_catalog=VpnTargetCatalog(
+            provider="nordvpn",
+            capabilities=ProviderCapabilities(
+                connect=True,
+                disconnect=True,
+                target_selection=True,
+                server_details=True,
+            ),
+            targets=(VpnTargetSummary(alias="dallas", label="Dallas"),),
+        ),
+    )
+
+
+def test_admin_schema_and_catalogue_are_authenticated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    schema_response = ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="ok",
+        provider_target_schema=ProviderTargetSchema(
+            provider="nordvpn",
+            selector_kinds=(SelectorKind(kind="recommended", label="Recommended"),),
+        ),
+    )
+    catalogue_response = ControlResponse(
+        request_id=REQUEST_ID,
+        success=True,
+        message="ok",
+        editable_target_catalogue=TargetCatalogue(
+            provider="nordvpn",
+            revision=3,
+            targets=(
+                StoredTarget(
+                    alias="dallas",
+                    label="Dallas",
+                    position=0,
+                    selector={"kind": "recommended"},
+                ),
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.targets",
+        lambda _self: _active_provider_response(),
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.target_schema",
+        lambda _self, _provider: schema_response,
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.editable_catalogue",
+        lambda _self, _provider: catalogue_response,
+    )
+    app = create_app(make_runtime(tmp_path))
+    assert get(app, path="/api/v3/admin/vpn/targets").status_code == 401
+    schema = get(
+        app,
+        path="/api/v3/admin/vpn/target-schema",
+        auth=("admin", "secret"),
+    )
+    catalogue = get(
+        app,
+        path="/api/v3/admin/vpn/targets",
+        auth=("admin", "secret"),
+    )
+    assert schema.status_code == 200
+    assert schema.json()["selector_kinds"][0]["kind"] == "recommended"
+    assert catalogue.status_code == 200
+    assert catalogue.json()["revision"] == 3
+    assert catalogue.json()["targets"][0]["selector"] == {"kind": "recommended"}
+
+
+def test_admin_catalogue_replace_requires_same_origin_and_maps_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conflict = ControlResponse(
+        request_id=REQUEST_ID,
+        success=False,
+        error_code="CATALOG_CONFLICT",
+        message="Catalogue revision is stale.",
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.replace_catalogue",
+        lambda *_args: conflict,
+    )
+    body = {
+        "provider": "nordvpn",
+        "expected_revision": 3,
+        "targets": [
+            {
+                "alias": "dallas",
+                "label": "Dallas",
+                "position": 0,
+                "selector": {"kind": "recommended"},
+            }
+        ],
+    }
+    app = create_app(make_runtime(tmp_path))
+    forged = put(
+        app,
+        path="/api/v3/admin/vpn/targets",
+        json_body=body,
+        auth=("admin", "secret"),
+        headers={"Content-Type": "application/json"},
+    )
+    response = put(
+        app,
+        path="/api/v3/admin/vpn/targets",
+        json_body=body,
+        auth=("admin", "secret"),
+    )
+    assert forged.status_code == 403
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "CATALOG_CONFLICT"
+
+
+def test_admin_catalogue_replace_returns_committed_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalogue = TargetCatalogue(
+        provider="nordvpn",
+        revision=4,
+        targets=(
+            StoredTarget(
+                alias="canada",
+                label="Canada",
+                position=0,
+                selector={"kind": "country", "country": "ca"},
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.replace_catalogue",
+        lambda *_args: ControlResponse(
+            request_id=REQUEST_ID,
+            success=True,
+            message="ok",
+            editable_target_catalogue=catalogue,
+        ),
+    )
+    response = put(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v3/admin/vpn/targets",
+        auth=("admin", "secret"),
+        json_body={
+            "provider": "nordvpn",
+            "expected_revision": 3,
+            "targets": [catalogue.targets[0].model_dump(mode="json")],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["revision"] == 4
 
 
 @pytest.mark.parametrize(

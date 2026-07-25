@@ -6,9 +6,12 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from snarkyctl import __version__
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, load_config
 from snarkyctl.control.client import ControlClient, ControlClientError
+from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.preflight import format_report, run_preflight
 from snarkyctl.providers.base import GatewayMode, VpnStatus
 from snarkyctl.status import GatewayStatus
@@ -19,7 +22,16 @@ from snarkyctl.targets.lifecycle import (
     initialize_database,
 )
 from snarkyctl.targets.migration import migrate_yaml_catalogue
+from snarkyctl.targets.models import StoredTarget
 from snarkyctl.targets.repository import RepositoryError
+
+
+class _CatalogueReplacementFile(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    expected_revision: int = Field(ge=0)
+    targets: tuple[StoredTarget, ...] = Field(min_length=1, max_length=100)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -106,6 +118,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_TARGET_DATABASE_PATH,
         help=f"destination database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
     )
+    targets = commands.add_parser("targets", help="inspect or replace the active target catalogue")
+    target_commands = targets.add_subparsers(dest="targets_command", required=True)
+    for name, help_text in (
+        ("list", "list sanitized target aliases and labels"),
+        ("schema", "show the active provider selector schema"),
+        ("export", "export the editable catalogue as JSON"),
+    ):
+        command = target_commands.add_parser(name, help=help_text)
+        command.add_argument("--json", action="store_true", help="emit JSON")
+    replace = target_commands.add_parser(
+        "replace", help="replace the complete catalogue from a JSON file"
+    )
+    replace.add_argument("file", type=Path, help="replacement JSON document")
     return parser
 
 
@@ -137,6 +162,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_control_command(args)
     elif args.command == "targets-db":
         return _run_database_command(args)
+    elif args.command == "targets":
+        return _run_targets_command(args)
     return 0
 
 
@@ -205,6 +232,69 @@ def _run_control_command(args: argparse.Namespace) -> int:
             print(response.message)
             print(_format_vpn_status(response.vpn_status))
     return 0 if response.success else 1
+
+
+def _run_targets_command(args: argparse.Namespace) -> int:
+    client = ControlClient()
+    try:
+        ordinary = client.targets()
+        if not ordinary.success or ordinary.target_catalog is None:
+            return _print_control_failure(ordinary)
+        provider = ordinary.target_catalog.provider
+        if args.targets_command == "list":
+            if args.json:
+                print(ordinary.target_catalog.model_dump_json(indent=2))
+            else:
+                for target in ordinary.target_catalog.targets:
+                    print(f"{target.alias}\t{target.label}")
+            return 0
+        if args.targets_command == "schema":
+            response = client.target_schema(provider)
+            if not response.success or response.provider_target_schema is None:
+                return _print_control_failure(response)
+            output = response.provider_target_schema.model_dump_json(indent=2)
+            print(output)
+            return 0
+        if args.targets_command == "export":
+            response = client.editable_catalogue(provider)
+            if not response.success or response.editable_target_catalogue is None:
+                return _print_control_failure(response)
+            catalogue = response.editable_target_catalogue
+            document = {
+                "provider": catalogue.provider,
+                "expected_revision": catalogue.revision,
+                "targets": [target.model_dump(mode="json") for target in catalogue.targets],
+            }
+            print(json.dumps(document, indent=2))
+            return 0
+        try:
+            replacement_document = _CatalogueReplacementFile.model_validate_json(
+                args.file.read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeError, ValidationError) as exc:
+            print(f"snarkyctl: INVALID_CATALOG: {exc}", file=sys.stderr)
+            return 2
+        response = client.replace_catalogue(
+            replacement_document.provider,
+            replacement_document.expected_revision,
+            replacement_document.targets,
+        )
+        if not response.success or response.editable_target_catalogue is None:
+            return _print_control_failure(response)
+        print(
+            f"Replaced {len(response.editable_target_catalogue.targets)} targets; "
+            f"revision={response.editable_target_catalogue.revision}"
+        )
+        return 0
+    except ControlClientError as exc:
+        print(f"snarkyctl: {exc.code}: {exc}", file=sys.stderr)
+        return 2
+
+
+def _print_control_failure(response: ControlResponse) -> int:
+    error_code = response.error_code or "CONTROL_ERROR"
+    print(f"snarkyctl: {error_code}: {response.message}", file=sys.stderr)
+    return 1
 
 
 def _format_gateway_status(status: GatewayStatus) -> str:

@@ -10,7 +10,14 @@ from snarkyctl.cli import main
 from snarkyctl.control.client import ControlClientError
 from snarkyctl.control.protocol import ControlResponse
 from snarkyctl.preflight import CheckResult, CheckStatus, PreflightReport
-from snarkyctl.providers.base import GatewayMode, VpnState, VpnStatus
+from snarkyctl.providers.base import (
+    GatewayMode,
+    ProviderCapabilities,
+    VpnState,
+    VpnStatus,
+    VpnTargetCatalog,
+    VpnTargetSummary,
+)
 from snarkyctl.status import (
     ComponentFailure,
     DnsStatus,
@@ -19,6 +26,12 @@ from snarkyctl.status import (
     SystemStatus,
 )
 from snarkyctl.targets.migration import MigrationResult
+from snarkyctl.targets.models import (
+    ProviderTargetSchema,
+    SelectorKind,
+    StoredTarget,
+    TargetCatalogue,
+)
 from snarkyctl.targets.repository import RepositoryError
 
 
@@ -235,3 +248,166 @@ def test_targets_database_migrate_reports_yaml_remains_authoritative(
     output = capsys.readouterr().out
     assert "Migrated 2 targets" in output
     assert "YAML remains authoritative" in output
+
+
+def test_targets_export_and_replace_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ordinary = ControlResponse(
+        request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+        success=True,
+        message="ok",
+        target_catalog=VpnTargetCatalog(
+            provider="nordvpn",
+            capabilities=ProviderCapabilities(
+                connect=True,
+                disconnect=True,
+                target_selection=True,
+                server_details=True,
+            ),
+            targets=(VpnTargetSummary(alias="dallas", label="Dallas"),),
+        ),
+    )
+    catalogue = TargetCatalogue(
+        provider="nordvpn",
+        revision=2,
+        targets=(
+            StoredTarget(
+                alias="dallas",
+                label="Dallas",
+                position=0,
+                selector={"kind": "recommended"},
+            ),
+        ),
+    )
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.targets", lambda _self: ordinary)
+    monkeypatch.setattr(
+        "snarkyctl.cli.ControlClient.editable_catalogue",
+        lambda *_args: ControlResponse(
+            request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+            success=True,
+            message="ok",
+            editable_target_catalogue=catalogue,
+        ),
+    )
+    assert main(["targets", "export"]) == 0
+    exported = capsys.readouterr().out
+    assert '"expected_revision": 2' in exported
+    replacement = tmp_path / "replacement.json"
+    replacement.write_text(exported, encoding="utf-8")
+    monkeypatch.setattr(
+        "snarkyctl.cli.ControlClient.replace_catalogue",
+        lambda *_args: ControlResponse(
+            request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+            success=True,
+            message="ok",
+            editable_target_catalogue=catalogue.model_copy(update={"revision": 3}),
+        ),
+    )
+    assert main(["targets", "replace", str(replacement)]) == 0
+    assert "revision=3" in capsys.readouterr().out
+
+
+def test_targets_list_and_schema(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ordinary = ControlResponse(
+        request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+        success=True,
+        message="ok",
+        target_catalog=VpnTargetCatalog(
+            provider="nordvpn",
+            capabilities=ProviderCapabilities(
+                connect=True,
+                disconnect=True,
+                target_selection=True,
+                server_details=True,
+            ),
+            targets=(VpnTargetSummary(alias="dallas", label="Dallas"),),
+        ),
+    )
+    schema = ProviderTargetSchema(
+        provider="nordvpn",
+        selector_kinds=(SelectorKind(kind="recommended", label="Recommended"),),
+    )
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.targets", lambda _self: ordinary)
+    monkeypatch.setattr(
+        "snarkyctl.cli.ControlClient.target_schema",
+        lambda *_args: ControlResponse(
+            request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+            success=True,
+            message="ok",
+            provider_target_schema=schema,
+        ),
+    )
+    assert main(["targets", "list"]) == 0
+    assert "dallas\tDallas" in capsys.readouterr().out
+    assert main(["targets", "list", "--json"]) == 0
+    assert '"provider": "nordvpn"' in capsys.readouterr().out
+    assert main(["targets", "schema"]) == 0
+    assert '"recommended"' in capsys.readouterr().out
+
+
+def test_targets_replace_rejects_invalid_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.cli.ControlClient.targets",
+        lambda _self: ControlResponse(
+            request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+            success=True,
+            message="ok",
+            target_catalog=VpnTargetCatalog(
+                provider="nordvpn",
+                capabilities=ProviderCapabilities(
+                    connect=True,
+                    disconnect=True,
+                    target_selection=True,
+                    server_details=True,
+                ),
+                targets=(),
+            ),
+        ),
+    )
+    invalid = tmp_path / "invalid.json"
+    invalid.write_text("not json", encoding="utf-8")
+    assert main(["targets", "replace", str(invalid)]) == 2
+    assert "INVALID_CATALOG" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("subcommand", ["list", "schema", "export"])
+def test_targets_reports_catalogue_lookup_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    subcommand: str,
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.cli.ControlClient.targets",
+        lambda _self: ControlResponse(
+            request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+            success=False,
+            error_code="CATALOG_STORAGE_FAILED",
+            message="catalogue unavailable",
+        ),
+    )
+
+    assert main(["targets", subcommand]) == 1
+    assert "CATALOG_STORAGE_FAILED: catalogue unavailable" in capsys.readouterr().err
+
+
+def test_targets_reports_control_transport_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail(_self: object) -> ControlResponse:
+        raise ControlClientError("CONTROL_UNAVAILABLE", "socket unavailable")
+
+    monkeypatch.setattr("snarkyctl.cli.ControlClient.targets", fail)
+
+    assert main(["targets", "list"]) == 2
+    assert "CONTROL_UNAVAILABLE: socket unavailable" in capsys.readouterr().err

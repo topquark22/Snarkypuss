@@ -103,6 +103,40 @@
         </div>
       </section>
 
+      <details class="target-manager">
+        <summary>
+          <span>
+            <strong>Manage VPN destinations</strong>
+            <small>Advanced</small>
+          </span>
+        </summary>
+        <div class="target-manager-content">
+          <div class="manager-heading">
+            <div>
+              <p class="eyebrow">Provider-neutral catalogue</p>
+              <h2>Destinations</h2>
+              <p class="control-description">
+                Add, edit, remove, or reorder destinations. Changes are saved atomically.
+              </p>
+            </div>
+            <dl class="catalogue-meta">
+              <div><dt>Provider</dt><dd id="manager-provider">—</dd></div>
+              <div><dt>Revision</dt><dd id="manager-revision">—</dd></div>
+            </dl>
+          </div>
+          <div id="target-editor-list" class="target-editor-list"></div>
+          <div class="manager-actions">
+            <button id="target-add" type="button">Add destination</button>
+            <span class="manager-spacer"></span>
+            <button id="target-reload" type="button">Reload</button>
+            <button id="target-save" class="primary-action" type="button">Save catalogue</button>
+          </div>
+          <p id="target-manager-message" class="control-message" role="status" aria-live="polite">
+            Open this section to load the editable catalogue.
+          </p>
+        </div>
+      </details>
+
       <details class="danger-zone">
         <summary>
           <span>

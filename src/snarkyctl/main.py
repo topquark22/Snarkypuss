@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from snarkyctl import __version__
 from snarkyctl.auth import AuthFileError, verify_credentials
@@ -22,6 +22,7 @@ from snarkyctl.control.client import ControlClient, ControlClientError
 from snarkyctl.control.protocol import ControlResponse, TargetAlias
 from snarkyctl.providers.base import GatewayMode, VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
+from snarkyctl.targets.models import ProviderTargetSchema, StoredTarget, TargetCatalogue
 
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
 UNKNOWN_WARNING = "The gateway's public-IP exposure state cannot be determined."
@@ -88,6 +89,16 @@ class DirectModeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     confirmation: Literal["EXPOSE VPS IP"]
+
+
+class TargetCatalogueReplaceBody(BaseModel):
+    """Complete administrative catalogue replacement."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    expected_revision: int = Field(ge=0)
+    targets: tuple[StoredTarget, ...] = Field(min_length=1, max_length=100)
 
 
 class VpnOperationResponse(BaseModel):
@@ -300,6 +311,70 @@ def create_app(
             raise ApiError(502, "INVALID_RESPONSE", "control response has no target catalogue")
         return response.target_catalog
 
+    @application.get(
+        "/api/v3/admin/vpn/target-schema",
+        response_model=ProviderTargetSchema,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def admin_target_schema(
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> ProviderTargetSchema:
+        """Return the active provider's reviewed selector schema."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        client = _control_client(active_runtime)
+        provider = _active_provider(client)
+        response = _target_control(lambda: client.target_schema(provider))
+        if response.provider_target_schema is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no target schema")
+        return response.provider_target_schema
+
+    @application.get(
+        "/api/v3/admin/vpn/targets",
+        response_model=TargetCatalogue,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def admin_targets(
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> TargetCatalogue:
+        """Return the active provider's editable catalogue."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        client = _control_client(active_runtime)
+        provider = _active_provider(client)
+        response = _target_control(lambda: client.editable_catalogue(provider))
+        if response.editable_target_catalogue is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no editable catalogue")
+        return response.editable_target_catalogue
+
+    @application.put(
+        "/api/v3/admin/vpn/targets",
+        response_model=TargetCatalogue,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def replace_admin_targets(
+        body: TargetCatalogueReplaceBody,
+        request: Request,
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> TargetCatalogue:
+        """Validate and atomically replace the active provider catalogue."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        _require_same_origin(request)
+        client = _control_client(active_runtime)
+        response = _target_control(
+            lambda: client.replace_catalogue(
+                body.provider,
+                body.expected_revision,
+                body.targets,
+            )
+        )
+        if response.editable_target_catalogue is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no editable catalogue")
+        return response.editable_target_catalogue
+
     @application.post(
         "/api/v2/vpn/connect",
         response_model=VpnOperationResponse,
@@ -424,6 +499,39 @@ def _vpn_operation(
         public_ip_exposed=exposed,
         exposure_warning=warning,
     )
+
+
+def _control_client(runtime: WebRuntime) -> ControlClient:
+    return ControlClient(
+        socket_path=runtime.control_socket,
+        timeout_seconds=runtime.control_timeout_seconds,
+    )
+
+
+def _active_provider(client: ControlClient) -> str:
+    response = _target_control(client.targets)
+    if response.target_catalog is None:
+        raise ApiError(502, "INVALID_RESPONSE", "control response has no target catalogue")
+    return response.target_catalog.provider
+
+
+def _target_control(operation: Callable[[], ControlResponse]) -> ControlResponse:
+    try:
+        response = operation()
+    except ControlClientError as exc:
+        status_code = 504 if exc.code == "DAEMON_TIMEOUT" else 502
+        raise ApiError(status_code, exc.code, str(exc)) from exc
+    if response.success:
+        return response
+    code = response.error_code or "CONTROL_ERROR"
+    status_code = {
+        "INVALID_CATALOG": 400,
+        "UNKNOWN_PROVIDER": 404,
+        "UNSUPPORTED_TARGET_SELECTION": 409,
+        "CATALOG_CONFLICT": 409,
+        "CATALOG_MIGRATION_REQUIRED": 409,
+    }.get(code, 502)
+    raise ApiError(status_code, code, response.message)
 
 
 def _require_same_origin(request: Request) -> None:
