@@ -317,9 +317,7 @@ through the compiled active-provider adapter, commits through `TargetRepository`
 then replaces its in-memory snapshot. Storage failure or a stale revision leaves the
 previous snapshot active. The existing `TARGETS` operation remains selector-free.
 
-The configured `targets.backend: sqlite` repository is opened explicitly at daemon startup.
-Database existence alone never changes configuration, and the web process never opens the
-database.
+The configured `targets.backend: sqlite` repository is opened explicitly at daemon startup. Database existence alone never changes configuration, and the web process never opens the database.
 
 This creates three validation boundaries:
 
@@ -422,26 +420,21 @@ The architecture distinguishes policy from observed connectivity:
 
 | Mode | Behaviour |
 |---|---|
-| **Protected VPN** | Leak protection is enabled before the configured upstream VPN connects. |
+| **NordVPN** | Forwarded traffic exits through NordVPN. If NordVPN fails, traffic becomes Locked. |
 | **Direct VPS** | Forwarded traffic deliberately exits through the VPS public IP after explicit confirmation. |
-| **Locked** | Leak protection is enabled before the upstream VPN disconnects, blocking public forwarding. |
+| **Locked** | Forwarded Internet traffic is blocked while WireGuard management remains available. |
 
-The privileged daemon performs and verifies each ordered transition. Direct VPS requires
-the exact confirmation phrase `EXPOSE VPS IP`; if its disconnect or final verification
-fails after protection is disabled, the daemon attempts to restore protection. An
-unexpected VPN disconnection never automatically selects Direct VPS mode.
+An observed NordVPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
 
-The status API reports the observed provider-neutral state:
+The status API therefore keeps desired and actual state separate:
 
 ```json
 {
-  "vpn_status": {
-    "provider": "nordvpn",
-    "state": "DISCONNECTED",
-    "gateway_mode": "LOCKED",
-    "leak_protection_active": true
-  },
-  "public_ip_exposed": false
+  "desired_mode": "nordvpn",
+  "actual_mode": "locked",
+  "nordvpn_state": "disconnected",
+  "forwarding_allowed": false,
+  "exit_ip": null
 }
 ```
 
