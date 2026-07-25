@@ -21,7 +21,6 @@ from snarkyctl.targets.lifecycle import (
     check_database,
     initialize_database,
 )
-from snarkyctl.targets.migration import migrate_yaml_catalogue
 from snarkyctl.targets.models import StoredTarget
 from snarkyctl.targets.repository import RepositoryError
 
@@ -103,21 +102,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"source database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
     )
     backup.add_argument("--output", type=Path, required=True, help="new backup file path")
-    migrate = database_commands.add_parser(
-        "migrate", help="explicitly migrate the configured YAML catalogue to SQLite"
-    )
-    migrate.add_argument(
-        "--config",
-        type=Path,
-        default=DEFAULT_CONFIG_PATH,
-        help=f"legacy YAML configuration path (default: {DEFAULT_CONFIG_PATH})",
-    )
-    migrate.add_argument(
-        "--database",
-        type=Path,
-        default=DEFAULT_TARGET_DATABASE_PATH,
-        help=f"destination database path (default: {DEFAULT_TARGET_DATABASE_PATH})",
-    )
     targets = commands.add_parser("targets", help="inspect or replace the active target catalogue")
     target_commands = targets.add_subparsers(dest="targets_command", required=True)
     for name, help_text in (
@@ -175,16 +159,9 @@ def _run_database_command(args: argparse.Namespace) -> int:
         elif args.database_command == "check":
             check_database(args.database)
             message = f"Target database is valid: {args.database}"
-        elif args.database_command == "backup":
+        else:
             backup_database(args.output, args.database)
             message = f"Backed up target database to: {args.output}"
-        else:
-            result = migrate_yaml_catalogue(args.config, args.database)
-            message = (
-                f"Migrated {result.migrated_count} targets for {result.provider} "
-                f"to revision {result.revision} in {result.database}. "
-                "YAML remains authoritative until configuration is switched."
-            )
     except (ConfigError, RepositoryError) as exc:
         code = exc.code if isinstance(exc, RepositoryError) else "INVALID_CONFIG"
         print(f"snarkyctl: {code}: {exc}", file=sys.stderr)

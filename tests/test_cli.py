@@ -25,7 +25,6 @@ from snarkyctl.status import (
     PublicIpStatus,
     SystemStatus,
 )
-from snarkyctl.targets.migration import MigrationResult
 from snarkyctl.targets.models import (
     ProviderTargetSchema,
     SelectorKind,
@@ -215,39 +214,31 @@ def test_targets_database_error_is_controlled(
     assert "DATABASE_NOT_FOUND: missing" in capsys.readouterr().err
 
 
-def test_targets_database_migrate_reports_yaml_remains_authoritative(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+def test_targets_database_migrate_is_not_a_production_command(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    database = tmp_path / "targets.db"
+    with pytest.raises(SystemExit) as exit_info:
+        main(["targets-db", "migrate"])
+
+    assert exit_info.value.code == 2
+    assert "invalid choice: 'migrate'" in capsys.readouterr().err
+
+
+def test_status_rejects_success_response_without_gateway_status(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     monkeypatch.setattr(
-        "snarkyctl.cli.migrate_yaml_catalogue",
-        lambda _config, _database: MigrationResult(
-            provider="nordvpn",
-            database=database,
-            revision=1,
-            migrated_count=2,
-            yaml_backup=tmp_path / "targets.yaml.pre-sqlite",
-            database_backup=None,
+        "snarkyctl.cli.ControlClient.status",
+        lambda _self: ControlResponse(
+            request_id="0de2718e-98b1-43a0-879f-867d87b81a75",
+            success=True,
+            message="incomplete",
         ),
     )
-    assert (
-        main(
-            [
-                "targets-db",
-                "migrate",
-                "--config",
-                str(tmp_path / "snarkyctl.yaml"),
-                "--database",
-                str(database),
-            ]
-        )
-        == 0
-    )
-    output = capsys.readouterr().out
-    assert "Migrated 2 targets" in output
-    assert "YAML remains authoritative" in output
+
+    assert main(["status"]) == 2
+    assert "INVALID_RESPONSE" in capsys.readouterr().err
 
 
 def test_targets_export_and_replace_round_trip(

@@ -1,11 +1,11 @@
-"""Tests for explicit YAML-to-SQLite catalogue migration."""
+"""Archived tests for the one-time YAML-to-SQLite catalogue migration."""
 
 from pathlib import Path
 
 import pytest
 
 from snarkyctl.config import ConfigError
-from snarkyctl.targets.migration import migrate_yaml_catalogue
+from targets_yaml_to_sqlite import migrate_yaml_catalogue
 from snarkyctl.targets.repository import RepositoryError
 from snarkyctl.targets.sqlite import SqliteTargetRepository
 

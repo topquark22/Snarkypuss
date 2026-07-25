@@ -118,6 +118,9 @@ snarkyctl/
 │
 ├── scripts/
 │   ├── build-deb.sh
+│   ├── legacy/
+│   │   ├── targets_yaml_to_sqlite.py
+│   │   └── test_targets_yaml_to_sqlite.py
 │   ├── snarkypuss-activate.py
 │   ├── snarkypuss-configure.py
 │   ├── snarkypuss-install.sh

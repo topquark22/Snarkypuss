@@ -1,4 +1,8 @@
-"""Explicit migration from the legacy YAML catalogue to SQLite."""
+"""Archived one-time migration from the legacy YAML target catalogue to SQLite.
+
+This module is retained only for early development deployments. It is not installed with
+SnarkyCtl and is not exposed by the production CLI.
+"""
 
 from __future__ import annotations
 
