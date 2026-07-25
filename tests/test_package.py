@@ -85,6 +85,7 @@ def test_package_uses_only_the_sqlite_target_backend() -> None:
     assert "backend: sqlite" in example
     assert "path: /var/lib/snarkyctl/targets.db" in example
     assert "targets.yaml.example" not in install_manifest
+    assert "DECISIONS.md" not in install_manifest
     assert "install -d -o root -g root -m 0700 /var/lib/snarkyctl" in postinst
     assert "targets.db" not in postinst
 
