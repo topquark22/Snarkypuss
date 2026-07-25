@@ -17,15 +17,21 @@ The upstream provider section selects a compiled provider and the SQLite catalog
 ```yaml
 upstream_vpn:
   provider: nordvpn
-  expected_interfaces:
-    - nordlynx
+  providers:
+    nordvpn:
+      executable: /usr/bin/nordvpn
+      service: nordvpnd.service
+      expected_interfaces:
+        - nordlynx
   targets:
     backend: sqlite
     path: /var/lib/snarkyctl/targets.db
 ```
 
-The provider is a fixed registry name, not a module or executable. `expected_interfaces`
-is an allowlist used to verify the provider-reported tunnel interface.
+The provider is a fixed registry name, not a module or executable. Each compiled adapter
+accepts only its bounded configuration fields. `expected_interfaces` is an allowlist used
+to verify the provider-reported tunnel interface; it is not a command or dynamically loaded
+provider setting.
 
 Validate the configuration before starting either service:
 

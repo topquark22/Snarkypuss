@@ -195,36 +195,24 @@ Python dependency ranges in `pyproject.toml`. This is acceptable for the develop
 package, but a stable release additionally requires a committed, hash-verified dependency
 lock. Package installation never runs `pip` or accesses PyPI.
 
-The PEP 440 development version `0.10.0.dev4` maps to Debian version
-`0.10.0~dev4-1`. The tilde ensures that the development package sorts before the eventual
-`0.1.0-1` release. The build helper refuses to continue if `pyproject.toml` and
+The PEP 440 development version `0.10.0.dev2` maps to Debian version
+`0.10.0~dev2-1`. The tilde ensures that the development package sorts before the eventual
+`0.10.0-1` release. The build helper refuses to continue if `pyproject.toml` and
 `debian/changelog` do not match.
 
 After a successful build, inspect the artifact created in the parent directory:
 
 ```bash
-dpkg-deb --info ../snarkyctl_0.10.0~dev4-1_amd64.deb
-dpkg-deb --contents ../snarkyctl_0.10.0~dev4-1_amd64.deb
-lintian ../snarkyctl_0.10.0~dev4-1_amd64.deb
+dpkg-deb --info ../snarkyctl_0.10.0~dev2-1_amd64.deb
+dpkg-deb --contents ../snarkyctl_0.10.0~dev2-1_amd64.deb
+lintian ../snarkyctl_0.10.0~dev2-1_amd64.deb
 ```
 
 Install it with:
 
 ```bash
-sudo apt-get install ./../snarkyctl_0.10.0~dev4-1_amd64.deb
+sudo apt-get install ./../snarkyctl_0.10.0~dev2-1_amd64.deb
 ```
-
-For later development rebuilds, use the repository helper to stop all three units,
-reinstall the package, reload systemd, restart the units in dependency order, and display
-their final status:
-
-```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_0.10.0~dev4-1_amd64.deb
-```
-
-The script verifies that the supplied file is a Debian package named `snarkyctl` before
-stopping anything. If installation or startup fails, it leaves the failure visible and
-warns that the services may remain stopped rather than concealing a partial deployment.
 
 The package creates the `snarkyctl` system account and the empty directories
 `/etc/snarkyctl`, `/etc/snarkyctl/tls`, and `/var/lib/snarkyctl`. It deliberately does not
@@ -508,8 +496,12 @@ status:
 
 upstream_vpn:
   provider: nordvpn
-  expected_interfaces:
-    - nordlynx
+  providers:
+    nordvpn:
+      executable: /usr/bin/nordvpn
+      service: nordvpnd.service
+      expected_interfaces:
+        - nordlynx
   targets:
     backend: sqlite
     path: /var/lib/snarkyctl/targets.db
@@ -622,40 +614,6 @@ sudo systemctl status snarkyctl-control.socket --no-pager
 `systemctl enable` alone does not start an inactive unit; it only arranges for it to start
 on subsequent boots. The separate `systemctl start` command is therefore required during
 this manual installation. The status should report `Active: active (listening)`.
-
-### How systemd boot enablement works
-
-Starting and enabling are separate systemd operations:
-
-- `systemctl start UNIT` starts the unit in the current boot only.
-- `systemctl enable UNIT` creates the boot-target symbolic link but does not start the unit.
-- `systemctl enable --now UNIT` both creates the link and starts the unit.
-- `systemctl reenable UNIT` removes and recreates the enablement links. Use it after
-  replacing unit files, or when a unit reports `enabled` but failed to start at boot and the
-  links need to be verified.
-
-For the control socket, enablement creates this link:
-
-```text
-/etc/systemd/system/sockets.target.wants/snarkyctl-control.socket
-    -> /usr/lib/systemd/system/snarkyctl-control.socket
-```
-
-Verify it with:
-
-```bash
-ls -l /etc/systemd/system/sockets.target.wants/snarkyctl-control.socket
-```
-
-If the link is missing or suspect, recreate it and start the socket:
-
-```bash
-sudo systemctl reenable snarkyctl-control.socket
-sudo systemctl start snarkyctl-control.socket
-```
-
-The `[Install]` section and its `WantedBy=sockets.target` setting tell systemd where to
-create this link. Merely copying a unit into `/usr/lib/systemd/system` does not enable it.
 
 Do not start `snarkyctl-control.service` directly. The socket unit creates
 `/run/snarkyctl/control.sock`; the first client request then starts the privileged daemon
@@ -923,32 +881,6 @@ sudo systemctl start snarkyctl-web.service
 sudo systemctl status snarkyctl-web.service --no-pager
 ```
 
-The web-service enablement link is:
-
-```text
-/etc/systemd/system/multi-user.target.wants/snarkyctl-web.service
-    -> /usr/lib/systemd/system/snarkyctl-web.service
-```
-
-Verify it with:
-
-```bash
-ls -l /etc/systemd/system/multi-user.target.wants/snarkyctl-web.service
-```
-
-If the service was enabled but remained inactive after reboot, recreate both SnarkyCtl
-enablement links, reload systemd, and start the units:
-
-```bash
-sudo systemctl reenable snarkyctl-control.socket
-sudo systemctl reenable snarkyctl-web.service
-sudo systemctl daemon-reload
-sudo systemctl start snarkyctl-control.socket
-sudo systemctl start snarkyctl-web.service
-```
-
-Do not enable `snarkyctl-control.service` directly. It is socket-activated.
-
 The service runs as `snarkyctl`, reads the configuration, password hashes, and TLS key,
 and connects to the root daemon through the Unix socket. It receives no sudo privileges.
 
@@ -1022,47 +954,6 @@ sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.key
 Do not open TCP port 8443 on the public firewall to work around a reachability problem.
 The dashboard is intentionally reachable only through WireGuard.
 
-#### 7.7 Verify boot persistence
-
-A unit showing `active` proves only that it is running now. A unit showing `enabled`
-proves that systemd has an enablement link for a future boot. Check both properties:
-
-```bash
-systemctl is-enabled ssh.service \
-    snarkyctl-control.socket \
-    snarkyctl-web.service
-systemctl is-active ssh.service \
-    snarkyctl-control.socket \
-    snarkyctl-web.service
-```
-
-Expected results are `enabled` and `active`. The privileged
-`snarkyctl-control.service` may remain inactive until the first client request; this is
-normal socket activation.
-
-Before a reboot test, retain independent VPS console access. After reboot, verify:
-
-```bash
-systemctl is-active wg-quick@wg0.service dnsmasq.service ssh.service
-systemctl is-active snarkyctl-control.socket snarkyctl-web.service
-sudo ss -lntp | grep -E ':(22|8443)[[:space:]]'
-sudo ss -xlpn | grep /run/snarkyctl/control.sock
-```
-
-If an enabled unit is inactive, inspect the current boot rather than repeatedly starting it:
-
-```bash
-sudo journalctl -b \
-    -u snarkyctl-control.socket \
-    -u snarkyctl-control.service \
-    -u snarkyctl-web.service \
-    --no-pager
-```
-
-Starting the units manually can restore service, but it does not explain the boot failure.
-Correct the reported dependency, configuration, or permission problem and repeat the reboot
-test.
-
 ### 8. Verify private reachability
 
 From Windows with WireGuard connected, confirm private reachability in PowerShell:
@@ -1123,9 +1014,9 @@ There is no additional switch to enable in the current release.
 
 The local `snarkyctl connect ALIAS` and `snarkyctl disconnect` commands are implemented and
 always pass through the privileged daemon. The dashboard target selector and
-`POST /api/v2/vpn/connect` can connect or switch using an alias from
-the root-owned SQLite catalogue. Raw provider command arguments are never accepted from the browser.
-The dashboard implements disconnect through **Locked** and **Direct VPS** mode transitions; it does not expose an unprotected generic disconnect button.
+`POST /api/v2/vpn/connect` can connect or switch using an alias from the root-owned SQLite
+catalogue. Raw provider command arguments are never accepted from the browser.
+Web disconnect has not yet been implemented.
 
 For a direct API test, keep a second management session open and use an alias actually
 present in the target catalogue:
@@ -1143,10 +1034,17 @@ The request marker is mandatory for every state-changing API call. Browser reque
 additionally restricted to the dashboard's exact origin. If another VPN mutation is
 already running, the API returns HTTP `409` with `OPERATION_IN_PROGRESS`.
 
-The dashboard and API implement **Protected VPN**, **Locked**, and **Direct VPS** transitions.
-Locked enables provider leak protection before disconnecting. Direct VPS disables protection
-and disconnects only after the exact `EXPOSE VPS IP` confirmation, and the dashboard keeps a
-persistent public-IP exposure warning visible while Direct mode is active.
+The dashboard's collapsed **Advanced gateway modes — Danger zone** offers:
+
+- **Protected VPN** — enable leak protection, then connect to the selected alias.
+- **Locked** — enable leak protection, then disconnect the VPN.
+- **Direct VPS** — disable leak protection, then disconnect and expose the VPS public IP.
+
+Direct VPS mode remains disabled until `EXPOSE VPS IP` is entered exactly. Keep a second
+management session open for the first live test of each transition. The NordVPN adapter
+uses `nordvpn set killswitch on|off`; another adapter must explicitly advertise and
+implement the corresponding provider-neutral capability before these controls are
+enabled.
 
 ---
 
@@ -1157,15 +1055,15 @@ The current manual-installation filesystem locations are:
 | Path | Purpose | Ownership |
 |---|---|---|
 | `/usr/lib/snarkyctl/` | Installed wheel and production virtual environment | `root:root` |
-| `/etc/snarkyctl/` | Main configuration, authentication, and TLS material | `root:snarkyctl` or `root:root`, mode-dependent |
+| `/etc/snarkyctl/` | Configuration, authentication, TLS, and authoritative allowlists | `root:snarkyctl` or `root:root`, mode-dependent |
 | `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkyctl`, mode `0640` |
 | `/run/snarkyctl/control.sock` | Web-to-daemon control socket | systemd-managed, group `snarkyctl` |
-| `/var/lib/snarkyctl/` | Persistent SQLite target catalogue | `root:root`, directory mode `0700` |
+| `/var/lib/snarkyctl/` | Optional persistent policy state | `root:root` |
 | `/usr/lib/systemd/system/snarkyctl-*.service` | Service definitions | `root:root` |
 | `/usr/lib/systemd/system/snarkyctl-control.socket` | Socket activation definition | `root:root` |
 
 The service account must not be able to modify application code, daemon code, service
-definitions, certificate private keys, or the target catalogue.
+definitions, certificate private keys, or the authoritative target allowlist.
 
 ---
 

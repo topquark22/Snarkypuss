@@ -28,9 +28,13 @@ status:
 upstream_vpn:
   # This is a fixed registry name compiled into SnarkyCtl, not a module name.
   provider: nordvpn
-  # Provider-reported interfaces must match this root-owned allowlist.
-  expected_interfaces:
-    - nordlynx
+  # Provider-specific blocks are bounded schemas interpreted only by compiled adapters.
+  providers:
+    nordvpn:
+      executable: /usr/bin/nordvpn
+      service: nordvpnd.service
+      expected_interfaces:
+        - nordlynx
   targets:
     backend: sqlite
     path: /var/lib/snarkyctl/targets.db

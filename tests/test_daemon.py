@@ -64,7 +64,10 @@ class FakeProvider(VpnProvider):
         disconnect=True,
         target_selection=True,
         server_details=True,
+        leak_protection_status=True,
         leak_protection_configuration=True,
+        locked_mode=True,
+        direct_mode=True,
     )
 
     def __init__(self) -> None:

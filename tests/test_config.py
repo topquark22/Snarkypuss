@@ -49,6 +49,10 @@ upstream_vpn:
 def test_load_valid_config(tmp_path: Path) -> None:
     loaded = load_config(write_config(tmp_path))
     assert loaded.settings.upstream_vpn.provider == "nordvpn"
+    provider_config = loaded.settings.upstream_vpn.active_provider_config()
+    assert provider_config.provider == "nordvpn"
+    assert provider_config.executable == Path("/usr/bin/nordvpn")
+    assert provider_config.expected_interfaces == ("nordlynx",)
     assert loaded.settings.status.public_ip_url == "https://api.ipify.org"
     assert loaded.targets is not None
     assert loaded.targets.targets[0].alias == "dallas"
@@ -84,6 +88,96 @@ def test_target_backend_must_be_explicit_and_unambiguous(tmp_path: Path) -> None
 def test_unknown_provider_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="provider is not compiled"):
         load_config(write_config(tmp_path, provider="openvpn"))
+
+
+def test_typed_nordvpn_provider_configuration(tmp_path: Path) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "  expected_interfaces: [nordlynx]\n",
+        """  providers:
+    nordvpn:
+      executable: /opt/nordvpn/bin/nordvpn
+      service: nordvpnd.service
+      expected_interfaces: [nordlynx]
+""",
+    )
+    path.write_text(text, encoding="utf-8")
+
+    provider_config = load_config(path).settings.upstream_vpn.active_provider_config()
+
+    assert provider_config.provider == "nordvpn"
+    assert provider_config.executable == Path("/opt/nordvpn/bin/nordvpn")
+    assert provider_config.expected_interfaces == ("nordlynx",)
+
+
+def test_duplicate_global_and_provider_interface_configuration_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "  targets_file:",
+        """  providers:
+    nordvpn:
+      expected_interfaces: [nordlynx]
+  targets_file:""",
+    )
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError, match="both globally and"):
+        load_config(path)
+
+
+def test_inactive_mullvad_configuration_is_typed_but_not_compiled(
+    tmp_path: Path,
+) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "  targets_file:",
+        """  providers:
+    mullvad:
+      executable: /usr/bin/mullvad
+      service: mullvad-daemon.service
+      expected_interfaces: []
+  targets_file:""",
+    )
+    path.write_text(text, encoding="utf-8")
+
+    loaded = load_config(path)
+
+    assert loaded.settings.upstream_vpn.providers.mullvad is not None
+    assert loaded.settings.upstream_vpn.providers.mullvad.provider == "mullvad"
+    assert loaded.settings.upstream_vpn.provider == "nordvpn"
+
+
+@pytest.mark.parametrize(
+    "provider_block",
+    [
+        """nordvpn:
+      executable: relative/nordvpn
+      service: nordvpnd.service
+""",
+        """nordvpn:
+      executable: /usr/bin/nordvpn
+      service: ../../unsafe.service
+""",
+        """nordvpn:
+      executable: /usr/bin/nordvpn
+      service: nordvpnd.service
+      arbitrary_command: ip route flush table main
+""",
+    ],
+)
+def test_unsafe_or_unknown_provider_configuration_is_rejected(
+    tmp_path: Path, provider_block: str
+) -> None:
+    path = write_config(tmp_path)
+    text = path.read_text(encoding="utf-8").replace(
+        "  targets_file:", f"  providers:\n    {provider_block}  targets_file:"
+    )
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ConfigError):
+        load_config(path)
 
 
 def test_public_bind_address_is_rejected(tmp_path: Path) -> None:

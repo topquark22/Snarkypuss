@@ -258,7 +258,12 @@ def _provider_checks(config: LoadedConfig) -> list[CheckResult]:
                 f"provider {provider} has no preflight implementation",
             )
         ]
-    executable = NORDVPN_EXECUTABLE
+    provider_config = config.settings.upstream_vpn.active_provider_config()
+    executable = (
+        NORDVPN_EXECUTABLE
+        if provider_config.executable == Path("/usr/bin/nordvpn")
+        else provider_config.executable
+    )
     if not executable.is_file() or not os.access(executable, os.X_OK):
         return [
             _result(
@@ -276,6 +281,7 @@ def _provider_checks(config: LoadedConfig) -> list[CheckResult]:
         adapter = create_provider(
             provider,
             timeout_seconds=config.settings.control.operation_timeout_seconds,
+            provider_config=provider_config,
         )
         settings = adapter.settings()
     except ProviderError as exc:

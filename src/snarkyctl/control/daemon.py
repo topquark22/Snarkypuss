@@ -106,11 +106,18 @@ class ControlService:
     def from_config(cls, path: Path = DEFAULT_CONFIG_PATH) -> ControlService:
         """Load root-owned configuration and construct its compiled provider."""
         config = load_config(path)
-        provider = create_provider(
-            config.settings.upstream_vpn.provider,
-            timeout_seconds=config.settings.control.operation_timeout_seconds,
+        upstream = config.settings.upstream_vpn
+        provider_config = (
+            upstream.active_provider_config()
+            if hasattr(upstream, "active_provider_config")
+            else None
         )
-        storage = config.settings.upstream_vpn.targets
+        provider = create_provider(
+            upstream.provider,
+            timeout_seconds=config.settings.control.operation_timeout_seconds,
+            provider_config=provider_config,
+        )
+        storage = upstream.targets
         repository: TargetRepository | None = None
         if storage is not None:
             check_database(storage.path)
@@ -389,6 +396,7 @@ class ControlService:
                 vpn_status=status,
             )
         if isinstance(request, LockRequest):
+            self._require_mode_capability("locked_mode", "Locked")
             self._require_protection_configuration()
             settings = self._provider.set_leak_protection(True)
             if settings.leak_protection_enabled is not True:
@@ -411,6 +419,7 @@ class ControlService:
                 vpn_status=status,
             )
         if isinstance(request, DirectRequest):
+            self._require_mode_capability("direct_mode", "Direct VPS")
             self._require_protection_configuration()
             try:
                 settings = self._provider.set_leak_protection(False)
@@ -456,6 +465,13 @@ class ControlService:
             raise ProviderError(
                 "UNSUPPORTED_OPERATION",
                 f"{self._provider.name} cannot configure leak protection.",
+            )
+
+    def _require_mode_capability(self, capability: str, label: str) -> None:
+        if not getattr(self._provider.capabilities, capability):
+            raise ProviderError(
+                "UNSUPPORTED_OPERATION",
+                f"{self._provider.name} cannot enforce {label} mode.",
             )
 
     def _restore_leak_protection(self) -> None:

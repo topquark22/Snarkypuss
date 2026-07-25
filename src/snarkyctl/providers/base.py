@@ -5,9 +5,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from snarkyctl.targets.models import JsonObject, ProviderTargetSchema, StoredTarget
 
@@ -41,7 +42,49 @@ class ProviderCapabilities(BaseModel):
     disconnect: bool
     target_selection: bool
     server_details: bool
+    leak_protection_status: bool = Field(default=False, exclude=True)
     leak_protection_configuration: bool = False
+    locked_mode: bool = Field(default=False, exclude=True)
+    direct_mode: bool = Field(default=False, exclude=True)
+
+
+class ProviderPreflightStatus(StrEnum):
+    """Provider-owned read-only preflight result severity."""
+
+    PASS = "PASS"
+    WARN = "WARN"
+    FAIL = "FAIL"
+    SKIP = "SKIP"
+
+
+class ProviderPreflightCheck(BaseModel):
+    """One bounded provider check returned to the core preflight runner."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    check_id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{0,63}$")
+    status: ProviderPreflightStatus
+    message: str = Field(min_length=1, max_length=500)
+
+
+class ProviderRuntimeConfig(BaseModel):
+    """Common, bounded runtime configuration passed to a trusted adapter."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    executable: Path
+    service: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}\.service$")
+    expected_interfaces: tuple[str, ...] = Field(default=(), max_length=8)
+
+    @field_validator("executable")
+    @classmethod
+    def require_safe_executable(cls, value: Path) -> Path:
+        if not value.is_absolute():
+            raise ValueError("provider executable path must be absolute")
+        if any(part in {"", ".", ".."} for part in value.parts):
+            raise ValueError("provider executable path must be normalized")
+        return value
 
 
 class VpnTarget(BaseModel):
@@ -171,3 +214,7 @@ class VpnProvider(ABC):
             "UNSUPPORTED_OPERATION",
             f"{self.name} cannot configure leak protection.",
         )
+
+    def preflight(self) -> tuple[ProviderPreflightCheck, ...]:
+        """Return provider-owned read-only checks without changing provider state."""
+        return ()

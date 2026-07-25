@@ -12,12 +12,14 @@ from urllib.parse import urlsplit
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from snarkyctl.providers.base import VpnTarget
+from snarkyctl.providers.base import ProviderRuntimeConfig, VpnTarget
 from snarkyctl.providers.registry import available_providers
 
 DEFAULT_CONFIG_PATH = Path("/etc/snarkyctl/snarkyctl.yaml")
 MAX_CONFIG_SIZE = 64 * 1024
 INTERFACE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}$"
+NORDVPN_EXECUTABLE = Path("/usr/bin/nordvpn")
+MULLVAD_EXECUTABLE = Path("/usr/bin/mullvad")
 
 
 class ConfigError(RuntimeError):
@@ -122,13 +124,64 @@ class TargetStorageConfig(BaseModel):
         return value
 
 
+class ProviderAdapterConfig(ProviderRuntimeConfig):
+    """Shared validation for one compiled provider's runtime settings."""
+
+    @field_validator("expected_interfaces")
+    @classmethod
+    def validate_interfaces(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("expected_interfaces must not contain duplicates")
+        import re
+
+        if any(re.fullmatch(INTERFACE_PATTERN, item) is None for item in value):
+            raise ValueError("expected_interfaces contains an invalid Linux interface name")
+        return value
+
+
+class NordVpnAdapterConfig(ProviderAdapterConfig):
+    """Reviewed runtime settings accepted by the NordVPN adapter."""
+
+    provider: Literal["nordvpn"] = "nordvpn"
+    executable: Path = NORDVPN_EXECUTABLE
+    service: str = Field(
+        default="nordvpnd.service",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}\.service$",
+    )
+    expected_interfaces: tuple[str, ...] = Field(default=("nordlynx",), max_length=8)
+
+
+class MullvadAdapterConfig(ProviderAdapterConfig):
+    """Reserved typed settings for the future compiled Mullvad adapter."""
+
+    provider: Literal["mullvad"] = "mullvad"
+    executable: Path = MULLVAD_EXECUTABLE
+    service: str = Field(
+        default="mullvad-daemon.service",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,127}\.service$",
+    )
+    expected_interfaces: tuple[str, ...] = Field(default=(), max_length=8)
+
+
+class ProviderConfigurations(BaseModel):
+    """Bounded configuration blocks for reviewed provider implementations."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    nordvpn: NordVpnAdapterConfig | None = None
+    mullvad: MullvadAdapterConfig | None = None
+
+
 class UpstreamVpnConfig(BaseModel):
     """Trusted adapter selection and its root-owned target document."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
-    expected_interfaces: tuple[str, ...] = Field(min_length=1, max_length=8)
+    expected_interfaces: tuple[str, ...] | None = Field(
+        default=None, min_length=1, max_length=8
+    )
+    providers: ProviderConfigurations = ProviderConfigurations()
     targets_file: Path | None = None
     targets: TargetStorageConfig | None = None
 
@@ -144,7 +197,11 @@ class UpstreamVpnConfig(BaseModel):
 
     @field_validator("expected_interfaces")
     @classmethod
-    def validate_interfaces(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+    def validate_interfaces(
+        cls, value: tuple[str, ...] | None
+    ) -> tuple[str, ...] | None:
+        if value is None:
+            return None
         if len(set(value)) != len(value):
             raise ValueError("expected_interfaces must not contain duplicates")
         import re
@@ -166,7 +223,28 @@ class UpstreamVpnConfig(BaseModel):
     def require_one_target_backend(self) -> UpstreamVpnConfig:
         if (self.targets_file is None) == (self.targets is None):
             raise ValueError("configure exactly one of targets_file or targets")
+        active_block = getattr(self.providers, self.provider, None)
+        if self.expected_interfaces is not None and active_block is not None:
+            raise ValueError(
+                "expected_interfaces cannot be configured both globally and "
+                "in the active provider block"
+            )
         return self
+
+    def active_provider_config(self) -> ProviderAdapterConfig:
+        """Resolve the selected provider to one typed, compatibility-aware block."""
+        configured: ProviderAdapterConfig
+        if self.provider == "nordvpn":
+            configured = self.providers.nordvpn or NordVpnAdapterConfig()
+        elif self.provider == "mullvad":
+            configured = self.providers.mullvad or MullvadAdapterConfig()
+        else:  # The compiled-provider validator rejects this before resolution.
+            raise ValueError(f"no configuration model for provider {self.provider}")
+        if self.expected_interfaces is not None:
+            return configured.model_copy(
+                update={"expected_interfaces": self.expected_interfaces}
+            )
+        return configured
 
 
 class SnarkyCtlConfig(BaseModel):
@@ -186,7 +264,9 @@ class SnarkyCtlConfig(BaseModel):
         if self.web.bind_address != self.network.management_address.ip:
             raise ValueError("web.bind_address must equal network.management_address")
         reserved = {self.network.management_interface, self.network.public_interface}
-        overlap = reserved.intersection(self.upstream_vpn.expected_interfaces)
+        overlap = reserved.intersection(
+            self.upstream_vpn.active_provider_config().expected_interfaces
+        )
         if overlap:
             raise ValueError(
                 "upstream VPN interfaces must differ from management and public interfaces"

@@ -253,17 +253,20 @@ class NordVpnProvider(VpnProvider):
         disconnect=True,
         target_selection=True,
         server_details=True,
+        leak_protection_status=True,
         leak_protection_configuration=True,
+        locked_mode=True,
+        direct_mode=True,
     )
 
     def __init__(
         self,
         *,
-        executable: Path = NORDVPN_EXECUTABLE,
+        executable: Path | None = NORDVPN_EXECUTABLE,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         runner: CommandRunner = run_command,
     ) -> None:
-        self._executable = executable
+        self._executable = executable or NORDVPN_EXECUTABLE
         self._timeout_seconds = timeout_seconds
         self._runner = runner
 

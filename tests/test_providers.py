@@ -8,11 +8,14 @@ from pydantic import ValidationError
 
 from snarkyctl.providers import (
     ProviderError,
+    ProviderPreflightCheck,
+    ProviderPreflightStatus,
     VpnState,
     VpnTarget,
     available_providers,
     create_provider,
 )
+from snarkyctl.config import MullvadAdapterConfig, NordVpnAdapterConfig
 from snarkyctl.providers.nordvpn import (
     MAX_ERROR_DETAIL_LENGTH,
     MAX_OUTPUT_LENGTH,
@@ -33,6 +36,41 @@ def target() -> VpnTarget:
 def test_registry_contains_only_compiled_provider_names() -> None:
     assert available_providers() == ("nordvpn",)
     assert isinstance(create_provider("nordvpn"), NordVpnProvider)
+
+
+def test_registry_passes_typed_configuration_to_nordvpn() -> None:
+    config = NordVpnAdapterConfig(executable=Path("/opt/nordvpn/bin/nordvpn"))
+    provider = create_provider("nordvpn", provider_config=config)
+
+    assert isinstance(provider, NordVpnProvider)
+    assert provider._executable == Path("/opt/nordvpn/bin/nordvpn")
+
+
+def test_registry_rejects_configuration_for_a_different_provider() -> None:
+    with pytest.raises(ProviderError) as error:
+        create_provider("nordvpn", provider_config=MullvadAdapterConfig())
+
+    assert error.value.code == "INVALID_PROVIDER_CONFIGURATION"
+
+
+def test_provider_contract_exposes_explicit_mode_capabilities() -> None:
+    provider = create_provider("nordvpn")
+
+    assert provider.capabilities.leak_protection_status is True
+    assert provider.capabilities.locked_mode is True
+    assert provider.capabilities.direct_mode is True
+
+
+def test_provider_preflight_contract_is_read_only_by_default() -> None:
+    provider = PlaceholderProvider()
+
+    assert provider.preflight() == ()
+    check = ProviderPreflightCheck(
+        check_id="provider.example",
+        status=ProviderPreflightStatus.PASS,
+        message="Provider check passed.",
+    )
+    assert check.status is ProviderPreflightStatus.PASS
 
 
 def test_registry_rejects_arbitrary_module_name() -> None:
