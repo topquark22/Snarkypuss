@@ -226,8 +226,8 @@ nonempty `targets` array. It requires `Content-Type: application/json` and
 state-changing endpoints apply.
 
 A stale revision returns HTTP 409 with `CATALOG_CONFLICT`; the client must reload rather
-than overwrite. Provider validation failures return HTTP 400, unsupported selection or a
-non-migrated YAML backend returns HTTP 409, and daemon or storage failures return HTTP 502.
+than overwrite. Provider validation failures return HTTP 400, unsupported selection
+returns HTTP 409, and daemon or storage failures return HTTP 502.
 
 The web process does not open SQLite. It forwards bounded typed requests through the Unix
 socket, and the daemon updates its active snapshot only after the database transaction
@@ -246,7 +246,7 @@ catalogue:
 
 The web service validates the request schema and sends only the alias through the Unix
 socket. The privileged daemon performs the authoritative lookup and passes the associated
-private `provider_target` to the configured adapter. Arbitrary provider values, command
+private structured selector to the configured adapter. Arbitrary provider values, command
 options, executable names, and extra request fields are rejected.
 
 Every state-changing request must include:

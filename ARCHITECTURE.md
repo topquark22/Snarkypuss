@@ -219,25 +219,15 @@ Using plain JavaScript avoids React, Node.js, npm, frontend build pipelines, and
 
 ---
 
-## YAML Configuration
+## Configuration and target storage
 
-YAML is a human-readable configuration format:
+The root-owned YAML document contains service, network, and provider settings. VPN
+destinations are stored separately in `/var/lib/snarkyctl/targets.db`.
 
-```yaml
-schema_version: 1
-targets:
-  - alias: dallas
-    label: Dallas, United States
-    provider_target: us
-  - alias: prague
-    label: Prague, Czechia
-    provider_target: cz
-```
-
-The browser receives only aliases and display labels. The security-sensitive
-`provider_target` mapping remains root-owned and is resolved by the privileged daemon.
-
-JSON would work equally well. YAML is easier for a human to edit, particularly when comments are useful.
+SQLite stores provider-neutral aliases and labels together with structured, provider-owned
+selectors. The browser receives aliases and display labels for ordinary connection
+selection. Only authenticated administrative operations can retrieve or replace selector
+documents, and only the privileged daemon opens the database.
 
 ---
 
@@ -327,10 +317,9 @@ through the compiled active-provider adapter, commits through `TargetRepository`
 then replaces its in-memory snapshot. Storage failure or a stale revision leaves the
 previous snapshot active. The existing `TARGETS` operation remains selector-free.
 
-The repository is selected explicitly at daemon startup. Legacy `targets_file`
-configuration creates a read-only YAML compatibility repository. A configured
-`targets.backend: sqlite` opens the root-owned SQLite repository. Database existence alone
-never changes the selected backend, and the web process never opens the database.
+The configured `targets.backend: sqlite` repository is opened explicitly at daemon startup.
+Database existence alone never changes configuration, and the web process never opens the
+database.
 
 This creates three validation boundaries:
 
@@ -433,21 +422,26 @@ The architecture distinguishes policy from observed connectivity:
 
 | Mode | Behaviour |
 |---|---|
-| **NordVPN** | Forwarded traffic exits through NordVPN. If NordVPN fails, traffic becomes Locked. |
+| **Protected VPN** | Leak protection is enabled before the configured upstream VPN connects. |
 | **Direct VPS** | Forwarded traffic deliberately exits through the VPS public IP after explicit confirmation. |
-| **Locked** | Forwarded Internet traffic is blocked while WireGuard management remains available. |
+| **Locked** | Leak protection is enabled before the upstream VPN disconnects, blocking public forwarding. |
 
-An observed NordVPN disconnection does not automatically select Direct VPS mode. Unexpected disconnects, failed connections, timeouts, and reboots default to Locked.
+The privileged daemon performs and verifies each ordered transition. Direct VPS requires
+the exact confirmation phrase `EXPOSE VPS IP`; if its disconnect or final verification
+fails after protection is disabled, the daemon attempts to restore protection. An
+unexpected VPN disconnection never automatically selects Direct VPS mode.
 
-The status API therefore keeps desired and actual state separate:
+The status API reports the observed provider-neutral state:
 
 ```json
 {
-  "desired_mode": "nordvpn",
-  "actual_mode": "locked",
-  "nordvpn_state": "disconnected",
-  "forwarding_allowed": false,
-  "exit_ip": null
+  "vpn_status": {
+    "provider": "nordvpn",
+    "state": "DISCONNECTED",
+    "gateway_mode": "LOCKED",
+    "leak_protection_active": true
+  },
+  "public_ip_exposed": false
 }
 ```
 

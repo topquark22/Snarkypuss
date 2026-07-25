@@ -22,7 +22,7 @@ case "$1" in
 
         install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl
         install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl/tls
-        install -d -o snarkyctl -g snarkyctl -m 0750 /var/lib/snarkyctl
+        install -d -o root -g root -m 0700 /var/lib/snarkyctl
         ;;
 esac
 

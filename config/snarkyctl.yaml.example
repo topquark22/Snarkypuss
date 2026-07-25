@@ -31,4 +31,6 @@ upstream_vpn:
   # Provider-reported interfaces must match this root-owned allowlist.
   expected_interfaces:
     - nordlynx
-  targets_file: /etc/snarkyctl/targets.yaml
+  targets:
+    backend: sqlite
+    path: /var/lib/snarkyctl/targets.db

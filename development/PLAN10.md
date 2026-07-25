@@ -11,6 +11,15 @@ The existing YAML catalogue remains authoritative until the SQLite repository, m
 verification, and rollback paths have all been implemented and tested. Installation or
 upgrade must not silently migrate a deployment.
 
+
+## Completion status
+
+All twelve increments are complete and accepted for `0.10.0.dev2`. This document records
+the incremental development path; current installation and operating documentation uses
+SQLite exclusively and does not present the transitional YAML catalogue as a deployment
+choice. The user-acceptance result is recorded in
+[`development/UAT10.md`](UAT10.md).
+
 ## Increment 1: Introduce provider-neutral domain models
 
 Add models independent of storage, protocol, and individual VPN providers:

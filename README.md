@@ -1,113 +1,156 @@
-# Snarkypuss
+# SnarkyCtl
 
-**Snarkypuss** is a self-hosted private VPN gateway for routing a trusted client's Internet
-traffic through a Linux VPS and, optionally, through an upstream VPN provider.
+**SnarkyCtl** is a lightweight management service and web dashboard for the [**snarkypuss**](SNARKYPUSS.md) privacy gateway.
 
-It combines two parts:
+The project turns a Linux VPS into a remotely managed network appliance that is accessible **only through a private WireGuard tunnel**. It provides a secure control plane for monitoring and controlling an optional upstream VPN, WireGuard, DNS services, and selected system functions without exposing any management interface to the public Internet.
 
-1. The **Snarkypuss gateway** — the private tunnel, forwarding, DNS, firewall, and upstream
-   VPN configuration running on the VPS.
-2. **SnarkyCtl** — the private management utility and web dashboard used to observe the
-   gateway, select an upstream VPN target, and choose its operating mode.
+SnarkyCtl is not tied to one VPN technology or commercial provider. Its provider-adapter interface can support command-line VPN clients, WireGuard-based services, OpenVPN-based services, or other VPN implementations. NordVPN is the first implemented adapter, not an architectural requirement.
 
-The management service is part of Snarkypuss; it is not the purpose of the system by itself.
+---
 
-## What Snarkypuss does
+## Motivation
 
-A client connects to a VPS through a private VPN tunnel. The VPS then acts as the client's
-Internet gateway:
+The `snarkypuss` gateway routes traffic through a private WireGuard tunnel to a VPS, and optionally onward through a separately configured upstream VPN.
 
-```text
-Trusted client
-      │
-      │ private VPN tunnel
-      ▼
-Snarkypuss VPS
-      │
-      ├── upstream VPN provider ──► Internet
-      │
-      └── direct VPS egress ──────► Internet
+While this architecture provides strong privacy and jurisdictional control, day-to-day administration currently requires provider-specific SSH commands. For example, the initial NordVPN deployment uses:
+
+```bash
+ssh root@snarkypuss "nordvpn connect us9167"
 ```
 
-The normal protected path sends forwarded traffic through the configured upstream VPN.
-Direct egress through the VPS is available only as an explicit, clearly warned choice.
-If the upstream VPN is unavailable, Snarkypuss must not silently fall back to exposing the
-VPS public IP.
+SnarkyCtl replaces those manual commands with a simple authenticated web interface and a small REST API.
 
-The initial reference deployment uses:
+---
 
-- A Windows 11 client
-- WireGuard for the private client-to-VPS tunnel
-- Ubuntu 24.04 LTS on a Linode VPS
-- NordVPN as the upstream VPN provider
-- `dnsmasq` for gateway DNS
-- SnarkyCtl for private status and control
+# Goals
 
-Those choices describe the tested deployment, not the permanent limit of the design.
-SnarkyCtl's provider-adapter boundary allows other upstream VPN software to be added without
-changing the browser UI, API, or privileged control protocol.
+The project is designed to:
 
-## Why use a private VPN gateway?
+- Provide a private web dashboard.
+- Expose a small, well-defined REST API.
+- Monitor the configured upstream VPN and local gateway health.
+- Switch VPN exit locations.
+- Display the current public exit IP.
+- Manage selected system services (such as `dnsmasq`).
+- Remain accessible while the upstream VPN connects, disconnects, changes endpoints, or fails.
+- Follow the principle of least privilege.
 
-Running the gateway on a VPS keeps the networking policy outside the client computer. It can:
+---
 
-- Hide client traffic from the local ISP.
-- Avoid dependence on a commercial VPN application running on every client.
-- Route traffic through a selected country or provider endpoint.
-- Centralize DNS forwarding and filtering.
-- Keep the management interface off the public Internet.
-- Preserve private administrative access while the upstream VPN changes or fails.
-- Provide a deliberate choice between protected, blocked, and direct egress.
+# Core Principles
 
-This is a personal infrastructure project for technically proficient users who administer
-their own Linux VPS. It is not a hosted VPN service.
+- **Private by design** — reachable only via WireGuard.
+- **No public management ports**.
+- **Minimal dependencies**.
+- **No arbitrary shell execution**.
+- **Least-privilege architecture**.
+- **Readable, maintainable code**.
 
-## Safety model
+---
 
-Snarkypuss distinguishes three gateway modes:
+# Current Features
 
-| Mode | Forwarded Internet traffic |
-|---|---|
-| **Protected VPN** | Exits through the configured upstream VPN provider. |
-| **Locked** | Is blocked while private management access remains available. |
-| **Direct VPS** | Exits through the VPS public IP after explicit confirmation. |
+## Dashboard
 
-**Locked is the safe fallback.** A failed provider connection, timeout, reboot, or unexpected
-disconnect must not automatically select Direct VPS mode.
+- Upstream VPN status, provider, and connection details
+- Current exit IP
+- DNS service status
+- System health
+- Uptime and load
 
-Direct VPS mode is intentionally placed in SnarkyCtl's **Danger Zone**. The interface warns
-that it exposes the real public IP of the VPS. Disabling the upstream VPN or its kill switch
-is likewise treated as an exceptional administrative action, not ordinary operation.
+## Upstream VPN Control
 
-The private management service is intended to bind only to its private tunnel address. No
-SnarkyCtl HTTP or HTTPS listener should be exposed on the VPS public interface.
+- Connect and disconnect through a trusted provider adapter
+- Select predefined provider-neutral target aliases
+- Choose Protected VPN, Locked, or explicitly confirmed Direct VPS policy modes
+- Display normalized connection state and provider-specific details
+- Support additional VPN technologies without changing the web API, control protocol, or firewall policy
 
-## SnarkyCtl management utility
+The development release includes a NordVPN adapter. Future adapters may support other command-line clients, WireGuard configurations, OpenVPN configurations, or commercial VPN services. An adapter must be compiled into the trusted package registry; configuration cannot load arbitrary modules or executables.
 
-SnarkyCtl provides the operational view of the Snarkypuss gateway. It consists of:
+Advanced gateway modes appear in a collapsed danger zone. **Protected VPN** enables leak
+protection before connecting; **Locked** enables protection before disconnecting; and
+**Direct VPS** disables protection and disconnects only after the user types
+`EXPOSE VPS IP`. Direct mode prominently reports that the VPS public IP is exposed.
 
-- An authenticated HTTPS dashboard
-- A provider-neutral REST API
-- An unprivileged command-line client
-- A privileged local control daemon
-- A versioned Unix-socket protocol
-- Trusted adapters for supported upstream VPN providers
+## DNS Status
 
-The web application does not run provider commands or alter networking directly. It sends
-allowlisted requests over `/run/snarkyctl/control.sock` to the privileged daemon. The daemon
-validates the request and delegates provider-specific behavior to a packaged adapter.
+- View DNS status
 
-Current management functions include:
+## System Information
 
-- Show gateway mode and upstream VPN status.
-- Show the observed public exit IP.
-- Show DNS and basic system health.
-- Connect to a predefined provider-neutral target alias.
-- Enter Locked mode.
-- Enter Direct VPS mode only after explicit confirmation.
-- Expose exceptional VPN and kill-switch controls in the Danger Zone.
+- CPU
+- Memory
+- Disk usage
+- Uptime
+- Service health
 
-The local CLI uses the same control boundary:
+---
+
+# Security Model
+
+SnarkyCtl is **not** intended to be an Internet-facing application.
+
+The intended deployment is:
+
+```text
+Browser
+      │
+WireGuard
+      │
+10.8.0.1
+      │
+SnarkyCtl
+```
+
+The application binds only to the WireGuard interface and is additionally protected by authentication.
+
+---
+
+# Technology
+
+Current stack:
+
+- Python 3
+- FastAPI
+- Uvicorn
+- HTML
+- CSS
+- JavaScript
+- systemd
+
+---
+
+# Architecture
+
+A plain-language explanation of the server framework, application components, security boundaries, and operating modes is available in [**ARCHITECTURE.md**](ARCHITECTURE.md).
+
+Settled architectural choices are recorded in [**DECISIONS.md**](DECISIONS.md).
+
+---
+
+# Deployment
+
+The reproducible wheel and Debian-package build, filesystem layout, release pipeline, and upgrade model are documented in [**DEPLOYMENT.md**](DEPLOYMENT.md).
+
+---
+
+# Installation
+
+Installation prerequisites, Linux package dependencies, and the staged deployment framework are documented in [**INSTALL.md**](INSTALL.md).
+
+The versioned main YAML schema, SQLite target catalogue, validation commands, and
+configuration security boundaries are documented in
+[**CONFIGURATION.md**](CONFIGURATION.md).
+
+The read-only deployment checks, result states, exit codes, and current safety limitations of `snarkyctl preflight` are documented in [**PREFLIGHT.md**](PREFLIGHT.md).
+
+The implemented NordVPN command boundary, normalized status fields, and delegated networking responsibilities are documented in [**NORDVPN.md**](NORDVPN.md).
+
+The authenticated HTTPS status and VPN-target API, browser request protection, and stable
+response schemas are documented in [**API.md**](API.md).
+
+The local administration CLI communicates exclusively with the privileged daemon:
 
 ```bash
 snarkyctl status
@@ -115,58 +158,58 @@ snarkyctl connect dallas
 snarkyctl disconnect
 ```
 
-Add `--json` for the complete machine-readable response.
+Add `--json` to any of these commands for the complete machine-readable response. The CLI
+does not invoke a VPN client directly. A Direct gateway state is reported prominently as
+exposing the VPS public IP; disconnect remains subject to the daemon's leak-protection policy.
 
-Target aliases such as `dallas` are resolved from root-owned configuration. Browser and API
-clients never submit arbitrary shell commands, executable paths, or dynamically loaded
-provider modules.
+---
 
-## Getting started
-
-The documentation is divided by purpose:
-
-- [**SNARKYPUSS.md**](SNARKYPUSS.md) — technical reference for building and validating the
-  private VPN gateway itself.
-- [**INSTALL.md**](INSTALL.md) — detailed installation of SnarkyCtl and its system services.
-- [**CONFIGURATION.md**](CONFIGURATION.md) — application and target configuration.
-- [**ARCHITECTURE.md**](ARCHITECTURE.md) — components, privilege boundaries, and gateway modes.
-- [**NORDVPN.md**](NORDVPN.md) — NordVPN adapter behavior and operational considerations.
-- [**PREFLIGHT.md**](PREFLIGHT.md) — deployment validation and safety checks.
-- [**API.md**](API.md) — authenticated HTTPS API.
-- [**DEPLOYMENT.md**](DEPLOYMENT.md) — wheel and Debian packaging, upgrades, and release process.
-- [**development/**](development/README.md) — requirements, roadmap, and architectural
-  decision artifacts used during development.
-
-A practical deployment proceeds in two stages:
-
-1. Build and verify the Snarkypuss private VPN gateway using
-   [SNARKYPUSS.md](SNARKYPUSS.md).
-2. Install SnarkyCtl using [INSTALL.md](INSTALL.md), then run the documented preflight checks.
-
-Do not expose the management listener publicly as a shortcut during installation.
-
-## Repository layout
+# Repository Layout
 
 ```text
-README.md                 Project overview
-SNARKYPUSS.md             Private VPN gateway technical reference
-ARCHITECTURE.md           Software and security architecture
-development/              Requirements and design-process artifacts
-INSTALL.md                Administrator installation guide
-CONFIGURATION.md          Runtime configuration reference
-NORDVPN.md                NordVPN provider-adapter reference
-PREFLIGHT.md              Deployment validation reference
-API.md                    HTTP API reference
-DEPLOYMENT.md             Build and packaging reference
-src/snarkyctl/            Management utility source
-config/                   Example configuration
-systemd/                  Service and socket units
-debian/                   Debian package source
-tests/                    Automated tests
+README.md
+ARCHITECTURE.md
+DECISIONS.md
+DEPLOYMENT.md
+INSTALL.md
+CONFIGURATION.md
+PREFLIGHT.md
+NORDVPN.md
+SNARKYCTL.revised.md
+SNARKYPUSS.md
+pyproject.toml
+src/snarkyctl/
+config/
+systemd/
+tests/
+debian/
 ```
 
-## Project status
+---
 
-Snarkypuss 0.9.0 is the first feature-complete beta and is intended for user acceptance
-testing on a controlled VPS. Administrators should review the technical references, retain
-console access, and verify leak protection before relying on it for sensitive traffic.
+# Development Roadmap
+
+1. Establish the command parsers and typed status models.
+2. Implement the root control daemon and versioned Unix-socket protocol.
+3. Delegate routing and leak protection to the configured VPN provider.
+4. Establish the unprivileged `snarkyctl` account and systemd socket/service units.
+5. Build the authenticated, HTTPS-only status and control API.
+6. Build the status dashboard and provider-neutral target selector.
+7. Enable serialized CLI and dashboard controls through the control daemon.
+8. Complete Debian packaging, preflight, hardening, and operational tests.
+
+Detailed implementation requirements are contained in
+[**SNARKYCTL.revised.md**](SNARKYCTL.revised.md), with settled architectural choices in
+[**DECISIONS.md**](DECISIONS.md).
+
+---
+
+# Intended Audience
+
+This project is intended for technically proficient users who operate their own Linux VPS and want a secure, self-hosted management interface for a WireGuard-based privacy gateway.
+
+---
+
+# License
+
+To be determined.

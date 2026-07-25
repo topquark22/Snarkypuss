@@ -7,11 +7,11 @@ SnarkyCtl invokes only these forms:
 ```text
 /usr/bin/nordvpn status
 /usr/bin/nordvpn settings
-/usr/bin/nordvpn connect <one-root-configured-target>
+/usr/bin/nordvpn connect <validated-selector-arguments>
 /usr/bin/nordvpn disconnect
 ```
 
-Commands use argument arrays with `shell=False`, a fixed absolute executable, a controlled locale, a 45-second timeout, and a 64 KiB output limit. A configured target cannot begin with an option marker or contain shell/control syntax. No browser-supplied value is passed directly to the command.
+Commands use argument arrays with `shell=False`, a fixed absolute executable, a controlled locale, a 45-second timeout, and a 64 KiB output limit. Selector fields are validated by the compiled adapter. No browser-supplied value is passed directly to the command.
 
 After `connect` or `disconnect`, the adapter runs `nordvpn status` and returns the observed state rather than inferring success from the mutation command's message. The daemon reads `nordvpn settings` before disconnection and refuses to disconnect unless both Kill Switch and the NordVPN firewall are verified enabled.
 
@@ -44,22 +44,21 @@ The adapter does not:
 
 Those are deployment configuration or later status-observation concerns. The existing WireGuard management bypass remains an administrator-managed prerequisite.
 
-## NordVPN target discovery and mapping
+## NordVPN destination selectors
 
-The target catalogue remains provider-neutral because users select aliases, not NordVPN
-arguments. The root-owned mapping is where a SnarkyCtl alias becomes one NordVPN destination:
+Destinations are added through **Manage VPN destinations** in the dashboard and stored in
+the root-owned SQLite catalogue. The generic editor obtains these NordVPN selector types
+from the compiled adapter:
 
-```yaml
-targets:
-  - alias: dallas
-    label: Dallas, United States
-    provider_target: Dallas
-  - alias: prague
-    label: Prague, Czechia
-    provider_target: Prague
-```
+| Type | Meaning |
+|---|---|
+| Recommended | Let NordVPN choose its recommended server |
+| Country | Select a server in a country |
+| City | Select a server in a city within a country |
+| Group | Select a NordVPN specialty group |
+| Server | Select one exact NordVPN server |
 
-For the installed NordVPN CLI, discover available values with:
+Discover values accepted by the installed client with:
 
 ```bash
 nordvpn countries
@@ -69,35 +68,12 @@ nordvpn groups
 ```
 
 Use `nordvpn help` or `man nordvpn` to confirm the syntax supported by that installed
-version. NordVPN can accept selectors at different scopes, including a country, city,
-specialty group, or particular server. The label must state the scope honestly:
+version. Labels should state the selector scope honestly: a country selector should be
+labelled as a country or recommended server, not as a particular city.
 
-```yaml
-- alias: usa
-  label: United States (recommended server)
-  provider_target: us
-
-- alias: dallas
-  label: Dallas, United States
-  provider_target: Dallas
-
-- alias: dedicated_us
-  label: United States dedicated server
-  provider_target: us4955
-```
-
-The final example is illustrative; a particular server identifier must come from the
-administrator's own NordVPN account and installed client. Never copy a server identifier
-blindly from this document.
-
-A bare `nordvpn set autoconnect on` tells NordVPN to select its recommended server during
-provider startup. That is separate from SnarkyCtl's destination catalogue. Editing
-`targets.yaml` does not alter NordVPN auto-connect, and changing auto-connect does not add
-or reorder dashboard choices.
-
-Follow [CONFIGURATION.md](CONFIGURATION.md) to edit the catalogue safely. After validation,
-restart `snarkyctl-control.service` and refresh the dashboard. The web application exposes
-only aliases and labels; the NordVPN values remain inside the privileged daemon.
+A bare `nordvpn set autoconnect on` remains separate from the SnarkyCtl destination
+catalogue. It controls NordVPN startup behavior and does not add or reorder dashboard
+destinations.
 
 ## Kill Switch Blocking WireGuard Management
 
@@ -231,7 +207,7 @@ exception in place if the fail-closed test shows that it permits direct public f
 Missing or non-executable binaries, permission errors, timeouts, excessive output, nonzero exit status, unsafe configured targets, and unrecognized status output are returned as stable `ProviderError` codes. Raw stderr is not exposed to the browser.
 
 The privileged control daemon dispatches status, connection, and gateway-mode operations
-to this adapter. It resolves aliases against the root-owned target allowlist before
+to this adapter. It resolves aliases against the root-owned SQLite catalogue before
 calling `connect`; an unknown alias never reaches NordVPN. For mode transitions, the
 adapter maps provider-neutral leak protection to
 `nordvpn set killswitch on|off`. Protected mode enables the Kill Switch before connecting;

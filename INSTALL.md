@@ -195,36 +195,24 @@ Python dependency ranges in `pyproject.toml`. This is acceptable for the develop
 package, but a stable release additionally requires a committed, hash-verified dependency
 lock. Package installation never runs `pip` or accesses PyPI.
 
-The PEP 440 development version `0.9.0` maps to Debian version
-`0.9.0-1`. The tilde ensures that the development package sorts before the eventual
-`0.1.0-1` release. The build helper refuses to continue if `pyproject.toml` and
+The PEP 440 development version `0.10.0.dev2` maps to Debian version
+`0.10.0~dev2-1`. The tilde ensures that the development package sorts before the eventual
+`0.10.0-1` release. The build helper refuses to continue if `pyproject.toml` and
 `debian/changelog` do not match.
 
 After a successful build, inspect the artifact created in the parent directory:
 
 ```bash
-dpkg-deb --info ../snarkyctl_0.9.0-1_amd64.deb
-dpkg-deb --contents ../snarkyctl_0.9.0-1_amd64.deb
-lintian ../snarkyctl_0.9.0-1_amd64.deb
+dpkg-deb --info ../snarkyctl_0.10.0~dev2-1_amd64.deb
+dpkg-deb --contents ../snarkyctl_0.10.0~dev2-1_amd64.deb
+lintian ../snarkyctl_0.10.0~dev2-1_amd64.deb
 ```
 
 Install it with:
 
 ```bash
-sudo apt-get install ./../snarkyctl_0.9.0-1_amd64.deb
+sudo apt-get install ./../snarkyctl_0.10.0~dev2-1_amd64.deb
 ```
-
-For later development rebuilds, use the repository helper to stop all three units,
-reinstall the package, reload systemd, restart the units in dependency order, and display
-their final status:
-
-```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_0.9.0-1_amd64.deb
-```
-
-The script verifies that the supplied file is a Debian package named `snarkyctl` before
-stopping anything. If installation or startup fails, it leaves the failure visible and
-warns that the services may remain stopped rather than concealing a partial deployment.
 
 The package creates the `snarkyctl` system account and the empty directories
 `/etc/snarkyctl`, `/etc/snarkyctl/tls`, and `/var/lib/snarkyctl`. It deliberately does not
@@ -235,9 +223,7 @@ continue with Sections 5 through 7:
 sudo install -o root -g snarkyctl -m 0640 \
     /usr/share/doc/snarkyctl/examples/snarkyctl.yaml.example \
     /etc/snarkyctl/snarkyctl.yaml
-sudo install -o root -g snarkyctl -m 0640 \
-    /usr/share/doc/snarkyctl/examples/targets.yaml.example \
-    /etc/snarkyctl/targets.yaml
+sudo snarkyctl targets-db initialize
 ```
 
 The manual wheel and unit installation below remains useful to developers and explains
@@ -260,7 +246,7 @@ virtual environment.
 | `jinja2` | Renders the initial dashboard HTML template. |
 | `bcrypt` | Verifies password hashes in the local `auth.htpasswd` file. |
 | `pydantic` | Strictly validates configuration, control messages, and API models. |
-| `PyYAML` | Parses the root-owned YAML configuration and target allowlist. |
+| `PyYAML` | Parses the root-owned main service configuration. |
 
 FastAPI also requires libraries such as Starlette and AnyIO. They are transitive
 dependencies and are installed automatically. Do not install them individually or maintain
@@ -453,20 +439,22 @@ that currently protects the gateway.
 
 #### 5.2 Install the configuration templates
 
-Create the configuration directory and install editable copies of the example files:
+Create the configuration directory, install the main example, and initialize the target
+database:
 
 ```bash
 sudo install -d -o root -g snarkyctl -m 0750 /etc/snarkyctl
 sudo install -o root -g snarkyctl -m 0640 \
     config/snarkyctl.yaml.example \
     /etc/snarkyctl/snarkyctl.yaml
-sudo install -o root -g snarkyctl -m 0640 \
-    config/targets.yaml.example \
-    /etc/snarkyctl/targets.yaml
+sudo install -d -o root -g root -m 0700 /var/lib/snarkyctl
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl targets-db initialize
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl targets-db check
 ```
 
-Both files are writable only by root. Group read access is necessary because the
-unprivileged web service reads the same validated configuration when it starts.
+The main configuration is writable only by root and readable by the service group. The
+database is `root:root`, mode `0600`, inside a `root:root`, mode `0700` directory. The
+unprivileged web service never opens it.
 
 #### 5.3 Edit the main configuration
 
@@ -510,7 +498,9 @@ upstream_vpn:
   provider: nordvpn
   expected_interfaces:
     - nordlynx
-  targets_file: /etc/snarkyctl/targets.yaml
+  targets:
+    backend: sqlite
+    path: /var/lib/snarkyctl/targets.db
 ```
 
 Replace `eth0` if the default route reports a different public interface. Do not change
@@ -524,56 +514,20 @@ request in `LOCKED` and indeterminate gateway modes.
 If NordVPN is configured to use a technology with an interface other than `nordlynx`,
 record the actual expected interface instead. This is an allowlist, not a command.
 
-#### 5.4 Configure target aliases
+#### 5.4 Confirm target database permissions
 
-Edit:
-
-```bash
-sudoedit /etc/snarkyctl/targets.yaml
-```
-
-Each entry maps a short user-facing alias to the exact argument passed to the configured
-provider. For example:
-
-```yaml
-schema_version: 1
-
-targets:
-  - alias: dallas
-    label: Dallas, United States
-    provider_target: Dallas
-
-  - alias: prague
-    label: Prague, Czechia
-    provider_target: Prague
-```
-
-Aliases may contain lowercase letters, digits, underscores, and hyphens, and must begin
-with a letter. The browser and CLI submit only the alias. The root-owned file determines
-the provider target, preventing a web request from supplying arbitrary command arguments.
-
-The example values are NordVPN city selectors. `provider_target` is nevertheless an opaque,
-adapter-specific value rather than part of the public SnarkyCtl API. Confirm that the
-installed provider accepts it, and ensure the label describes its real scope. For example,
-the broad NordVPN country selector `us` should be labelled `United States (recommended)`,
-not `Dallas`. SnarkyCtl passes the configured value as one argument; it does not interpret
-shell quoting, spaces, or additional options.
-
-For the complete add, edit, reorder, remove, validate, reload, and recovery procedure, see
-[CONFIGURATION.md](CONFIGURATION.md). A catalogue change requires a successful
-`validate-config` followed by a restart of `snarkyctl-control.service`; it does not require
-a web-service restart.
-
-Restore the required ownership and permissions after editing:
+Restore the required ownership and permissions:
 
 ```bash
-sudo chown root:snarkyctl \
-    /etc/snarkyctl/snarkyctl.yaml \
-    /etc/snarkyctl/targets.yaml
-sudo chmod 0640 \
-    /etc/snarkyctl/snarkyctl.yaml \
-    /etc/snarkyctl/targets.yaml
+sudo chown root:snarkyctl /etc/snarkyctl/snarkyctl.yaml
+sudo chmod 0640 /etc/snarkyctl/snarkyctl.yaml
+sudo chown root:root /var/lib/snarkyctl /var/lib/snarkyctl/targets.db
+sudo chmod 0700 /var/lib/snarkyctl
+sudo chmod 0600 /var/lib/snarkyctl/targets.db
 ```
+
+Do not grant the `snarkyctl` account database access. The root daemon is the sole database
+reader and writer.
 
 #### 5.5 Validate the configuration
 
@@ -587,11 +541,11 @@ sudo /usr/lib/snarkyctl/venv/bin/snarkyctl validate-config \
 Expected output resembles:
 
 ```text
-Configuration is valid: provider=nordvpn, targets=2
+Configuration is valid: provider=nordvpn, target_backend=sqlite, targets=stored
 ```
 
-This validates both YAML files, the schema, provider registry name, interface-name syntax,
-path requirements, and unique target aliases. It does not connect or disconnect the VPN.
+This validates the main YAML schema, provider registry name, interface-name syntax, database
+path, and target catalogue. It does not connect or disconnect the VPN.
 
 #### 5.6 Install the control units
 
@@ -656,40 +610,6 @@ sudo systemctl status snarkyctl-control.socket --no-pager
 `systemctl enable` alone does not start an inactive unit; it only arranges for it to start
 on subsequent boots. The separate `systemctl start` command is therefore required during
 this manual installation. The status should report `Active: active (listening)`.
-
-### How systemd boot enablement works
-
-Starting and enabling are separate systemd operations:
-
-- `systemctl start UNIT` starts the unit in the current boot only.
-- `systemctl enable UNIT` creates the boot-target symbolic link but does not start the unit.
-- `systemctl enable --now UNIT` both creates the link and starts the unit.
-- `systemctl reenable UNIT` removes and recreates the enablement links. Use it after
-  replacing unit files, or when a unit reports `enabled` but failed to start at boot and the
-  links need to be verified.
-
-For the control socket, enablement creates this link:
-
-```text
-/etc/systemd/system/sockets.target.wants/snarkyctl-control.socket
-    -> /usr/lib/systemd/system/snarkyctl-control.socket
-```
-
-Verify it with:
-
-```bash
-ls -l /etc/systemd/system/sockets.target.wants/snarkyctl-control.socket
-```
-
-If the link is missing or suspect, recreate it and start the socket:
-
-```bash
-sudo systemctl reenable snarkyctl-control.socket
-sudo systemctl start snarkyctl-control.socket
-```
-
-The `[Install]` section and its `WantedBy=sockets.target` setting tell systemd where to
-create this link. Merely copying a unit into `/usr/lib/systemd/system` does not enable it.
 
 Do not start `snarkyctl-control.service` directly. The socket unit creates
 `/run/snarkyctl/control.sock`; the first client request then starts the privileged daemon
@@ -756,7 +676,8 @@ sudo journalctl -u snarkyctl-control.service -n 100 --no-pager
 sudo ls -ld /run/snarkyctl
 sudo ls -l /run/snarkyctl/control.sock
 sudo -u snarkyctl test -r /etc/snarkyctl/snarkyctl.yaml
-sudo -u snarkyctl test -r /etc/snarkyctl/targets.yaml
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl targets-db check
+sudo -u snarkyctl test ! -r /var/lib/snarkyctl/targets.db
 ```
 
 The last two commands produce no output when the files are readable; inspect their exit
@@ -956,32 +877,6 @@ sudo systemctl start snarkyctl-web.service
 sudo systemctl status snarkyctl-web.service --no-pager
 ```
 
-The web-service enablement link is:
-
-```text
-/etc/systemd/system/multi-user.target.wants/snarkyctl-web.service
-    -> /usr/lib/systemd/system/snarkyctl-web.service
-```
-
-Verify it with:
-
-```bash
-ls -l /etc/systemd/system/multi-user.target.wants/snarkyctl-web.service
-```
-
-If the service was enabled but remained inactive after reboot, recreate both SnarkyCtl
-enablement links, reload systemd, and start the units:
-
-```bash
-sudo systemctl reenable snarkyctl-control.socket
-sudo systemctl reenable snarkyctl-web.service
-sudo systemctl daemon-reload
-sudo systemctl start snarkyctl-control.socket
-sudo systemctl start snarkyctl-web.service
-```
-
-Do not enable `snarkyctl-control.service` directly. It is socket-activated.
-
 The service runs as `snarkyctl`, reads the configuration, password hashes, and TLS key,
 and connects to the root daemon through the Unix socket. It receives no sudo privileges.
 
@@ -1022,7 +917,21 @@ The browser should trust the certificate, prompt for the Basic-auth credentials,
 the gateway status plus its approved VPN-target selector. If the hostname is not resolvable on Windows, use
 `https://10.8.0.1:8443/` or add the private hostname to the Windows hosts file.
 
-#### 7.6 Diagnose startup failures
+#### 7.6 Add the first VPN destination
+
+Open **Manage VPN destinations** in the authenticated dashboard and select
+**Add destination**. Enter a stable alias and display label, select a provider-defined
+target type, complete its fields, and save the catalogue. The initial empty database is
+deliberate; no destination is guessed during installation.
+
+You can inspect the result from the VPS:
+
+```bash
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl targets list
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl targets-db check
+```
+
+#### 7.7 Diagnose startup failures
 
 If the service does not start or the dashboard is unavailable, collect:
 
@@ -1031,7 +940,8 @@ sudo systemctl status snarkyctl-web.service --no-pager
 sudo journalctl -u snarkyctl-web.service -n 100 --no-pager
 sudo ss -ltnp | grep ':8443'
 sudo -u snarkyctl test -r /etc/snarkyctl/snarkyctl.yaml
-sudo -u snarkyctl test -r /etc/snarkyctl/targets.yaml
+sudo /usr/lib/snarkyctl/venv/bin/snarkyctl targets-db check
+sudo -u snarkyctl test ! -r /var/lib/snarkyctl/targets.db
 sudo -u snarkyctl test -r /etc/snarkyctl/auth.htpasswd
 sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.crt
 sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.key
@@ -1039,47 +949,6 @@ sudo -u snarkyctl test -r /etc/snarkyctl/tls/server.key
 
 Do not open TCP port 8443 on the public firewall to work around a reachability problem.
 The dashboard is intentionally reachable only through WireGuard.
-
-#### 7.7 Verify boot persistence
-
-A unit showing `active` proves only that it is running now. A unit showing `enabled`
-proves that systemd has an enablement link for a future boot. Check both properties:
-
-```bash
-systemctl is-enabled ssh.service \
-    snarkyctl-control.socket \
-    snarkyctl-web.service
-systemctl is-active ssh.service \
-    snarkyctl-control.socket \
-    snarkyctl-web.service
-```
-
-Expected results are `enabled` and `active`. The privileged
-`snarkyctl-control.service` may remain inactive until the first client request; this is
-normal socket activation.
-
-Before a reboot test, retain independent VPS console access. After reboot, verify:
-
-```bash
-systemctl is-active wg-quick@wg0.service dnsmasq.service ssh.service
-systemctl is-active snarkyctl-control.socket snarkyctl-web.service
-sudo ss -lntp | grep -E ':(22|8443)[[:space:]]'
-sudo ss -xlpn | grep /run/snarkyctl/control.sock
-```
-
-If an enabled unit is inactive, inspect the current boot rather than repeatedly starting it:
-
-```bash
-sudo journalctl -b \
-    -u snarkyctl-control.socket \
-    -u snarkyctl-control.service \
-    -u snarkyctl-web.service \
-    --no-pager
-```
-
-Starting the units manually can restore service, but it does not explain the boot failure.
-Correct the reported dependency, configuration, or permission problem and repeat the reboot
-test.
 
 ### 8. Verify private reachability
 
@@ -1100,7 +969,7 @@ curl.exe --cacert .\ca.crt --user snarkadmin `
     https://10.8.0.1:8443/api/v2/vpn/targets
 ```
 
-The response must contain only target aliases and labels, not `provider_target` values.
+The response must contain only target aliases and labels, not structured selector fields.
 
 Then disconnect WireGuard on Windows and repeat only the connectivity test:
 
@@ -1121,7 +990,7 @@ sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl disconnect
 sudo -u snarkyctl /usr/lib/snarkyctl/venv/bin/snarkyctl status
 ```
 
-Replace `dallas` with an alias actually present in `/etc/snarkyctl/targets.yaml`.
+Replace `dallas` with an alias present in the managed target catalogue.
 Disconnect is deliberately refused unless the provider reports both leak protection and
 its firewall enabled. After each transition, confirm that the dashboard and the second SSH
 session remain reachable through WireGuard.
@@ -1141,8 +1010,8 @@ There is no additional switch to enable in the current release.
 
 The local `snarkyctl connect ALIAS` and `snarkyctl disconnect` commands are implemented and
 always pass through the privileged daemon. The dashboard target selector and
-`POST /api/v2/vpn/connect` can connect or switch using an alias from
-`/etc/snarkyctl/targets.yaml`. Raw provider targets are never accepted from the browser.
+`POST /api/v2/vpn/connect` can connect or switch using an alias from the root-owned SQLite
+catalogue. Raw provider command arguments are never accepted from the browser.
 Web disconnect has not yet been implemented.
 
 For a direct API test, keep a second management session open and use an alias actually
@@ -1161,11 +1030,17 @@ The request marker is mandatory for every state-changing API call. Browser reque
 additionally restricted to the dashboard's exact origin. If another VPN mutation is
 already running, the API returns HTTP `409` with `OPERATION_IN_PROGRESS`.
 
-The protocol reserves `LOCK` and `DIRECT`, but the daemon currently returns
-`NOT_IMPLEMENTED` for both operations. Do not add firewall exceptions or invoke provider
-commands outside SnarkyCtl in an attempt to enable them. Direct VPS mode will require a
-separate implementation, explicit confirmation, and a persistent public-IP exposure
-warning.
+The dashboard's collapsed **Advanced gateway modes — Danger zone** offers:
+
+- **Protected VPN** — enable leak protection, then connect to the selected alias.
+- **Locked** — enable leak protection, then disconnect the VPN.
+- **Direct VPS** — disable leak protection, then disconnect and expose the VPS public IP.
+
+Direct VPS mode remains disabled until `EXPOSE VPS IP` is entered exactly. Keep a second
+management session open for the first live test of each transition. The NordVPN adapter
+uses `nordvpn set killswitch on|off`; another adapter must explicitly advertise and
+implement the corresponding provider-neutral capability before these controls are
+enabled.
 
 ---
 

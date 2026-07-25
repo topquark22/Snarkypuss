@@ -12,7 +12,7 @@ from snarkyctl.main import app
 
 
 def test_package_has_development_version() -> None:
-    assert __version__ == "0.9.0"
+    assert __version__ == "0.10.0.dev2"
 
 
 def test_debian_version_matches_python_development_version() -> None:
@@ -57,22 +57,17 @@ def test_debian_postinst_has_no_network_or_service_activation() -> None:
         assert forbidden_command not in postinst
 
 
-def test_reinstall_script_is_guarded_and_restarts_all_units() -> None:
-    script = Path("scripts/reinstall-deb.sh").read_text(encoding="utf-8")
+def test_package_uses_only_the_sqlite_target_backend() -> None:
+    example = Path("config/snarkyctl.yaml.example").read_text(encoding="utf-8")
+    install_manifest = Path("debian/snarkyctl.install").read_text(encoding="utf-8")
+    postinst = Path("debian/postinst").read_text(encoding="utf-8")
 
-    assert "set -eu" in script
-    assert 'if [ "$(id -u)" -ne 0 ]' in script
-    assert 'if [ "$package_name" != "snarkyctl" ]' in script
-    assert 'apt-get install --yes --reinstall "$package_path"' in script
-
-    for unit_name in (
-        "snarkyctl-web.service",
-        "snarkyctl-control.service",
-        "snarkyctl-control.socket",
-    ):
-        assert f"systemctl stop {unit_name}" in script
-        assert f"systemctl start {unit_name}" in script
-        assert f"systemctl is-active --quiet {unit_name}" in script
+    assert "targets_file" not in example
+    assert "backend: sqlite" in example
+    assert "path: /var/lib/snarkyctl/targets.db" in example
+    assert "targets.yaml.example" not in install_manifest
+    assert "install -d -o root -g root -m 0700 /var/lib/snarkyctl" in postinst
+    assert "targets.db" not in postinst
 
 
 def test_liveness_endpoint() -> None:

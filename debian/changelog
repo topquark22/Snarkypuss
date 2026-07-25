@@ -1,3 +1,12 @@
+snarkyctl (0.10.0~dev2-1) unstable; urgency=medium
+
+  * Make SQLite the sole documented production target backend.
+  * Complete provider-neutral target management packaging, documentation,
+    and user-acceptance testing.
+  * Preserve the root-owned target database across package upgrades.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Sat, 25 Jul 2026 06:00:00 -0400
+
 snarkyctl (0.10.0~dev1-1) unstable; urgency=medium
 
   * Add provider-neutral target catalogue administration to the CLI, HTTPS

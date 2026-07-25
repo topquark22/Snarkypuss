@@ -730,3 +730,23 @@ writer and no remote database access.
   schema migration, legacy import, permission enforcement, selector validation, provider
   separation, sanitized responses, and daemon restart persistence.
 - Documentation must distinguish provider auto-connect from the SnarkyCtl target catalogue.
+
+
+## ADR-015: SQLite is the sole documented production target backend
+
+**Status:** Accepted for 0.10.0.dev2
+
+**Decision:** User-facing installation, configuration, deployment, provider, and API
+documentation specifies only the root-owned SQLite target catalogue. New packages ship one
+main configuration example pointing to `/var/lib/snarkyctl/targets.db` and do not ship a
+target YAML example.
+
+The transitional YAML reader and migration command may remain in the implementation for
+development history and recovery of early test deployments, but they are not presented as
+a supported production configuration choice. Package installation and upgrade never
+initialize, migrate, replace, or delete the SQLite database automatically.
+
+**Consequences:** A clean installation explicitly initializes an empty database and adds
+its first destination through the authenticated dashboard. The database is persistent
+application data owned by `root:root`, mode `0600`, inside a mode-`0700` root-owned
+directory. Only the privileged daemon opens it in production.
