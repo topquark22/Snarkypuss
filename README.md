@@ -169,7 +169,7 @@ tests/                    Automated tests
 
 ## Project status
 
-Snarkypuss `0.10.0.dev4` has passed Plan 10 user-acceptance testing on the reference VPS.
+Snarkypuss `0.11.0.dev0` begins Plan 11 development after Plan 10 user-acceptance testing passed on the reference VPS. Phase 1 establishes the provider contract and typed provider configuration without registering Mullvad yet.
 It remains a development release while reproducible packaging and clean-install coverage
 are completed. Administrators should retain console access and verify leak protection
 before relying on it for sensitive traffic.

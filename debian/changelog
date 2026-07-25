@@ -1,3 +1,10 @@
+snarkyctl (0.11.0~dev0-1) unstable; urgency=medium
+
+  * Begin Plan 11 Mullvad provider support.
+  * Add provider capability and typed runtime configuration foundations.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Fri, 24 Jul 2026 23:16:15 -0400
+
 snarkyctl (0.10.0~dev4-1) unstable; urgency=medium
 
   * Record successful Plan 10 user-acceptance testing.
