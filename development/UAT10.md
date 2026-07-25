@@ -2,7 +2,7 @@
 
 ## Result
 
-**Accepted for `0.10.0.dev2`.**
+**Accepted for `0.10.0.dev4`.**
 
 The project owner completed the catalogue transition, exercised the provider-neutral
 dashboard editor, added destinations, and confirmed that the resulting configuration and
@@ -20,7 +20,7 @@ The accepted production model is:
 
 ## Release checks
 
-The `0.10.0.dev2` release candidate must pass:
+The `0.10.0.dev4` release candidate must pass:
 
 - Complete automated Python tests and the coverage threshold.
 - Static type checking.

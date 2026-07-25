@@ -734,7 +734,7 @@ writer and no remote database access.
 
 ## ADR-015: SQLite is the sole documented production target backend
 
-**Status:** Accepted for 0.10.0.dev2
+**Status:** Accepted for 0.10.0.dev4
 
 **Decision:** User-facing installation, configuration, deployment, provider, and API
 documentation specifies only the root-owned SQLite target catalogue. New packages ship one

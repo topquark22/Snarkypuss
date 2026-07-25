@@ -14,7 +14,7 @@ upgrade must not silently migrate a deployment.
 
 ## Completion status
 
-All twelve increments are complete and accepted for `0.10.0.dev2`. This document records
+All twelve increments are complete and accepted for `0.10.0.dev4`. This document records
 the incremental development path; current installation and operating documentation uses
 SQLite exclusively and does not present the transitional YAML catalogue as a deployment
 choice. The user-acceptance result is recorded in

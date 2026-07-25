@@ -1,3 +1,10 @@
+snarkyctl (0.10.0~dev4-1) unstable; urgency=medium
+
+  * Record successful Plan 10 user-acceptance testing.
+  * Remove all executable and packaging dependencies on documentation files.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Sat, 25 Jul 2026 07:30:00 -0400
+
 snarkyctl (0.10.0~dev2-1) unstable; urgency=medium
 
   * Make SQLite the sole documented production target backend.

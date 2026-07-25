@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "snarkyctl"
-version = "0.10.0.dev2"
+version = "0.10.0.dev4"
 description = "Private control plane and web dashboard for the snarkypuss VPN gateway"
 requires-python = ">=3.12,<3.13"
 authors = [
