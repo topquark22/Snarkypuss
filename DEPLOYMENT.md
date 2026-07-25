@@ -267,7 +267,7 @@ A future `arm64` package must be built and tested separately.
 | `/usr/lib/systemd/system/snarkyctl-web.service` | Unprivileged HTTPS service | `root:root` |
 | `/run/snarkyctl/` | systemd-created runtime socket directory | `root:snarkyctl` |
 | `/var/lib/snarkyctl/` | Root-only target database directory | `root:root`, `0700` |
-| `/usr/share/doc/snarkyctl/examples/` | Configuration examples copied by the administrator | `root:root` |
+| `/usr/share/snarkyctl/examples/` | Configuration examples copied by the administrator | `root:root` |
 | `/usr/share/doc/snarkyctl/` | Packaged documentation and changelog | `root:root` |
 
 `/usr/local` is not used for files owned by the Debian package. It remains reserved for files managed directly by the VPS administrator.

@@ -9,7 +9,7 @@ for command in dpkg-buildpackage dh dh_virtualenv; do
     if ! command -v "$command" >/dev/null 2>&1; then
         printf '%s\n' "Missing Debian build command: $command" >&2
         printf '%s\n' \
-            "Install the packages listed under 'Build the Debian package' in INSTALL.md." >&2
+            "Install debhelper, dh-virtualenv, python3-dev, python3-pip, and python3-venv." >&2
         exit 2
     fi
 done

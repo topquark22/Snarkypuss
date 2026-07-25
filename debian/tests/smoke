@@ -8,5 +8,5 @@ snarkyctl --version
 test -f /usr/lib/systemd/system/snarkyctl-control.socket
 test -f /usr/lib/systemd/system/snarkyctl-control.service
 test -f /usr/lib/systemd/system/snarkyctl-web.service
-test -f /usr/share/doc/snarkyctl/examples/snarkyctl.yaml.example
-grep -q 'backend: sqlite' /usr/share/doc/snarkyctl/examples/snarkyctl.yaml.example
+test -f /usr/share/snarkyctl/examples/snarkyctl.yaml.example
+grep -q 'backend: sqlite' /usr/share/snarkyctl/examples/snarkyctl.yaml.example

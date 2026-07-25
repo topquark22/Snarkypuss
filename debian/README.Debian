@@ -6,11 +6,10 @@ Installation does not alter VPN, WireGuard, routing, DNS, or firewall state.
 
 Configuration examples are installed under:
 
-  /usr/share/doc/snarkyctl/examples/
+  /usr/share/snarkyctl/examples/
 
-Follow /usr/share/doc/snarkyctl/INSTALL.md before enabling any units. In
-particular, create the configuration, authentication file, and TLS identity,
-then run:
+Follow the installation guide in the project repository before enabling any units. In
+particular, create the configuration, authentication file, and TLS identity, then run:
 
   sudo snarkyctl preflight
 

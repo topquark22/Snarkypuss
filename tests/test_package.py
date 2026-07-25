@@ -85,9 +85,17 @@ def test_package_uses_only_the_sqlite_target_backend() -> None:
     assert "backend: sqlite" in example
     assert "path: /var/lib/snarkyctl/targets.db" in example
     assert "targets.yaml.example" not in install_manifest
-    assert "DECISIONS.md" not in install_manifest
+    assert ".md " not in install_manifest.lower()
+    assert "usr/share/doc" not in install_manifest
     assert "install -d -o root -g root -m 0700 /var/lib/snarkyctl" in postinst
     assert "targets.db" not in postinst
+
+
+
+def test_build_metadata_does_not_depend_on_readme() -> None:
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert "readme" not in project["project"]
 
 
 def test_liveness_endpoint() -> None:

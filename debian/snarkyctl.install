@@ -1,12 +1,4 @@
 systemd/snarkyctl-control.service usr/lib/systemd/system/
 systemd/snarkyctl-control.socket usr/lib/systemd/system/
 systemd/snarkyctl-web.service usr/lib/systemd/system/
-config/snarkyctl.yaml.example usr/share/doc/snarkyctl/examples/
-API.md usr/share/doc/snarkyctl/
-ARCHITECTURE.md usr/share/doc/snarkyctl/
-CONFIGURATION.md usr/share/doc/snarkyctl/
-DEPLOYMENT.md usr/share/doc/snarkyctl/
-INSTALL.md usr/share/doc/snarkyctl/
-NORDVPN.md usr/share/doc/snarkyctl/
-PREFLIGHT.md usr/share/doc/snarkyctl/
-README.md usr/share/doc/snarkyctl/
+config/snarkyctl.yaml.example usr/share/snarkyctl/examples/

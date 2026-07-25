@@ -233,7 +233,7 @@ continue with Sections 5 through 7:
 
 ```bash
 sudo install -o root -g snarkyctl -m 0640 \
-    /usr/share/doc/snarkyctl/examples/snarkyctl.yaml.example \
+    /usr/share/snarkyctl/examples/snarkyctl.yaml.example \
     /etc/snarkyctl/snarkyctl.yaml
 sudo snarkyctl targets-db initialize
 ```
