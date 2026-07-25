@@ -197,6 +197,12 @@
     return wrapper;
   }
 
+  function hasUnfinishedDestination() {
+    return editableCatalogue?.targets.some(
+      (target) => target.alias.trim() === "" || target.label.trim() === "",
+    );
+  }
+
   function renderEditor() {
     editorList.replaceChildren();
     if (!editableCatalogue || !targetSchema) {
@@ -297,7 +303,10 @@
       card.append(selectorFields);
       editorList.append(card);
     });
-    addTargetButton.disabled = managerBusy || editableCatalogue.targets.length >= 100;
+    addTargetButton.disabled =
+      managerBusy ||
+      editableCatalogue.targets.length >= 100 ||
+      hasUnfinishedDestination();
     reloadTargetsButton.disabled = managerBusy;
     saveTargetsButton.disabled = managerBusy;
   }
@@ -344,7 +353,12 @@
   }
 
   function addDestination() {
-    if (!targetSchema || !editableCatalogue || editableCatalogue.targets.length >= 100) {
+    if (
+      !targetSchema ||
+      !editableCatalogue ||
+      editableCatalogue.targets.length >= 100 ||
+      hasUnfinishedDestination()
+    ) {
       return;
     }
     const kind = targetSchema.selector_kinds[0];

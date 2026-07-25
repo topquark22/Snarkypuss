@@ -196,6 +196,16 @@ def test_dashboard_has_provider_neutral_controls_and_external_assets(
     assert "<style>" not in response.text
 
 
+def test_dashboard_prevents_multiple_unfinished_destinations(tmp_path: Path) -> None:
+    application = create_app(make_runtime(tmp_path))
+
+    response = get(application, path="/static/dashboard.js")
+
+    assert response.status_code == 200
+    assert "function hasUnfinishedDestination()" in response.text
+    assert "hasUnfinishedDestination();" in response.text
+
+
 @pytest.mark.parametrize(
     ("path", "content_type"),
     [
