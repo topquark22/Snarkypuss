@@ -204,6 +204,7 @@ def test_dashboard_prevents_multiple_unfinished_destinations(tmp_path: Path) -> 
     assert response.status_code == 200
     assert "function hasUnfinishedDestination()" in response.text
     assert "hasUnfinishedDestination();" in response.text
+    assert "newDestinationDraft !== null" in response.text
 
 
 @pytest.mark.parametrize(

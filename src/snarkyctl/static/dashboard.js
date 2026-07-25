@@ -34,6 +34,7 @@
   let managerBusy = false;
   let targetSchema = null;
   let editableCatalogue = null;
+  let newDestinationDraft = null;
 
   const fields = {
     provider: document.querySelector("#provider"),
@@ -241,6 +242,9 @@
       remove.disabled = managerBusy;
       remove.addEventListener("click", () => {
         if (window.confirm(`Remove destination “${target.label || target.alias || index + 1}”?`)) {
+          if (target === newDestinationDraft) {
+            newDestinationDraft = null;
+          }
           editableCatalogue.targets.splice(index, 1);
           renderEditor();
         }
@@ -306,6 +310,7 @@
     addTargetButton.disabled =
       managerBusy ||
       editableCatalogue.targets.length >= 100 ||
+      newDestinationDraft !== null ||
       hasUnfinishedDestination();
     reloadTargetsButton.disabled = managerBusy;
     saveTargetsButton.disabled = managerBusy;
@@ -341,6 +346,7 @@
       };
       managerProvider.textContent = editableCatalogue.provider;
       managerRevision.textContent = String(editableCatalogue.revision);
+      newDestinationDraft = null;
       managerLoaded = true;
       setManagerMessage(`${editableCatalogue.targets.length} destination(s) loaded.`);
     } catch (error) {
@@ -357,12 +363,18 @@
       !targetSchema ||
       !editableCatalogue ||
       editableCatalogue.targets.length >= 100 ||
+      newDestinationDraft !== null ||
       hasUnfinishedDestination()
     ) {
       return;
     }
     const kind = targetSchema.selector_kinds[0];
-    editableCatalogue.targets.push({ alias: "", label: "", selector: selectorDefaults(kind) });
+    newDestinationDraft = {
+      alias: "",
+      label: "",
+      selector: selectorDefaults(kind),
+    };
+    editableCatalogue.targets.push(newDestinationDraft);
     renderEditor();
   }
 
@@ -441,6 +453,7 @@
         ...target,
         selector: { ...target.selector },
       })) };
+      newDestinationDraft = null;
       managerRevision.textContent = String(editableCatalogue.revision);
       setManagerMessage("Catalogue saved.", "success");
       await loadTargets();
