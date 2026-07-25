@@ -547,3 +547,209 @@ development. Useful upstream references include:
 
 Mullvad CLI syntax is an external interface and may change. Tests should record the supported
 version range, and preflight must reject or warn about versions that have not been validated.
+
+
+## Project-management phases
+
+The twelve technical increments are organized into six manageable delivery phases. Each phase
+ends at a stable review and test boundary and may be tagged independently.
+
+### Phase 1: Provider foundation
+
+**Plan increments:** 1 and 2.
+
+Work:
+
+- Refine provider capabilities.
+- Distinguish ordinary disconnect, Locked mode, and Direct mode.
+- Add provider-specific preflight hooks.
+- Introduce typed provider-specific configuration.
+- Change provider factories to receive typed configuration.
+- Preserve existing NordVPN behavior.
+
+Deliverable:
+
+The architecture can describe Mullvad correctly, but Mullvad is not registered or executable.
+
+Acceptance gate:
+
+- Existing NordVPN tests pass unchanged.
+- Unknown configuration fields are rejected.
+- Unsafe paths and identifiers are rejected.
+- No Mullvad command can be reached in production.
+
+**Suggested tag:** `0.11.0.dev0`
+
+
+### Phase 2: Read-only Mullvad adapter
+
+**Plan increments:** 3 and the read-only portion of 7.
+
+Work:
+
+- Create `MullvadProvider`.
+- Add the bounded command runner.
+- Parse `mullvad status`.
+- Inspect Lockdown and safety settings.
+- Normalize Mullvad state into provider-neutral models.
+- Add read-only Mullvad preflight checks.
+- Test against recorded CLI output.
+
+Deliverable:
+
+SnarkyCtl can inspect Mullvad safely but cannot connect, disconnect, or change settings.
+
+Acceptance gate:
+
+- Missing executable and inactive daemon produce useful diagnostics.
+- Malformed or changed output fails safely.
+- Output and execution time are bounded.
+- No account information appears in logs or API models.
+- No mutating Mullvad command is implemented.
+
+**Suggested tag:** `0.11.0.dev1`
+
+This checkpoint permits testing against an installed Mullvad client without risking live
+connectivity.
+
+
+### Phase 3: Target selection and protected connection
+
+**Plan increments:** 4 and 5.
+
+Work:
+
+- Define `recommended`, `country`, `city`, and `server` selectors.
+- Add the Mullvad target schema.
+- Validate and normalize selector fields.
+- Translate selectors into fixed CLI argument arrays.
+- Implement relay selection followed by connection.
+- Poll for a bounded period and verify connection.
+- Resolve targets only from the Mullvad SQLite catalogue.
+
+Deliverable:
+
+The daemon can connect Mullvad to an approved destination alias.
+
+Acceptance gate:
+
+- No raw provider selector reaches a connection request.
+- Every selector has positive and negative tests.
+- Command ordering is tested.
+- A failed relay selection never proceeds to connection.
+- A failed connection is not reported as successful.
+- NordVPN and Mullvad catalogues remain independent.
+- Recommended-server behavior is verified against the installed Mullvad version.
+
+**Suggested tag:** `0.11.0.dev2`
+
+CLI and daemon testing precede dashboard testing in this phase.
+
+
+### Phase 4: Safety-mode control
+
+**Plan increment:** 6.
+
+Work:
+
+- Implement Protected mode.
+- Implement Locked mode using Mullvad Lockdown mode.
+- Implement explicitly confirmed Direct mode.
+- Verify postconditions after every transition.
+- Define recovery behavior for partial failures.
+- Improve provider-neutral status reporting where necessary.
+
+Deliverable:
+
+Mullvad can participate safely in all three SnarkyCtl gateway modes.
+
+Acceptance gate:
+
+- Locked enables Lockdown before disconnecting.
+- Direct requires the existing confirmation-token mechanism.
+- Direct verifies that Lockdown is disabled and Mullvad is disconnected.
+- Protected verifies connection and expected safety state.
+- Ambiguous results become `UNKNOWN`, not a favorable state.
+- No SnarkyCtl route or firewall manipulation is introduced.
+- Partial failures produce actionable diagnostics.
+
+**Suggested tag:** `0.11.0.dev3`
+
+This is the highest-risk phase. Live testing requires independent VPS console access and
+prior confirmation that private management access survives Mullvad transitions.
+
+
+### Phase 5: Product integration
+
+**Plan increments:** The remainder of 7, plus 8 and 9.
+
+Work:
+
+- Register Mullvad in the trusted provider registry.
+- Complete preflight integration.
+- Connect Mullvad to the existing daemon protocol.
+- Verify the generic API and dashboard.
+- Render Mullvad selector forms from schema metadata.
+- Add systemd ordering guidance.
+- Update Debian packaging behavior.
+- Test installation when Mullvad is absent.
+
+Deliverable:
+
+A packaged SnarkyCtl build can operate either NordVPN or Mullvad, selected through root-owned
+configuration.
+
+Acceptance gate:
+
+- The browser contains no Mullvad-specific selector logic.
+- Unsupported operations are hidden or disabled through capabilities.
+- The `.deb` does not install or configure Mullvad.
+- SnarkyCtl starts normally on NordVPN installations.
+- Selecting Mullvad without installing it produces a clear preflight failure.
+- Existing databases and provider catalogues survive upgrades.
+- Reboot ordering is deterministic.
+
+**Suggested tag:** `0.11.0.dev4`
+
+
+### Phase 6: Documentation, regression, and UAT
+
+**Plan increments:** 10 through 12.
+
+Work:
+
+- Create `MULLVAD.md`.
+- Update installation, configuration, architecture, API, preflight, and deployment documents.
+- Run the complete automated suite.
+- Build and install the Debian package.
+- Perform the full Mullvad UAT.
+- Test Protected, Locked, and Direct modes.
+- Test reboot behavior.
+- Switch back to NordVPN and prove there was no regression.
+- Record results in `development/UAT11.md`.
+
+Deliverable:
+
+Mullvad support is documented, packaged, recoverable, and accepted on a real VPS.
+
+Acceptance gate:
+
+- Automated tests pass for both providers.
+- Mullvad survives reboot in the intended mode.
+- Locked mode blocks public egress without losing management access.
+- Direct mode visibly warns about public-IP exposure.
+- SQLite catalogues persist and remain provider-separated.
+- Switching back to NordVPN restores the previous working behavior.
+- UAT results and the tested Mullvad version are recorded.
+
+**Suggested tag after UAT:** `0.11.0.dev5`
+
+If this completes the intended feature set and no broader prerelease work remains, it may
+then become `0.11.0` or contribute to the eventual `1.0.0` release.
+
+
+## Immediate work package
+
+The first implementation work package is Phase 1 only: adjust the provider contract and
+configuration model while keeping all deployed behavior unchanged. Mullvad is not registered
+or invoked until the read-only adapter reaches its own acceptance gate.
