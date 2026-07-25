@@ -55,7 +55,7 @@ dev = [
 ]
 
 [project.scripts]
-# This command will eventually provide status, validation, and preflight tools.
+# Install the production administration CLI.
 snarkyctl = "snarkyctl.cli:main"
 
 [project.urls]

@@ -741,10 +741,10 @@ documentation specifies only the root-owned SQLite target catalogue. New package
 main configuration example pointing to `/var/lib/snarkyctl/targets.db` and do not ship a
 target YAML example.
 
-The transitional YAML reader and migration command may remain in the implementation for
-development history and recovery of early test deployments, but they are not presented as
-a supported production configuration choice. Package installation and upgrade never
-initialize, migrate, replace, or delete the SQLite database automatically.
+The transitional YAML reader remains only as compatibility code. The one-time migration
+implementation and its historical tests are archived under `scripts/legacy`; the installed
+`snarkyctl` CLI no longer exposes a migration command. Package installation and upgrade
+never initialize, migrate, replace, or delete the SQLite database automatically.
 
 **Consequences:** A clean installation explicitly initializes an empty database and adds
 its first destination through the authenticated dashboard. The database is persistent

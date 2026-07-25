@@ -1125,7 +1125,7 @@ The local `snarkyctl connect ALIAS` and `snarkyctl disconnect` commands are impl
 always pass through the privileged daemon. The dashboard target selector and
 `POST /api/v2/vpn/connect` can connect or switch using an alias from
 the root-owned SQLite catalogue. Raw provider command arguments are never accepted from the browser.
-Web disconnect has not yet been implemented.
+The dashboard implements disconnect through **Locked** and **Direct VPS** mode transitions; it does not expose an unprotected generic disconnect button.
 
 For a direct API test, keep a second management session open and use an alias actually
 present in the target catalogue:
@@ -1143,11 +1143,10 @@ The request marker is mandatory for every state-changing API call. Browser reque
 additionally restricted to the dashboard's exact origin. If another VPN mutation is
 already running, the API returns HTTP `409` with `OPERATION_IN_PROGRESS`.
 
-The protocol reserves `LOCK` and `DIRECT`, but the daemon currently returns
-`NOT_IMPLEMENTED` for both operations. Do not add firewall exceptions or invoke provider
-commands outside SnarkyCtl in an attempt to enable them. Direct VPS mode will require a
-separate implementation, explicit confirmation, and a persistent public-IP exposure
-warning.
+The dashboard and API implement **Protected VPN**, **Locked**, and **Direct VPS** transitions.
+Locked enables provider leak protection before disconnecting. Direct VPS disables protection
+and disconnects only after the exact `EXPOSE VPS IP` confirmation, and the dashboard keeps a
+persistent public-IP exposure warning visible while Direct mode is active.
 
 ---
 
@@ -1158,15 +1157,15 @@ The current manual-installation filesystem locations are:
 | Path | Purpose | Ownership |
 |---|---|---|
 | `/usr/lib/snarkyctl/` | Installed wheel and production virtual environment | `root:root` |
-| `/etc/snarkyctl/` | Configuration, authentication, TLS, and authoritative allowlists | `root:snarkyctl` or `root:root`, mode-dependent |
+| `/etc/snarkyctl/` | Main configuration, authentication, and TLS material | `root:snarkyctl` or `root:root`, mode-dependent |
 | `/etc/snarkyctl/auth.htpasswd` | HTTP Basic username and salted password hash | `root:snarkyctl`, mode `0640` |
 | `/run/snarkyctl/control.sock` | Web-to-daemon control socket | systemd-managed, group `snarkyctl` |
-| `/var/lib/snarkyctl/` | Optional persistent policy state | `root:root` |
+| `/var/lib/snarkyctl/` | Persistent SQLite target catalogue | `root:root`, directory mode `0700` |
 | `/usr/lib/systemd/system/snarkyctl-*.service` | Service definitions | `root:root` |
 | `/usr/lib/systemd/system/snarkyctl-control.socket` | Socket activation definition | `root:root` |
 
 The service account must not be able to modify application code, daemon code, service
-definitions, certificate private keys, or the authoritative target allowlist.
+definitions, certificate private keys, or the target catalogue.
 
 ---
 

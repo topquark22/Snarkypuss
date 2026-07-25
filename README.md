@@ -102,7 +102,8 @@ Current management functions include:
 - Show gateway mode and upstream VPN status.
 - Show the observed public exit IP.
 - Show DNS and basic system health.
-- Connect to a predefined provider-neutral target alias.
+- Add, edit, reorder, and remove provider-neutral VPN destinations.
+- Connect to a provider-neutral target alias.
 - Enter Locked mode.
 - Enter Direct VPS mode only after explicit confirmation.
 - Expose exceptional VPN and kill-switch controls in the Danger Zone.
@@ -117,7 +118,7 @@ snarkyctl disconnect
 
 Add `--json` for the complete machine-readable response.
 
-Target aliases such as `dallas` are resolved from root-owned configuration. Browser and API
+Target aliases such as `dallas` are resolved from the root-owned SQLite catalogue. Browser and API
 clients never submit arbitrary shell commands, executable paths, or dynamically loaded
 provider modules.
 
@@ -160,6 +161,7 @@ API.md                    HTTP API reference
 DEPLOYMENT.md             Build and packaging reference
 src/snarkyctl/            Management utility source
 config/                   Example configuration
+scripts/                  Build, gateway, and archived migration utilities
 systemd/                  Service and socket units
 debian/                   Debian package source
 tests/                    Automated tests
@@ -167,6 +169,7 @@ tests/                    Automated tests
 
 ## Project status
 
-Snarkypuss 0.9.0 is the first feature-complete beta and is intended for user acceptance
-testing on a controlled VPS. Administrators should review the technical references, retain
-console access, and verify leak protection before relying on it for sensitive traffic.
+Snarkypuss `0.10.0.dev4` has passed Plan 10 user-acceptance testing on the reference VPS.
+It remains a development release while reproducible packaging and clean-install coverage
+are completed. Administrators should retain console access and verify leak protection
+before relying on it for sensitive traffic.

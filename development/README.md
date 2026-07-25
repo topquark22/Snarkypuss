@@ -8,6 +8,8 @@ constraints; they are not installation or operator documentation.
   implementation phases, and development roadmap.
 - [**DECISIONS.md**](DECISIONS.md) — architecture decision records that define the
   requirements baseline.
+- [**PLAN10.md**](PLAN10.md) — completed provider-neutral SQLite target-catalogue plan.
+- [**UAT10.md**](UAT10.md) — Plan 10 user-acceptance record.
 
 User and administrator documentation remains in the repository root. Begin with the main
 [project overview](../README.md), the [Snarkypuss technical reference](../SNARKYPUSS.md), or

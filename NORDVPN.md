@@ -7,13 +7,14 @@ SnarkyCtl invokes only these forms:
 ```text
 /usr/bin/nordvpn status
 /usr/bin/nordvpn settings
+/usr/bin/nordvpn set killswitch on|off
 /usr/bin/nordvpn connect <validated-selector-arguments>
 /usr/bin/nordvpn disconnect
 ```
 
 Commands use argument arrays with `shell=False`, a fixed absolute executable, a controlled locale, a 45-second timeout, and a 64 KiB output limit. Selector fields are validated by the compiled adapter. No browser-supplied value is passed directly to the command.
 
-After `connect` or `disconnect`, the adapter runs `nordvpn status` and returns the observed state rather than inferring success from the mutation command's message. The daemon reads `nordvpn settings` before disconnection and refuses to disconnect unless both Kill Switch and the NordVPN firewall are verified enabled.
+After `connect` or `disconnect`, the adapter runs `nordvpn status` and returns the observed state rather than inferring success from the mutation command's message. A standalone disconnect is refused unless both Kill Switch and the NordVPN firewall are verified enabled. Explicit gateway-mode transitions set and verify Kill Switch state before disconnecting.
 
 ## Normalized Status
 
@@ -38,11 +39,10 @@ The adapter does not:
 - Change routing or policy-routing tables.
 - Add, remove, or render firewall rules.
 - Configure WireGuard management bypass marks.
-- Enable or disable NordVPN's kill switch.
 - Change NordVPN technology, protocol, DNS, allowlist, or auto-connect settings.
 - Determine whether disconnected traffic is using the VPS public IP.
 
-Those are deployment configuration or later status-observation concerns. The existing WireGuard management bypass remains an administrator-managed prerequisite.
+Those remain deployment configuration or status-observation concerns. Kill Switch changes are limited to explicit Protected, Locked, and Direct VPS mode transitions. The existing WireGuard management bypass remains an administrator-managed prerequisite.
 
 ## NordVPN destination selectors
 

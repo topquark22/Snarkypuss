@@ -17,7 +17,8 @@ upgrade must not silently migrate a deployment.
 All twelve increments are complete and accepted for `0.10.0.dev4`. This document records
 the incremental development path; current installation and operating documentation uses
 SQLite exclusively and does not present the transitional YAML catalogue as a deployment
-choice. The user-acceptance result is recorded in
+choice. The one-time migration implementation is archived under `scripts/legacy` and is no
+longer installed or exposed by `snarkyctl`. The user-acceptance result is recorded in
 [`development/UAT10.md`](UAT10.md).
 
 ## Increment 1: Introduce provider-neutral domain models
