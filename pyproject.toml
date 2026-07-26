@@ -73,6 +73,7 @@ where = ["src"]
 snarkyctl = [
     "static/**/*.css",
     "static/**/*.js",
+    "static/**/*.svg",
     "templates/**/*.html",
 ]
 
