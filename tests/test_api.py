@@ -190,10 +190,21 @@ def test_dashboard_has_provider_neutral_controls_and_external_assets(
     assert "<form" not in response.text
     assert 'src="/static/dashboard.js"' in response.text
     assert 'href="/static/dashboard.css"' in response.text
+    assert 'rel="icon" href="/static/favicon.svg" type="image/svg+xml"' in response.text
     assert "DNS" in response.text
     assert "VPS health" in response.text
     assert "<script>" not in response.text
     assert "<style>" not in response.text
+
+
+def test_dashboard_favicon_is_served(tmp_path: Path) -> None:
+    application = create_app(make_runtime(tmp_path))
+
+    response = get(application, path="/static/favicon.svg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.text.startswith("<svg ")
 
 
 def test_dashboard_prevents_multiple_unfinished_destinations(tmp_path: Path) -> None:
