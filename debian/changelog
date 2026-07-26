@@ -1,4 +1,4 @@
-snarkyctl (0.10.0~dev4-1) unstable; urgency=medium
+snarkyctl (1.0.0-1) unstable; urgency=medium
 
   * Record successful Plan 10 user-acceptance testing.
   * Remove all executable and packaging dependencies on documentation files.
