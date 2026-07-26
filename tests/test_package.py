@@ -11,8 +11,8 @@ from snarkyctl import __version__
 from snarkyctl.main import app
 
 
-def test_package_has_development_version() -> None:
-    assert __version__ == "1.0.0"
+def test_package_version() -> None:
+    assert __version__ == "1.0.1"
 
 
 def test_debian_version_matches_python_development_version() -> None:
