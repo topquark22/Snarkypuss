@@ -59,7 +59,7 @@ dev = [
 snarkyctl = "snarkyctl.cli:main"
 
 [project.urls]
-Repository = "https://github.com/topquark22/snarkyctl"
+Repository = "https://github.com/topquark22/Snarkypuss"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
