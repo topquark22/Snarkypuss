@@ -1,3 +1,16 @@
+snarkyctl (1.0.3-1) unstable; urgency=medium
+
+  * Show the full date, time, and local time zone for dashboard refresh timestamps.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Sun, 13 Sep 2026 06:55:00 -0400
+
+snarkyctl (1.0.2-1) unstable; urgency=medium
+
+  * Fix the dnsmasq/WireGuard systemd ordering cycle that could prevent the
+    WireGuard interface from starting.
+
+ -- Gary Falk <topquark22@users.noreply.github.com>  Sat, 12 Sep 2026 09:32:00 -0400
+
 snarkyctl (1.0.1-1) unstable; urgency=medium
 
   * Add the Snarkypuss browser-tab icon and package the SVG asset.
