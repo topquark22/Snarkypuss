@@ -21,6 +21,24 @@ python_version=$(
 debian_version=$(dpkg-parsechangelog -S Version)
 expected_upstream_version=$(printf '%s' "$python_version" | sed 's/\.dev/~dev/')
 
+latest_tag=$(
+    git tag --merged HEAD --list '[0-9]*' --sort=-version:refname |
+        head -n 1
+)
+
+if [ -z "$latest_tag" ]; then
+    printf '%s\n' \
+        "Cannot determine latest version tag reachable from HEAD." >&2
+    exit 2
+fi
+
+if [ "$latest_tag" != "$python_version" ]; then
+    printf '%s\n' \
+        "Version mismatch: latest Git tag is $latest_tag, but pyproject.toml contains" \
+        "$python_version." >&2
+    exit 2
+fi
+
 case "$debian_version" in
     "$expected_upstream_version"-*)
         debian_revision=${debian_version#"$expected_upstream_version"-}
