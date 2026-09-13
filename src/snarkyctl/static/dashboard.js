@@ -503,7 +503,15 @@
     fields.interface.textContent = display(status?.interface);
     fields.publicIp.textContent = display(payload.public_ip?.address);
     fields.leakProtection.textContent = leakProtection(status?.leak_protection_active);
-    fields.lastRefreshed.textContent = new Date(payload.checked_at).toLocaleTimeString();
+    fields.lastRefreshed.textContent = new Date(payload.checked_at).toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    });
     currentTarget = status?.target || null;
     if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
       targetSelect.value = currentTarget;
@@ -554,7 +562,15 @@
     fields.systemLoad.textContent = "Unavailable";
     fields.systemMemory.textContent = "Unavailable";
     fields.systemDisk.textContent = "Unavailable";
-    fields.lastRefreshed.textContent = new Date().toLocaleTimeString();
+    fields.lastRefreshed.textContent = new Date().toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    });
     partialFailures.hidden = true;
   }
 
