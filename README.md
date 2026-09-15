@@ -175,12 +175,14 @@ tests/                    Automated tests
 ## Versioning and release tags
 
 The Git repository is versioned as the complete Snarkypuss system. Repository release tags
-use the `sp-` namespace, beginning with:
+use a date-based `sp-YYYY.MM.DD-N` format. For example:
 
 ```text
-sp-1.0.0
+sp-2026.09.15-1
 ```
 
+`YYYY.MM.DD` is the repository release date. The final integer is a sequence number beginning
+at `1` and incremented only when more than one repository release is made on the same date.
 A repository release covers the gateway scripts, documentation, tests, build tooling,
 SnarkyCtl source, and Debian packaging as one source-tree snapshot.
 
@@ -189,13 +191,13 @@ application version is `1.0.3`, represented by `pyproject.toml`, wheel metadata,
 version output, and the Debian upstream version. The corresponding Debian package version is
 `1.0.3-1`.
 
-Git tags do not need to mirror the SnarkyCtl package version. A later `sp-*` release may
+Git repository tags do not mirror the SnarkyCtl package version. A later `sp-*` release may
 therefore contain the same SnarkyCtl `.deb` version when only gateway scripts, documentation,
 tests, or other repository-level components have changed.
 
 ## Project status
 
-The repository begins its unified release numbering at `sp-1.0.0`. SnarkyCtl `1.0.3`
-remains the current published management-package version. Administrators should retain
-console access and verify leak protection before relying on a new repository release for
-sensitive traffic.
+The repository uses date-based `sp-*` release tags beginning with `sp-2026.09.15-1`.
+SnarkyCtl `1.0.3` remains the current published management-package version. Administrators
+should retain console access and verify leak protection before relying on a new repository
+release for sensitive traffic.
