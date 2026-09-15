@@ -1,342 +1,201 @@
-"""Tests for the provider-neutral upstream VPN boundary."""
+"""Storage-independent models for provider target catalogues."""
 
-import subprocess
-from pathlib import Path
+from __future__ import annotations
 
-import pytest
-from pydantic import ValidationError
+from enum import StrEnum
+from typing import Annotated
 
-from snarkyctl.providers import (
-    ProviderError,
-    VpnState,
-    VpnTarget,
-    available_providers,
-    create_provider,
-)
-from snarkyctl.providers.nordvpn import (
-    MAX_ERROR_DETAIL_LENGTH,
-    MAX_OUTPUT_LENGTH,
-    CommandResult,
-    NordVpnProvider,
-    parse_settings,
-    parse_status,
-    run_command,
-)
-from snarkyctl.providers.placeholder import PlaceholderProvider
-from snarkyctl.targets.models import StoredTarget
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+
+MAX_TARGETS = 100
+MAX_SELECTOR_FIELDS = 16
+JsonScalar = str | int | bool | None
+JsonObject = dict[str, JsonScalar]
 
 
-def target() -> VpnTarget:
-    return VpnTarget(alias="dallas", label="Dallas, United States", provider_target="us9167")
+class CatalogueRevision(RootModel[int]):
+    """Optimistic-concurrency revision for one provider catalogue."""
+
+    root: Annotated[int, Field(ge=0)]
 
 
-def test_registry_contains_only_compiled_provider_names() -> None:
-    assert available_providers() == ("nordvpn",)
-    assert isinstance(create_provider("nordvpn"), NordVpnProvider)
+class SelectorFieldType(StrEnum):
+    """Reviewed field types supported by future generic clients."""
+
+    TEXT = "text"
+    CHOICE = "choice"
+    BOOLEAN = "boolean"
+    INTEGER = "integer"
 
 
-def test_registry_rejects_arbitrary_module_name() -> None:
-    with pytest.raises(ProviderError) as error:
-        create_provider("some.user.module")
+class SelectorOptionSource(StrEnum):
+    """Source of values for one choice selector field."""
 
-    assert error.value.code == "UNKNOWN_PROVIDER"
-
-
-CONNECTED_STATUS = """Status: Connected
-Server: United States #6275
-Hostname: us6275.nordvpn.com
-IP: 107.175.104.227
-Country: United States
-City: Chicago
-Current technology: NORDLYNX
-Current protocol: UDP
-Post-quantum VPN: Disabled
-Transfer: 1 MiB received, 2 KiB sent
-Uptime: 1 minute 2 seconds
-"""
+    STATIC = "static"
+    PROVIDER = "provider"
 
 
-def test_parse_connected_nordvpn_status() -> None:
-    status = parse_status(CONNECTED_STATUS)
-    assert status.state is VpnState.CONNECTED
-    assert status.provider == "nordvpn"
-    assert status.display_name == "United States #6275"
-    assert status.interface == "nordlynx"
-    assert status.details["hostname"] == "us6275.nordvpn.com"
+class SelectorField(BaseModel):
+    """One provider-declared selector field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    label: str = Field(min_length=1, max_length=100)
+    field_type: SelectorFieldType
+    required: bool = True
+    choices: tuple[str, ...] = Field(default=(), max_length=100)
+    option_source: SelectorOptionSource = SelectorOptionSource.STATIC
+    depends_on: tuple[str, ...] = Field(default=(), max_length=MAX_SELECTOR_FIELDS)
+    max_length: int | None = Field(default=None, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def validate_option_source(self) -> SelectorField:
+        if (
+            self.option_source is SelectorOptionSource.PROVIDER
+            and self.field_type is not SelectorFieldType.CHOICE
+        ):
+            raise ValueError("provider-backed options require a choice field")
+        if self.option_source is SelectorOptionSource.PROVIDER and self.choices:
+            raise ValueError("provider-backed choice fields cannot declare static choices")
+        return self
 
 
-def test_parse_disconnected_nordvpn_status() -> None:
-    status = parse_status("Status: Disconnected\n")
-    assert status.state is VpnState.DISCONNECTED
-    assert status.interface is None
+class SelectorKind(BaseModel):
+    """One structured selector shape supported by a provider."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    label: str = Field(min_length=1, max_length=100)
+    fields: tuple[SelectorField, ...] = Field(default=(), max_length=MAX_SELECTOR_FIELDS)
+
+    @model_validator(mode="after")
+    def validate_dependencies(self) -> SelectorKind:
+        field_names = [field.name for field in self.fields]
+        if len(field_names) != len(set(field_names)):
+            raise ValueError("selector field names must be unique")
+
+        known_fields = set(field_names)
+        dependencies = {field.name: field.depends_on for field in self.fields}
+        for field in self.fields:
+            if len(field.depends_on) != len(set(field.depends_on)):
+                raise ValueError("selector field dependencies must be unique")
+            if any(dependency not in known_fields for dependency in field.depends_on):
+                raise ValueError(
+                    "selector field dependencies must refer to fields in the same kind"
+                )
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(field_name: str) -> None:
+            if field_name in visiting:
+                raise ValueError("selector field dependencies must not contain cycles")
+            if field_name in visited:
+                return
+            visiting.add(field_name)
+            for dependency in dependencies[field_name]:
+                visit(dependency)
+            visiting.remove(field_name)
+            visited.add(field_name)
+
+        for field_name in field_names:
+            visit(field_name)
+        return self
 
 
-def test_parse_nordvpn_settings() -> None:
-    settings = parse_settings(
-        """Technology: NORDLYNX
-Firewall: enabled
-Firewall Mark: 0xe1f1
-Routing: enabled
-Kill Switch: enabled
-"""
-    )
-    assert settings.leak_protection_enabled is True
-    assert settings.firewall_enabled is True
-    assert settings.routing_enabled is True
-    assert settings.firewall_mark == "0xe1f1"
+class ProviderTargetSchema(BaseModel):
+    """Provider-declared, data-only selector schema."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    selector_kinds: tuple[SelectorKind, ...] = Field(max_length=16)
+    max_targets: int = Field(default=MAX_TARGETS, ge=1, le=MAX_TARGETS)
+
+    @model_validator(mode="after")
+    def unique_kinds(self) -> ProviderTargetSchema:
+        kinds = [item.kind for item in self.selector_kinds]
+        if len(kinds) != len(set(kinds)):
+            raise ValueError("selector kinds must be unique")
+        return self
 
 
-def test_parse_disabled_nordvpn_kill_switch() -> None:
-    settings = parse_settings("Kill Switch: disabled\nFirewall: enabled\n")
-    assert settings.leak_protection_enabled is False
+class TargetOption(BaseModel):
+    """One provider-discovered selector value and its display label."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    value: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=100)
 
 
-def test_parse_unknown_nordvpn_status_is_controlled_failure() -> None:
-    with pytest.raises(ProviderError) as error:
-        parse_status("Unexpected output\n")
-    assert error.value.code == "UNPARSEABLE_STATUS"
+class TargetOptions(BaseModel):
+    """Provider-neutral response for one dynamic selector field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    kind: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    field: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    options: tuple[TargetOption, ...] = Field(default=(), max_length=100)
 
 
-def test_parse_nordvpn_status_rejects_oversized_field() -> None:
-    with pytest.raises(ProviderError) as error:
-        parse_status("Status: Connected\nServer: " + "x" * 257)
-    assert error.value.code == "PROVIDER_OUTPUT_INVALID"
+class StoredTarget(BaseModel):
+    """One ordered target containing a provider-owned selector document."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    alias: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    label: str = Field(min_length=1, max_length=100)
+    position: int = Field(ge=0, lt=MAX_TARGETS)
+    selector: JsonObject
+
+    @model_validator(mode="after")
+    def bounded_selector(self) -> StoredTarget:
+        if not self.selector or len(self.selector) > MAX_SELECTOR_FIELDS:
+            raise ValueError("selector must contain between 1 and 16 fields")
+        if any(len(key) > 32 for key in self.selector):
+            raise ValueError("selector field names must be at most 32 characters")
+        if any(isinstance(value, str) and len(value) > 200 for value in self.selector.values()):
+            raise ValueError("selector string values must be at most 200 characters")
+        return self
 
 
-def test_nordvpn_status_invokes_fixed_command() -> None:
-    calls: list[tuple[str, ...]] = []
+class TargetCatalogue(BaseModel):
+    """Complete target catalogue for exactly one provider."""
 
-    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
-        args = tuple(arguments)  # type: ignore[arg-type]
-        calls.append(args)
-        return CommandResult(0, CONNECTED_STATUS, "")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    provider = NordVpnProvider(runner=runner)
-    assert provider.status().state is VpnState.CONNECTED
-    assert calls == [("status",)]
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    revision: int = Field(ge=0)
+    targets: tuple[StoredTarget, ...] = Field(default=(), max_length=MAX_TARGETS)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> TargetCatalogue:
+        aliases = [target.alias for target in self.targets]
+        positions = [target.position for target in self.targets]
+        if len(aliases) != len(set(aliases)):
+            raise ValueError("target aliases must be unique")
+        if positions != list(range(len(positions))):
+            raise ValueError("target positions must be ordered and contiguous from zero")
+        return self
 
 
-def test_nordvpn_settings_invokes_fixed_command() -> None:
-    provider = NordVpnProvider(
-        runner=lambda *_args: CommandResult(
-            0, "Kill Switch: enabled\nFirewall: enabled\n", ""
+class TargetCatalogueSummary(BaseModel):
+    """Selector-free catalogue safe to expose to ordinary clients."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    revision: int = Field(ge=0)
+    targets: tuple[tuple[str, str], ...]
+
+    @classmethod
+    def from_catalogue(cls, catalogue: TargetCatalogue) -> TargetCatalogueSummary:
+        return cls(
+            provider=catalogue.provider,
+            revision=catalogue.revision,
+            targets=tuple((target.alias, target.label) for target in catalogue.targets),
         )
-    )
-    assert provider.settings().leak_protection_enabled is True
-
-
-def test_nordvpn_connect_uses_one_configured_target_argument() -> None:
-    calls: list[tuple[str, ...]] = []
-
-    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
-        args = tuple(arguments)  # type: ignore[arg-type]
-        calls.append(args)
-        output = CONNECTED_STATUS if args == ("status",) else "Connected\n"
-        return CommandResult(0, output, "")
-
-    status = NordVpnProvider(runner=runner).connect(target())
-    assert calls == [("connect", "us9167"), ("status",)]
-    assert status.target == "dallas"
-
-
-@pytest.mark.parametrize(
-    ("selector", "expected"),
-    [
-        ({"kind": "recommended"}, ("connect",)),
-        ({"kind": "country", "country": "US"}, ("connect", "us")),
-        (
-            {"kind": "city", "country": "us", "city": "Dallas"},
-            ("connect", "Dallas"),
-        ),
-        ({"kind": "group", "group": "P2P"}, ("connect", "P2P")),
-        ({"kind": "server", "server": "us4955"}, ("connect", "us4955")),
-        ({"kind": "legacy", "value": "United States"}, ("connect", "United States")),
-    ],
-)
-def test_nordvpn_structured_selectors_use_fixed_arguments(
-    selector: dict[str, str], expected: tuple[str, ...]
-) -> None:
-    calls: list[tuple[str, ...]] = []
-
-    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
-        args = tuple(arguments)  # type: ignore[arg-type]
-        calls.append(args)
-        return CommandResult(0, CONNECTED_STATUS if args == ("status",) else "", "")
-
-    stored = StoredTarget(alias="test", label="Test", position=0, selector=selector)
-    NordVpnProvider(runner=runner).connect_stored(stored)
-    assert calls == [expected, ("status",)]
-
-
-@pytest.mark.parametrize(
-    "selector",
-    [
-        {"kind": "unknown"},
-        {"kind": "recommended", "extra": "bad"},
-        {"kind": "country"},
-        {"kind": "server", "server": "--help"},
-    ],
-)
-def test_nordvpn_rejects_malformed_structured_selectors(
-    selector: dict[str, str],
-) -> None:
-    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
-    with pytest.raises(ProviderError) as error:
-        provider.validate_selector(selector)
-    assert error.value.code == "INVALID_TARGET"
-
-
-def test_nordvpn_disconnect_then_reads_status() -> None:
-    calls: list[tuple[str, ...]] = []
-
-    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
-        args = tuple(arguments)  # type: ignore[arg-type]
-        calls.append(args)
-        output = "Status: Disconnected\n" if args == ("status",) else "Disconnected\n"
-        return CommandResult(0, output, "")
-
-    status = NordVpnProvider(runner=runner).disconnect()
-    assert status.state is VpnState.DISCONNECTED
-    assert calls == [("disconnect",), ("status",)]
-
-
-@pytest.mark.parametrize(("enabled", "value"), [(True, "on"), (False, "off")])
-def test_nordvpn_configures_kill_switch(enabled: bool, value: str) -> None:
-    calls: list[tuple[str, ...]] = []
-
-    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
-        args = tuple(arguments)  # type: ignore[arg-type]
-        calls.append(args)
-        output = (
-            f"Kill Switch: {'enabled' if enabled else 'disabled'}\n"
-            "Firewall: enabled\n"
-            if args == ("settings",)
-            else "Setting updated\n"
-        )
-        return CommandResult(0, output, "")
-
-    settings = NordVpnProvider(runner=runner).set_leak_protection(enabled)
-
-    assert calls == [("set", "killswitch", value), ("settings",)]
-    assert settings.leak_protection_enabled is enabled
-
-
-def test_nordvpn_rejects_option_like_target() -> None:
-    invalid = VpnTarget(alias="bad", label="Bad", provider_target="--group Double_VPN")
-    with pytest.raises(ProviderError) as error:
-        NordVpnProvider(runner=lambda *_args: CommandResult(0, "", "")).connect(invalid)
-    assert error.value.code == "INVALID_TARGET"
-
-
-def test_nordvpn_command_failure_is_controlled() -> None:
-    provider = NordVpnProvider(runner=lambda *_args: CommandResult(7, "", "failure"))
-    with pytest.raises(ProviderError) as error:
-        provider.status()
-    assert error.value.code == "PROVIDER_COMMAND_FAILED"
-    assert str(error.value) == "NordVPN command failed with exit status 7: failure"
-
-
-def test_nordvpn_command_failure_uses_stdout_when_stderr_is_empty() -> None:
-    provider = NordVpnProvider(
-        runner=lambda *_args: CommandResult(1, "Permission denied\nTry again.\n", "")
-    )
-    with pytest.raises(ProviderError) as error:
-        provider.status()
-    assert str(error.value) == (
-        "NordVPN command failed with exit status 1: Permission denied Try again."
-    )
-
-
-def test_nordvpn_command_failure_without_output_keeps_generic_message() -> None:
-    provider = NordVpnProvider(runner=lambda *_args: CommandResult(1, "", ""))
-    with pytest.raises(ProviderError) as error:
-        provider.status()
-    assert str(error.value) == "NordVPN command failed with exit status 1"
-
-
-def test_nordvpn_command_failure_sanitizes_and_bounds_detail() -> None:
-    provider = NordVpnProvider(
-        runner=lambda *_args: CommandResult(
-            1,
-            "",
-            "denied\x00\n" + "x" * MAX_ERROR_DETAIL_LENGTH,
-        )
-    )
-    with pytest.raises(ProviderError) as error:
-        provider.status()
-    detail = str(error.value).partition(": ")[2]
-    assert "\x00" not in detail
-    assert "\n" not in detail
-    assert len(detail) == MAX_ERROR_DETAIL_LENGTH
-    assert detail.endswith("...")
-
-
-def test_command_runner_uses_argument_array(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: list[list[str]] = []
-
-    def fake_run(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        captured.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0, stdout="ok", stderr="")
-
-    monkeypatch.setattr("snarkyctl.providers.nordvpn.subprocess.run", fake_run)
-    result = run_command(Path("/usr/bin/nordvpn"), ("connect", "us9167"), 5)
-    assert result.stdout == "ok"
-    assert captured == [["/usr/bin/nordvpn", "connect", "us9167"]]
-
-
-@pytest.mark.parametrize(
-    ("failure", "code"),
-    [
-        (FileNotFoundError(), "PROVIDER_UNAVAILABLE"),
-        (PermissionError(), "PROVIDER_PERMISSION_DENIED"),
-        (subprocess.TimeoutExpired("nordvpn", 5), "PROVIDER_TIMEOUT"),
-    ],
-)
-def test_command_runner_maps_operating_system_failures(
-    monkeypatch: pytest.MonkeyPatch, failure: BaseException, code: str
-) -> None:
-    def fail(*_args: object, **_kwargs: object) -> None:
-        raise failure
-
-    monkeypatch.setattr("snarkyctl.providers.nordvpn.subprocess.run", fail)
-    with pytest.raises(ProviderError) as error:
-        run_command(Path("/usr/bin/nordvpn"), ("status",), 5)
-    assert error.value.code == code
-
-
-def test_command_runner_rejects_large_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess([], 0, stdout="x" * (MAX_OUTPUT_LENGTH + 1), stderr="")
-
-    monkeypatch.setattr("snarkyctl.providers.nordvpn.subprocess.run", fake_run)
-    with pytest.raises(ProviderError) as error:
-        run_command(Path("/usr/bin/nordvpn"), ("status",), 5)
-    assert error.value.code == "PROVIDER_OUTPUT_TOO_LARGE"
-
-
-def test_placeholder_reports_disconnected() -> None:
-    provider = PlaceholderProvider()
-
-    status = provider.status()
-
-    assert status.state is VpnState.DISCONNECTED
-    assert status.provider == "placeholder"
-    assert provider.capabilities.connect is False
-
-
-def test_placeholder_rejects_mutation() -> None:
-    provider = PlaceholderProvider()
-
-    with pytest.raises(ProviderError, match="cannot connect") as connect_error:
-        provider.connect(target())
-    with pytest.raises(ProviderError, match="cannot disconnect") as disconnect_error:
-        provider.disconnect()
-
-    assert connect_error.value.code == "UNSUPPORTED_OPERATION"
-    assert disconnect_error.value.code == "UNSUPPORTED_OPERATION"
-
-
-@pytest.mark.parametrize("alias", ["Dallas", "../dallas", "dallas.example", ""])
-def test_target_alias_has_safe_provider_neutral_shape(alias: str) -> None:
-    with pytest.raises(ValidationError):
-        VpnTarget(alias=alias, label="Invalid", provider_target="opaque-provider-value")
