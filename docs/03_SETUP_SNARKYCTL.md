@@ -7,7 +7,7 @@ setup are working. Complete these guides first:
 
 1. [01_SETUP_VPS.md](01_SETUP_VPS.md) — Linode, WireGuard, NordVPN, forwarding, and
    fail-closed networking.
-2. [02_SETUP_DNS.md](02_SETUP_DNS.md) — private `dnsmasq` service and DNS verification.
+2. [02_SETUP_DNS.md](02_SETUP_DNS.md) — private Snarkypuss DNS service and DNS verification.
 
 SnarkyCtl is the private dashboard and control software for the Snarkypuss Linode. It is
 reachable through the WireGuard tunnel and must not be exposed on the public Internet.
@@ -22,7 +22,7 @@ Before starting this guide, confirm that:
 - NordVPN is installed, connected, and its Kill Switch is enabled.
 - Disconnecting NordVPN blocks ordinary client Internet traffic while private WireGuard
   management remains reachable.
-- `dnsmasq.service` is active and Windows can resolve DNS through `10.8.0.1`.
+- `snarkypuss-dns.service` is active and Windows can resolve DNS through `10.8.0.1`.
 - The Linode Firewall allows the WireGuard UDP listener but does not expose SnarkyCtl HTTPS
   or DNS publicly.
 - The LISH console remains available as a recovery path.
@@ -223,7 +223,7 @@ Keep the independent VPS console available and perform a controlled reboot. Afte
 returns, verify the base gateway, DNS, and SnarkyCtl services:
 
 ```bash
-systemctl is-active wg-quick@wg0.service dnsmasq.service ssh.service
+systemctl is-active wg-quick@wg0.service snarkypuss-dns.service ssh.service
 systemctl is-active snarkyctl-control.socket snarkyctl-web.service
 sudo ss -xlpn | grep /run/snarkyctl/control.sock
 ```
@@ -258,8 +258,8 @@ Treat the initial setup as complete only when all of the following are true:
 - The browser trusts the SnarkyCtl server certificate and requires authentication.
 - At least one provider destination can be selected through SnarkyCtl.
 - Direct VPS mode requires explicit confirmation and presents a conspicuous exposure warning.
-- WireGuard, `dnsmasq`, SSH, the SnarkyCtl control socket, and the SnarkyCtl web service survive
-  a controlled reboot as intended.
+- WireGuard, `snarkypuss-dns.service`, SSH, the SnarkyCtl control socket, and the SnarkyCtl web
+  service survive a controlled reboot as intended.
 - Independent VPS console access remains documented and available for recovery.
 
 ## Next documentation

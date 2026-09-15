@@ -4,7 +4,7 @@ set -u
 
 tunnel_interface=wg0
 client_cidr=10.8.0.0/24
-dns_service=dnsmasq
+dns_service=snarkypuss-dns
 public_ip_url=https://api.ipify.org
 vps_public_ip=
 failures=0
@@ -19,7 +19,7 @@ Read-only verification of an existing Snarkypuss VPN gateway.
 Options:
   --tunnel-interface NAME  Private tunnel interface (default: wg0)
   --client-cidr CIDR       Private client network (default: 10.8.0.0/24)
-  --dns-service NAME       DNS systemd service (default: dnsmasq)
+  --dns-service NAME       DNS systemd service (default: snarkypuss-dns)
   --public-ip-url URL      HTTPS endpoint returning only the caller's IP
                            (default: https://api.ipify.org)
   --vps-public-ip ADDRESS  Known real public IP used to identify direct egress

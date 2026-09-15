@@ -29,6 +29,8 @@ MANAGED_PATHS = (
     "/etc/dnsmasq.conf",
     "/etc/dnsmasq.d/snarkypuss.conf",
     "/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf",
+    "/etc/snarkypuss/dnsmasq.conf",
+    "/etc/systemd/system/snarkypuss-dns.service",
     "/etc/sysctl.conf",
     "/etc/sysctl.d/90-snarkypuss.conf",
     "/etc/iptables/rules.v4",

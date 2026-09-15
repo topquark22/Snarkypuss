@@ -16,10 +16,11 @@ from urllib.parse import SplitResult, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from snarkyctl.dns_health import probe_dns
 from snarkyctl.providers.base import VpnStatus
 
 SYSTEMCTL_EXECUTABLE = Path("/usr/bin/systemctl")
-DNS_SERVICE = "dnsmasq.service"
+DNS_SERVICE = "snarkypuss-dns.service"
 COMMAND_TIMEOUT_SECONDS = 5.0
 MAX_COMMAND_OUTPUT = 16 * 1024
 
@@ -35,7 +36,7 @@ class ComponentFailure(BaseModel):
 
 
 class DnsStatus(BaseModel):
-    """Observed systemd state of the fixed DNS service."""
+    """Observed service state and resolver health of the private DNS service."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -43,6 +44,7 @@ class DnsStatus(BaseModel):
     load_state: str
     active_state: str
     sub_state: str
+    healthy: bool | None = None
 
 
 class SystemStatus(BaseModel):
@@ -100,6 +102,7 @@ class CommandResult:
 
 type CommandRunner = Callable[[Path, tuple[str, ...], float], CommandResult]
 type HttpsFetcher = Callable[[str, float], bytes]
+type DnsProbe = Callable[[str], bool]
 
 
 def run_command(executable: Path, arguments: tuple[str, ...], timeout: float) -> CommandResult:
@@ -140,8 +143,13 @@ def run_command(executable: Path, arguments: tuple[str, ...], timeout: float) ->
     return CommandResult(completed.returncode, completed.stdout, completed.stderr)
 
 
-def collect_dns_status(runner: CommandRunner = run_command) -> DnsStatus:
-    """Return the systemd state of dnsmasq without changing it."""
+def collect_dns_status(
+    runner: CommandRunner = run_command,
+    *,
+    dns_address: str | None = None,
+    dns_probe: DnsProbe = probe_dns,
+) -> DnsStatus:
+    """Return service state and resolver health of the Snarkypuss DNS service."""
     result = runner(
         SYSTEMCTL_EXECUTABLE,
         (
@@ -156,19 +164,21 @@ def collect_dns_status(runner: CommandRunner = run_command) -> DnsStatus:
     )
     if result.returncode != 0:
         raise StatusCollectionError(
-            "DNS_STATUS_FAILED", _command_failure("dnsmasq status query failed", result)
+            "DNS_STATUS_FAILED", _command_failure("private DNS status query failed", result)
         )
     fields = _parse_key_values(result.stdout)
     required = ("LoadState", "ActiveState", "SubState")
     if any(not fields.get(name) for name in required):
         raise StatusCollectionError(
-            "DNS_STATUS_INVALID", "systemd returned incomplete dnsmasq status"
+            "DNS_STATUS_INVALID", "systemd returned incomplete private DNS status"
         )
+    healthy = dns_probe(dns_address) if dns_address is not None else None
     return DnsStatus(
         service=DNS_SERVICE,
         load_state=fields["LoadState"],
         active_state=fields["ActiveState"],
         sub_state=fields["SubState"],
+        healthy=healthy,
     )
 
 
@@ -231,13 +241,19 @@ def collect_system_status(
     )
 
 
-def collect_local_status() -> tuple[DnsStatus | None, SystemStatus | None, list[ComponentFailure]]:
+def collect_local_status(
+    *, dns_address: str | None = None
+) -> tuple[DnsStatus | None, SystemStatus | None, list[ComponentFailure]]:
     """Collect independent local components and retain controlled failures."""
     failures: list[ComponentFailure] = []
     dns: DnsStatus | None
     system: SystemStatus | None
     try:
-        dns = collect_dns_status()
+        dns = (
+            collect_dns_status()
+            if dns_address is None
+            else collect_dns_status(dns_address=dns_address)
+        )
     except StatusCollectionError as exc:
         dns = None
         failures.append(ComponentFailure(component="dns", code=exc.code, message=str(exc)))

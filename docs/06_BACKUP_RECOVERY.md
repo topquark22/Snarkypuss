@@ -32,8 +32,8 @@ A complete portable recovery set should contain the following files when they ex
 /etc/snarkypuss-setup.conf
 /etc/wireguard/wg0.conf
 /etc/wireguard/wg0.private.key
-/etc/dnsmasq.d/snarkypuss.conf
-/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf
+/etc/snarkypuss/dnsmasq.conf
+/etc/systemd/system/snarkypuss-dns.service
 /etc/sysctl.d/90-snarkypuss.conf
 /etc/iptables/rules.v4
 ```
@@ -47,6 +47,17 @@ The most important identity file in this group is:
 Preserving that key allows a rebuilt Linode to retain the same WireGuard server identity.
 If you generate a new server key instead, the Windows WireGuard tunnel must be updated with
 the new server public key.
+
+Older installations may still contain the former Snarkypuss dnsmasq files:
+
+```text
+/etc/dnsmasq.d/snarkypuss.conf
+/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf
+```
+
+Preserve them in a pre-migration backup if the system has not yet completed the dedicated
+DNS-service cutover. They are not part of the active configuration after a successful
+migration to `snarkypuss-dns.service`.
 
 ### SnarkyCtl
 
@@ -158,9 +169,8 @@ Copy the networking files that exist:
 sudo cp -a /etc/snarkypuss-setup.conf /root/snarkypuss-backup/ 2>/dev/null || true
 sudo cp -a /etc/wireguard/wg0.conf /root/snarkypuss-backup/wireguard/
 sudo cp -a /etc/wireguard/wg0.private.key /root/snarkypuss-backup/wireguard/
-sudo cp -a /etc/dnsmasq.d/snarkypuss.conf /root/snarkypuss-backup/dnsmasq/
-sudo cp -a /etc/systemd/system/dnsmasq.service.d/snarkypuss.conf \
-    /root/snarkypuss-backup/dnsmasq/
+sudo cp -a /etc/snarkypuss/dnsmasq.conf /root/snarkypuss-backup/dnsmasq/
+sudo cp -a /etc/systemd/system/snarkypuss-dns.service /root/snarkypuss-backup/system/
 sudo cp -a /etc/sysctl.d/90-snarkypuss.conf /root/snarkypuss-backup/system/
 sudo cp -a /etc/iptables/rules.v4 /root/snarkypuss-backup/system/ 2>/dev/null || true
 ```
@@ -194,12 +204,14 @@ independent encrypted location.
 
 When only one component is broken, restore only what is necessary.
 
-For example, after restoring a DNS configuration file, validate it before restarting DNS:
+For example, after restoring the private DNS configuration, validate exactly that file before
+restarting DNS:
 
 ```bash
-sudo dnsmasq --test
-sudo systemctl restart dnsmasq.service
-sudo systemctl status dnsmasq.service --no-pager
+sudo dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf
+sudo systemctl daemon-reload
+sudo systemctl restart snarkypuss-dns.service
+sudo systemctl status snarkypuss-dns.service --no-pager
 ```
 
 After restoring WireGuard configuration, verify the file and service before assuming the
@@ -256,7 +268,7 @@ After the snapshot restore completes:
 
    ```bash
    systemctl status wg-quick@wg0.service --no-pager
-   systemctl status dnsmasq.service --no-pager
+   systemctl status snarkypuss-dns.service --no-pager
    systemctl status ssh.service --no-pager
    systemctl status snarkyctl-control.socket --no-pager
    systemctl status snarkyctl-web.service --no-pager
@@ -285,7 +297,8 @@ files onto an unprepared host.
 3. Install the base Snarkypuss packages.
 4. Restore the original WireGuard server private key **before** generating or activating a
    replacement WireGuard identity.
-5. Restore the known-good WireGuard, DNS, sysctl, and persistent firewall configuration.
+5. Restore the known-good WireGuard, dedicated DNS, sysctl, and persistent firewall
+   configuration.
 6. Install NordVPN and authenticate it with a current access token.
 7. Re-create the required NordVPN settings and management allowlist.
 8. Validate WireGuard and DNS before relying on them.
@@ -312,9 +325,9 @@ verify each layer in order.
 
 ```bash
 systemctl is-active wg-quick@wg0.service
-systemctl is-active dnsmasq.service
+systemctl is-active snarkypuss-dns.service
 sudo wg show wg0
-sudo dnsmasq --test
+sudo dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf
 nordvpn settings
 nordvpn status
 sudo snarkyctl targets-db check
@@ -329,10 +342,12 @@ Verify that:
 2. traffic counters increase in both directions,
 3. `10.8.0.1` is reachable,
 4. DNS resolution succeeds through `10.8.0.1`,
-5. `https://snarkypuss:8443/` opens without an unexpected certificate warning,
-6. the dashboard reports the expected gateway mode,
-7. Protected VPN traffic exits through NordVPN rather than the Linode public IP, and
-8. intentionally disconnecting NordVPN with leak protection active blocks forwarded public
+5. Windows has actually registered `10.8.0.1` as the DNS server on the active WireGuard
+   interface,
+6. `https://snarkypuss:8443/` opens without an unexpected certificate warning,
+7. the dashboard reports the expected gateway mode,
+8. Protected VPN traffic exits through NordVPN rather than the Linode public IP, and
+9. intentionally disconnecting NordVPN with leak protection active blocks forwarded public
    Internet traffic while private management remains reachable.
 
 Do not skip the fail-closed test after a full rebuild or snapshot recovery.
@@ -345,7 +360,7 @@ After the restored system passes the initial checks, perform a controlled reboot
 remains available. Then verify:
 
 ```bash
-systemctl is-active wg-quick@wg0.service dnsmasq.service ssh.service
+systemctl is-active wg-quick@wg0.service snarkypuss-dns.service ssh.service
 systemctl is-active snarkyctl-control.socket snarkyctl-web.service
 ```
 
@@ -378,7 +393,8 @@ Before a risky change, confirm that you have:
 
 - a recent known-good Linode snapshot,
 - a copy of `/etc/wireguard/wg0.private.key`,
-- the WireGuard and DNS configuration,
+- the WireGuard configuration,
+- `/etc/snarkypuss/dnsmasq.conf` and `/etc/systemd/system/snarkypuss-dns.service`,
 - `/etc/snarkypuss-setup.conf` if used,
 - `/etc/iptables/rules.v4` if present,
 - the SnarkyCtl configuration,

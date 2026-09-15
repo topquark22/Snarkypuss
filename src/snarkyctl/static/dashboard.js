@@ -520,8 +520,8 @@
 
     fields.dnsService.textContent = display(payload.dns?.service);
     fields.dnsState.textContent = payload.dns
-      ? `${display(payload.dns.active_state)} (${display(payload.dns.sub_state)})`
-      : "Unavailable";
+      ? payload.dns.healthy ? "Healthy" : "Unavailable"
+      : "Unknown";
 
     fields.systemUptime.textContent = duration(payload.system?.uptime_seconds);
     fields.systemLoad.textContent = payload.system?.load_average

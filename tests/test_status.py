@@ -21,7 +21,7 @@ from snarkyctl.status import (
 
 def test_dns_status_parses_systemd_properties() -> None:
     def runner(_path: Path, arguments: tuple[str, ...], _timeout: float) -> CommandResult:
-        assert arguments[0:2] == ("show", "dnsmasq.service")
+        assert arguments[0:2] == ("show", "snarkypuss-dns.service")
         return CommandResult(
             0,
             "LoadState=loaded\nActiveState=active\nSubState=running\n",
@@ -30,7 +30,7 @@ def test_dns_status_parses_systemd_properties() -> None:
 
     status = collect_dns_status(runner)
 
-    assert status.service == "dnsmasq.service"
+    assert status.service == "snarkypuss-dns.service"
     assert status.active_state == "active"
     assert status.sub_state == "running"
 
@@ -133,10 +133,10 @@ def test_command_runner_uses_fixed_argument_array(
 
     monkeypatch.setattr("snarkyctl.status.subprocess.run", fake_run)
 
-    result = run_command(Path("/usr/bin/systemctl"), ("show", "dnsmasq.service"), 5)
+    result = run_command(Path("/usr/bin/systemctl"), ("show", "snarkypuss-dns.service"), 5)
 
     assert result.stdout == "ok"
-    assert captured == [["/usr/bin/systemctl", "show", "dnsmasq.service"]]
+    assert captured == [["/usr/bin/systemctl", "show", "snarkypuss-dns.service"]]
 
 
 @pytest.mark.parametrize(
@@ -158,7 +158,7 @@ def test_command_runner_maps_execution_failures(
     monkeypatch.setattr("snarkyctl.status.subprocess.run", fail)
 
     with pytest.raises(StatusCollectionError) as error:
-        run_command(Path("/usr/bin/systemctl"), ("show", "dnsmasq.service"), 5)
+        run_command(Path("/usr/bin/systemctl"), ("show", "snarkypuss-dns.service"), 5)
 
     assert error.value.code == code
 
@@ -172,7 +172,7 @@ def test_command_runner_rejects_oversized_output(
     monkeypatch.setattr("snarkyctl.status.subprocess.run", fake_run)
 
     with pytest.raises(StatusCollectionError) as error:
-        run_command(Path("/usr/bin/systemctl"), ("show", "dnsmasq.service"), 5)
+        run_command(Path("/usr/bin/systemctl"), ("show", "snarkypuss-dns.service"), 5)
 
     assert error.value.code == "COMMAND_OUTPUT_TOO_LARGE"
 

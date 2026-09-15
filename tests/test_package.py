@@ -12,7 +12,7 @@ from snarkyctl.main import app
 
 
 def test_package_version() -> None:
-    assert __version__ == "1.0.1"
+    assert __version__ == "1.1.0"
 
 
 def test_debian_version_matches_python_development_version() -> None:
