@@ -1,4 +1,14 @@
-snarkyctl (1.1.0-1) unstable; urgency=medium
+snarkyctl (2.0.0) unstable; urgency=medium
+
+  * Add provider-neutral VPN target discovery models and capability metadata.
+  * Add schema support for provider-backed selector choices and field dependencies.
+  * Validate selector dependencies and reject dependency cycles.
+  * Add provider-neutral target option response models.
+  * Extend the VPN provider interface with controlled target discovery support.
+
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Tue, 15 Sep 2026 17:28:57 -0400
+
+ snarkyctl (1.1.0-1) unstable; urgency=medium
 
   * Run private DNS through the dedicated snarkypuss-dns.service.
   * Use a Snarkypuss-owned dnsmasq configuration instead of the distribution
