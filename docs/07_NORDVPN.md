@@ -2,196 +2,163 @@
 
 ## Purpose
 
-This guide documents the **NordVPN-specific** part of a Snarkypuss deployment. The general
-VPS, WireGuard, DNS, and SnarkyCtl procedures live in the earlier numbered guides.
+This guide covers the NordVPN-specific part of a Snarkypuss deployment. The general VPS,
+WireGuard, DNS, and SnarkyCtl procedures live in the earlier numbered guides.
 
-This document explains what Snarkypuss expects from NordVPN, how the Linux client is
-configured, how SnarkyCtl uses the NordVPN adapter, how destinations are represented, and
-how to preserve the private WireGuard management path without defeating fail-closed
-behavior.
+The reference deployment uses Ubuntu 24.04 LTS and NordVPN's NordLynx technology. NordVPN
+owns the upstream tunnel, provider routing, provider firewall/Kill Switch, DNS integration,
+and server selection. Snarkypuss owns the private WireGuard management path, forwarding,
+private DNS, and the rule that a provider failure must never silently become Direct VPS
+egress.
 
-The reference deployment uses Ubuntu 24.04 LTS and NordVPN's NordLynx technology. In that
-configuration the expected provider interface is `nordlynx`.
+## 1. Install the NordVPN Linux client
 
-## 1. Responsibility boundary
+Run these commands on the Linode, not on Windows.
 
-NordVPN and Snarkypuss have deliberately separate responsibilities.
-
-NordVPN owns:
-
-- the upstream VPN tunnel,
-- provider routing,
-- provider DNS integration,
-- the NordVPN firewall,
-- the Kill Switch,
-- server selection, and
-- the `nordlynx` interface when NordLynx is in use.
-
-The Snarkypuss gateway owns:
-
-- the Windows-to-Linode WireGuard tunnel,
-- the private management network,
-- forwarding from the WireGuard client,
-- the Snarkypuss forwarding and NAT chains,
-- private DNS service, and
-- the policy that Direct VPS egress must never appear silently as a provider failure
-  fallback.
-
-SnarkyCtl does **not** replace NordVPN's route or firewall management. The built-in NordVPN
-adapter invokes a narrow set of reviewed NordVPN CLI operations and reads the resulting
-provider state.
-
-## 2. Install the NordVPN Linux client
-
-Run these commands on the **Linode**, not on the Windows PC.
-
-The official NordVPN CLI installer is:
+The official installer is:
 
 ```bash
 sh <(curl -sSf https://downloads.nordcdn.com/apps/linux/install.sh)
 ```
 
-If the NordVPN repository is already configured, the package can instead be installed with:
+If the NordVPN package repository is already configured, use:
 
 ```bash
 sudo apt-get update
 sudo apt-get install nordvpn
 ```
 
-Confirm that the command is available:
+Confirm that the client is available:
 
 ```bash
 nordvpn --version
 nordvpn help
 ```
 
-Snarkypuss uses the Linux CLI client. A graphical Linux desktop is not required.
+## 2. Log in on a headless Linode
 
-## 3. Log in on a headless Linode
-
-For a VPS without a browser or desktop session, use a Nord Account access token.
-
-Generate the token in your Nord Account, then run on the Linode:
+Generate a Nord Account access token and run:
 
 ```bash
 nordvpn login --token NORDVPN_ACCESS_TOKEN
 ```
 
-Replace `NORDVPN_ACCESS_TOKEN` with the actual token. Do not put the token in:
+Do not store the token in the repository, `/etc/snarkypuss-setup.conf`, SnarkyCtl
+configuration, the destination database, or committed shell scripts.
 
-- this repository,
-- `/etc/snarkypuss-setup.conf`,
-- `/etc/snarkyctl/snarkyctl.yaml`,
-- the SnarkyCtl destination database, or
-- shell scripts committed to Git.
+## 3. Configure the Snarkypuss NordVPN policy
 
-NordVPN shows a newly generated token only once. Treat it as a credential.
+Snarkypuss includes:
 
-Be careful with `nordvpn logout`: NordVPN documents that a normal logout invalidates the
-current token. If you intentionally need to log out while retaining a reusable token, check
-the behavior supported by the installed client before doing so.
+```text
+scripts/snarkypuss-nordvpn-configure.py
+```
 
-## 4. Configure the reference safety settings
+The helper derives the WireGuard listener port and management subnet from
+`/etc/snarkypuss-setup.conf`. It then configures the reference NordVPN policy:
 
-The reference Snarkypuss deployment uses NordLynx, enables the Kill Switch, and leaves
-NordVPN auto-connect disabled so startup behavior remains explicit and observable.
+- NordLynx technology,
+- auto-connect disabled,
+- a narrow exception for the WireGuard UDP listener,
+- a narrow exception for the private WireGuard management subnet, and
+- Kill Switch enabled.
 
-Run:
+The helper detects whether the installed NordVPN client uses the current `allowlist`
+command or the older `whitelist` spelling.
+
+Keep the LISH console available before applying provider firewall changes. LISH is
+independent of WireGuard, SSH, and the NordVPN firewall and is the recovery path if remote
+management is interrupted.
+
+Preview the exact NordVPN commands first:
+
+```bash
+sudo scripts/snarkypuss-nordvpn-configure.py \
+    --config /etc/snarkypuss-setup.conf \
+    --dry-run
+```
+
+The dry run does not modify provider state.
+
+After confirming independent LISH/console access, apply the policy:
+
+```bash
+sudo scripts/snarkypuss-nordvpn-configure.py \
+    --config /etc/snarkypuss-setup.conf \
+    --apply \
+    --console-confirmed
+```
+
+`--apply` must run as root and intentionally requires `--console-confirmed`.
+
+The helper verifies the resulting NordVPN settings and fails if it cannot confirm:
+
+- `Technology: NordLynx`,
+- Kill Switch enabled, and
+- auto-connect disabled.
+
+Existing management exceptions are treated idempotently when the installed client reports
+that they are already present.
+
+The helper does **not** connect NordVPN and does **not** perform the fail-closed acceptance
+test. Those remain explicit operational steps because they require observing the real
+network path.
+
+## 4. What the helper changes
+
+For a current NordVPN client using `allowlist`, the effective operations are equivalent to:
 
 ```bash
 sudo nordvpn set technology NordLynx
-sudo nordvpn set killswitch on
 sudo nordvpn set autoconnect off
-```
-
-Then inspect the result:
-
-```bash
-sudo nordvpn settings
-```
-
-The exact text printed by `nordvpn settings` can vary between client versions. Confirm at a
-minimum that:
-
-- the intended technology is NordLynx,
-- the Kill Switch is enabled, and
-- the client reports the provider firewall/settings needed by the installed version.
-
-Do not invent unsupported NordVPN settings commands. In particular, Snarkypuss does not
-require a `nordvpn set firewall on` command; the NordVPN client manages its own firewall
-policy.
-
-## 5. Preserve WireGuard management access
-
-The NordVPN Kill Switch can block management traffic when the provider disconnects or changes
-servers unless the private management path is explicitly accommodated.
-
-The reference values are:
-
-```text
-WireGuard UDP listener: 51820
-WireGuard subnet:        10.8.0.0/24
-```
-
-Confirm the actual deployment before changing NordVPN policy:
-
-```bash
-sudo wg show wg0
-sudo grep -E '^[[:space:]]*ListenPort' /etc/wireguard/wg0.conf
-ip -brief address show wg0
-```
-
-Keep the **LISH console open** while making this change. If NordVPN blocks the remote
-management path, LISH remains independent of WireGuard, SSH, and the NordVPN firewall.
-
-NordVPN Linux client versions have used both `allowlist` and `whitelist` terminology. Use
-`nordvpn help`, `man nordvpn`, or the installed client's command help to determine which
-spelling it accepts.
-
-For clients that accept `allowlist`:
-
-```bash
 sudo nordvpn allowlist add port 51820 protocol UDP
 sudo nordvpn allowlist add subnet 10.8.0.0/24
+sudo nordvpn set killswitch on
 ```
 
-For clients that use the older `whitelist` spelling, use the equivalent commands supported by
-that client, for example:
+The actual port and subnet come from `/etc/snarkypuss-setup.conf`; the reference values above
+are not hard-coded policy values.
+
+Older NordVPN clients may use the equivalent `whitelist` command. The helper detects the
+accepted spelling rather than requiring the administrator to choose it manually.
+
+Do not broadly allowlist TCP port 22 or TCP port 8443. SSH and SnarkyCtl remain private
+services reached through WireGuard. Do not expose them publicly as a substitute for a
+correct management-path exception.
+
+Snarkypuss does not require an invented `nordvpn set firewall on` command. The NordVPN client
+owns its own firewall behavior.
+
+## 5. Connect and inspect NordVPN
+
+After the policy helper succeeds, connect normally:
 
 ```bash
-sudo nordvpn whitelist add port 51820
-sudo nordvpn whitelist add subnet 10.8.0.0/24
-```
-
-Inspect the resulting policy:
-
-```bash
+sudo nordvpn connect
+sudo nordvpn status
 sudo nordvpn settings
 ```
 
-Do **not** broadly allowlist TCP port 22 or TCP port 8443. SSH and the SnarkyCtl dashboard
-must remain private services reached through WireGuard. Do not expose them on the Linode's
-public interface as a substitute for a correctly functioning management path.
+A plain `nordvpn connect` lets NordVPN choose a recommended server.
 
-Do not enable broader LAN exceptions merely to make the reference deployment work. Prefer
-the narrow WireGuard listener and management-subnet exceptions that you have explicitly
-tested.
+Do not proceed to gateway activation unless the provider connection works and the Kill
+Switch remains enabled.
 
-## 6. Test the fail-closed behavior
+## 6. Test fail-closed behavior
 
-An exception that preserves management access is acceptable only if it does **not** allow
-ordinary Windows Internet traffic to bypass NordVPN.
+The management exceptions are acceptable only if ordinary Windows Internet traffic cannot
+bypass NordVPN.
 
-Keep LISH open and maintain a second management session during this test.
+Keep LISH open during this test.
 
-With NordVPN connected, verify from Windows:
+With the Snarkypuss WireGuard tunnel active, verify private management from Windows:
 
 ```powershell
 Test-NetConnection 10.8.0.1 -Port 22
 Test-NetConnection 10.8.0.1 -Port 8443
 ```
 
-On the Linode, verify the WireGuard peer:
+On the Linode, inspect the provider and WireGuard state:
 
 ```bash
 sudo wg show wg0
@@ -199,7 +166,7 @@ sudo nordvpn status
 sudo nordvpn settings
 ```
 
-Then deliberately disconnect NordVPN while leaving the Kill Switch enabled:
+Then disconnect NordVPN while leaving the Kill Switch enabled:
 
 ```bash
 sudo nordvpn disconnect
@@ -210,11 +177,11 @@ The required result is:
 - private SSH over WireGuard remains reachable,
 - the SnarkyCtl dashboard remains reachable,
 - ordinary Internet traffic forwarded from Windows is blocked, and
-- forwarded traffic does not leave through the Linode's public address.
+- forwarded traffic does not leave through the Linode public interface.
 
-This is the expected **Locked** condition.
+This is the expected Locked condition.
 
-Reconnect after the test:
+Reconnect when the test is complete:
 
 ```bash
 sudo nordvpn connect
@@ -222,12 +189,12 @@ sudo nordvpn connect
 
 If Windows Internet traffic still works directly while NordVPN is disconnected and the Kill
 Switch is expected to protect it, treat that as a safety failure. Use LISH, remove the
-exception that caused the leak, and do not rely on the deployment until fail-closed behavior
-has been restored and retested.
+exception responsible for the leak, and do not rely on the deployment until fail-closed
+behavior is restored and retested.
 
-## 7. Connect and inspect NordVPN directly
+## 7. Manual provider commands
 
-These commands are useful when separating a provider problem from a SnarkyCtl problem:
+Direct NordVPN commands remain useful for diagnosis and deliberate administration:
 
 ```bash
 sudo nordvpn connect
@@ -236,36 +203,31 @@ sudo nordvpn settings
 sudo nordvpn disconnect
 ```
 
-A normal manual `nordvpn connect` lets NordVPN choose a recommended server.
+A manual `nordvpn disconnect` bypasses SnarkyCtl's higher-level safety checks. Use direct
+provider commands for setup and testing, not as an unnoticed substitute for SnarkyCtl's
+Locked/Protected mode transitions.
 
-When the Kill Switch is enabled, losing Internet access after `nordvpn disconnect` is
-expected provider behavior. In Snarkypuss that blocked public path is desirable as long as
-the private WireGuard management path remains available.
-
-Do not disable the Kill Switch simply because disconnected Internet traffic is blocked. That
-is exactly the condition the safety design is intended to produce.
+When the Kill Switch is enabled, losing public Internet access after `nordvpn disconnect` is
+expected. In Snarkypuss that is desirable as long as the private WireGuard management path
+remains available.
 
 ## 8. NordVPN destinations in SnarkyCtl
 
 SnarkyCtl stores provider-neutral destination aliases in the root-owned SQLite catalogue.
 The built-in NordVPN adapter validates the provider-specific selector behind each alias.
 
-The dashboard exposes these NordVPN destination types:
+The dashboard supports these NordVPN destination types:
 
 | Type | Meaning |
 |---|---|
-| **Recommended** | Let NordVPN choose its recommended server. |
-| **Country** | Select a server within one country. |
-| **City** | Select a server in one city within a country. |
-| **Group** | Select a NordVPN specialty group. |
-| **Server** | Select one exact NordVPN server. |
-
-The alias and label are local SnarkyCtl names. For example, an alias such as `dallas` can
-represent a validated NordVPN city selector without exposing raw command construction to the
-browser.
+| Recommended | Let NordVPN choose its recommended server. |
+| Country | Select a server within one country. |
+| City | Select a server in one city within a country. |
+| Group | Select a NordVPN specialty group. |
+| Server | Select one exact NordVPN server. |
 
 Use the installed NordVPN client to discover available values. Depending on client version,
-use commands such as:
+commands include:
 
 ```bash
 nordvpn countries
@@ -274,16 +236,13 @@ nordvpn groups
 nordvpn help
 ```
 
-The list and spelling of provider destinations can change independently of Snarkypuss, so
-validate selections against the installed NordVPN client rather than copying an old list
-from documentation.
+Provider destinations can change independently of Snarkypuss, so validate selectors against
+the installed client rather than copying an old list from documentation.
 
-Labels should describe the selector honestly. A country selector should not be labelled as
-though it guarantees one particular city or physical server.
+## 9. What the SnarkyCtl NordVPN adapter does
 
-## 9. What the SnarkyCtl NordVPN adapter actually does
-
-The privileged adapter deliberately supports only a narrow command surface equivalent to:
+The privileged runtime adapter deliberately supports only a narrow command surface
+equivalent to:
 
 ```text
 /usr/bin/nordvpn status
@@ -293,78 +252,29 @@ The privileged adapter deliberately supports only a narrow command surface equiv
 /usr/bin/nordvpn disconnect
 ```
 
-The adapter does not accept arbitrary shell commands from the browser. Destination aliases
-are resolved against the trusted catalogue, selector fields are validated, and the NordVPN
-executable path is fixed by the packaged integration.
+This is separate from the one-time `snarkypuss-nordvpn-configure.py` setup helper. The setup
+helper establishes the provider policy and management exceptions; the SnarkyCtl adapter
+performs bounded runtime operations after deployment.
 
-After a connection or disconnection request, the adapter queries NordVPN again and reports
-the observed state rather than assuming that a mutation command succeeded merely because it
-returned a message.
-
-The adapter reads and normalizes useful provider information including:
-
-- connection state,
-- server/display name,
-- provider IP,
-- country and city,
-- technology and protocol,
-- transfer information,
-- Kill Switch state, and
-- provider firewall/settings state when available.
-
-When NordVPN reports NordLynx, SnarkyCtl expects the provider interface `nordlynx` in the
-reference deployment.
+The browser never supplies arbitrary shell commands. Target aliases are resolved against the
+trusted catalogue and provider selector fields are validated before the fixed NordVPN
+executable is invoked.
 
 ## 10. NordVPN and Snarkypuss gateway modes
 
-SnarkyCtl translates the provider state into four effective gateway modes.
+SnarkyCtl translates provider state into four effective modes:
 
-### Protected VPN
+- **Protected VPN** — leak protection enabled and NordVPN connected.
+- **Locked** — leak protection enabled and NordVPN disconnected; public forwarding blocked.
+- **Direct VPS** — exceptional explicit mode with provider leak protection disabled and
+  traffic leaving through the VPS public connection.
+- **Unknown** — provider state cannot be established confidently; do not assume protection.
 
-The protected-mode operation enables leak protection first and then connects the selected
-approved destination. SnarkyCtl expects the resulting mode to be VPN/Protected VPN.
+Direct VPS must never be an automatic response to a failed NordVPN connection. If a Direct
+transition fails after disabling the Kill Switch, the control daemon attempts to restore
+leak protection.
 
-### Locked
-
-The locked-mode operation enables leak protection and disconnects NordVPN. Public forwarding
-is blocked while private management remains available.
-
-### Direct VPS
-
-Direct VPS is exceptional. SnarkyCtl disables provider leak protection and disconnects
-NordVPN, allowing client traffic to use the Linode's public Internet connection.
-
-The dashboard requires explicit confirmation before entering this mode. Never use Direct VPS
-as an automatic response to a failed NordVPN connection.
-
-If a Direct VPS transition fails after disabling the Kill Switch, the control daemon attempts
-to restore leak protection.
-
-### Unknown
-
-If SnarkyCtl cannot establish a trustworthy combination of provider connection state and
-leak-protection state, it reports Unknown. Do not assume Unknown is protected.
-
-## 11. Safe disconnect behavior
-
-The ordinary SnarkyCtl CLI disconnect operation is safety checked. It refuses to disconnect
-the upstream VPN unless the provider's leak protection and firewall state are verified safe
-for the operation.
-
-For a deliberate safe disconnected state, the dashboard's **Enable Locked mode** control is
-clearer because it explicitly turns on leak protection before disconnecting the provider.
-
-A manual command such as:
-
-```bash
-sudo nordvpn disconnect
-```
-
-bypasses SnarkyCtl's higher-level operation checks. Use direct NordVPN commands for setup,
-provider testing, or deliberate administration—not as an unnoticed replacement for the
-SnarkyCtl safety model.
-
-## 12. Troubleshooting NordVPN-specific failures
+## 11. Troubleshooting
 
 Start with:
 
@@ -375,51 +285,46 @@ ip link show nordlynx
 snarkyctl status
 ```
 
-If NordVPN itself cannot connect, solve the provider problem before treating it as a
-SnarkyCtl destination problem.
+If initial policy setup fails, preview it again with:
 
-If NordVPN connects but WireGuard management disappears during provider transitions, review
-Section 5 and the management-path exceptions.
+```bash
+sudo scripts/snarkypuss-nordvpn-configure.py \
+    --config /etc/snarkypuss-setup.conf \
+    --dry-run
+```
 
-If management works but Internet access is blocked, check whether Snarkypuss is simply in the
-intended Locked state before changing anything.
-
-If Internet works through the Linode public IP when Protected VPN was expected, stop using
-the connection for protected traffic and follow the wrong-public-IP procedure in
-[05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md).
-
-If the installed NordVPN client's command names or output differ from examples in this guide,
-consult:
+If the installed NordVPN client's command names or output differ from the helper's supported
+forms, inspect:
 
 ```bash
 nordvpn help
 man nordvpn
 ```
 
-and the current NordVPN Linux documentation before changing Snarkypuss code or configuration
-merely to match an older client example.
+If NordVPN connects but WireGuard management disappears, review the management exceptions
+and use LISH for recovery. If Internet works through the Linode public IP when Protected VPN
+was expected, stop using the connection for protected traffic and follow the wrong-public-IP
+procedure in [05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md).
 
-## 13. Provider-specific safety rules
+## 12. Provider-specific safety rules
 
 For the reference NordVPN deployment:
 
-- Keep the Kill Switch enabled for normal Snarkypuss operation.
-- Do not use Direct VPS as automatic recovery.
-- Keep LISH available while changing NordVPN firewall/allowlist policy.
-- Make the narrowest exception required to preserve the WireGuard management path.
+- Keep the Kill Switch enabled for normal operation.
+- Keep LISH available while changing provider firewall/allowlist policy.
+- Use the setup helper rather than hand-building broader exceptions.
 - Verify fail-closed forwarding after every material provider-policy change.
 - Do not expose SSH or SnarkyCtl publicly to work around a provider firewall problem.
-- Keep NordVPN access tokens out of Git and configuration files that do not require them.
+- Keep NordVPN access tokens out of Git and unrelated configuration files.
 - Verify the observed public exit address after provider changes.
 - Treat Unknown protection state conservatively.
 
-For general symptoms rather than NordVPN-specific administration, return to
-[05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md).
+For general symptoms, return to [05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md).
 
 ## Official NordVPN references
 
-NordVPN changes its Linux client independently of Snarkypuss. When command syntax differs
-from the installed examples, consult the current provider documentation:
+NordVPN changes its Linux client independently of Snarkypuss. When syntax differs from the
+installed examples, consult the current provider documentation:
 
 - Linux installation and CLI reference:
   https://support.nordvpn.com/hc/en-us/articles/20196094470929-How-to-install-the-NordVPN-app-on-Linux-distributions
