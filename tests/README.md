@@ -8,7 +8,8 @@ SnarkyCtl implementation.
 These tests are active development tests. They are not obsolete documentation artifacts.
 They cover the HTTP API, authentication, command-line client, privileged control daemon,
 control protocol, configuration, preflight checks, provider adapters, status collection,
-SQLite target storage, gateway scripts, packaging, and migration behavior.
+SQLite target storage, gateway scripts, provider setup helpers, packaging, and migration
+behavior.
 
 The tests are written for `pytest` and are discovered from `tests/` according to the project
 configuration in `pyproject.toml`.
@@ -60,6 +61,7 @@ Examples:
 ```bash
 .venv/bin/pytest tests/test_protocol.py
 .venv/bin/pytest tests/test_daemon.py
+.venv/bin/pytest tests/test_nordvpn_setup_script.py
 .venv/bin/pytest tests/test_api.py::test_interactive_api_documentation_is_disabled
 ```
 
@@ -97,6 +99,7 @@ The current suite is organized by subsystem.
 | `test_daemon.py` | Privileged control daemon, target lookup, operation locking, provider failures, and gateway-mode policy |
 | `test_gateway_scripts.py` | Gateway configuration, activation, rollback, and verification helpers |
 | `test_migration_script.py` | Supported migration from the legacy target representation to the current catalogue model |
+| `test_nordvpn_setup_script.py` | NordVPN policy setup helper, allowlist/whitelist compatibility, safety ordering, console confirmation, and documentation integration |
 | `test_package.py` | Package/install layout expectations |
 | `test_preflight.py` | Read-only deployment preflight checks |
 | `test_protocol.py` | Versioned control protocol framing and schema validation |
@@ -130,9 +133,8 @@ checks on a real system.
 
 ## 7. Current automation status
 
-The repository currently contains the pytest suite and pytest configuration, but the
-`documentation` branch does not contain a GitHub Actions workflow that automatically runs the
-suite.
+The repository currently contains the pytest suite and pytest configuration, but does not
+contain a GitHub Actions workflow that automatically runs the suite.
 
 The Debian build helper also does not invoke pytest before building the package.
 
