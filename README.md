@@ -172,9 +172,30 @@ debian/                   Debian package source
 tests/                    Automated tests
 ```
 
+## Versioning and release tags
+
+The Git repository is versioned as the complete Snarkypuss system. Repository release tags
+use the `sp-` namespace, beginning with:
+
+```text
+sp-1.0.0
+```
+
+A repository release covers the gateway scripts, documentation, tests, build tooling,
+SnarkyCtl source, and Debian packaging as one source-tree snapshot.
+
+SnarkyCtl retains its own application/package version independently. The currently published
+application version is `1.0.3`, represented by `pyproject.toml`, wheel metadata, command
+version output, and the Debian upstream version. The corresponding Debian package version is
+`1.0.3-1`.
+
+Git tags do not need to mirror the SnarkyCtl package version. A later `sp-*` release may
+therefore contain the same SnarkyCtl `.deb` version when only gateway scripts, documentation,
+tests, or other repository-level components have changed.
+
 ## Project status
 
-Snarkypuss `0.10.0.dev4` has passed Plan 10 user-acceptance testing on the reference VPS.
-It remains a development release while reproducible packaging and clean-install coverage
-are completed. Administrators should retain console access and verify leak protection
-before relying on it for sensitive traffic.
+The repository begins its unified release numbering at `sp-1.0.0`. SnarkyCtl `1.0.3`
+remains the current published management-package version. Administrators should retain
+console access and verify leak protection before relying on a new repository release for
+sensitive traffic.
