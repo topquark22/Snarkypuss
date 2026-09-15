@@ -83,12 +83,11 @@ class ControlService:
         target_repository: TargetRepository | None = None,
     ) -> None:
         self._provider = provider
-        dns_address = str(config.settings.network.management_address.ip)
-        self._local_collector = (
-            local_collector
-            if local_collector is not None
-            else lambda: collect_local_status(dns_address=dns_address)
-        )
+        if local_collector is not None:
+            self._local_collector = local_collector
+        else:
+            dns_address = str(config.settings.network.management_address.ip)
+            self._local_collector = lambda: collect_local_status(dns_address=dns_address)
         self._public_ip_collector = public_ip_collector
         self._public_ip_url = config.settings.status.public_ip_url
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds

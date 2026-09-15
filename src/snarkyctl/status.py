@@ -249,7 +249,11 @@ def collect_local_status(
     dns: DnsStatus | None
     system: SystemStatus | None
     try:
-        dns = collect_dns_status(dns_address=dns_address)
+        dns = (
+            collect_dns_status()
+            if dns_address is None
+            else collect_dns_status(dns_address=dns_address)
+        )
     except StatusCollectionError as exc:
         dns = None
         failures.append(ComponentFailure(component="dns", code=exc.code, message=str(exc)))
