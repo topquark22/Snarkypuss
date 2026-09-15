@@ -34,8 +34,13 @@
   let managerBusy = false;
   let targetSchema = null;
   let editableCatalogue = null;
+  let committedCatalogue = null;
   let newDestinationDraft = null;
+  let cleanupInProgress = false;
   const discoveryState = new WeakMap();
+  const autoLabelTargets = new WeakSet();
+  const targetIdentity = new WeakMap();
+  const unavailableTargets = new Set();
 
   const fields = {
     provider: document.querySelector("#provider"),
@@ -186,12 +191,6 @@
         option.textContent = choice.label;
         control.append(option);
       }
-      if (settings.staleValue) {
-        const stale = document.createElement("option");
-        stale.value = settings.staleValue;
-        stale.textContent = `${settings.staleValue} (no longer available)`;
-        control.append(stale);
-      }
       control.value = String(value ?? "");
     } else {
       control = document.createElement("input");
@@ -232,6 +231,218 @@
       wrapper.append(note);
     }
     return wrapper;
+  }
+
+  function cloneEditableTarget(target) {
+    const clone = {
+      ...target,
+      selector: { ...target.selector },
+    };
+    targetIdentity.set(clone, target.alias);
+    return clone;
+  }
+
+  function adoptCommittedCatalogue(payload) {
+    committedCatalogue = payload;
+    editableCatalogue = {
+      ...payload,
+      targets: payload.targets.map(cloneEditableTarget),
+    };
+    newDestinationDraft = null;
+    managerRevision.textContent = String(editableCatalogue.revision);
+  }
+
+  function targetOptionLabel(target, field) {
+    const value = target.selector[field.name];
+    if (value === "" || value === null || value === undefined) {
+      return null;
+    }
+    if (field.field_type === "choice" && field.option_source === "provider") {
+      const state = discoveryState.get(target)?.get(field.name);
+      if (state?.status !== "ready") {
+        return null;
+      }
+      const option = state.options.find(
+        (item) => String(item.value) === String(value),
+      );
+      return option?.label || null;
+    }
+    return String(value);
+  }
+
+  function dependencyDepth(field, fieldsByName, visiting = new Set()) {
+    if (visiting.has(field.name)) {
+      return 0;
+    }
+    visiting.add(field.name);
+    const dependencies = (field.depends_on || [])
+      .map((name) => fieldsByName.get(name))
+      .filter(Boolean);
+    const depth = dependencies.length
+      ? 1 + Math.max(
+        ...dependencies.map((item) => dependencyDepth(item, fieldsByName, visiting)),
+      )
+      : 0;
+    visiting.delete(field.name);
+    return depth;
+  }
+
+  function suggestedTargetLabel(target, kindSchema) {
+    const fieldsByName = new Map(
+      (kindSchema.fields || []).map((field) => [field.name, field]),
+    );
+    const selections = (kindSchema.fields || [])
+      .map((field, index) => ({
+        index,
+        depth: dependencyDepth(field, fieldsByName),
+        label: targetOptionLabel(target, field),
+      }))
+      .filter((item) => item.label);
+    selections.sort((left, right) => right.depth - left.depth || left.index - right.index);
+    return selections.length
+      ? selections.map((item) => item.label).join(", ")
+      : kindSchema.label;
+  }
+
+  function updateAutoLabel(target, kindSchema) {
+    if (!autoLabelTargets.has(target)) {
+      return;
+    }
+    target.label = suggestedTargetLabel(target, kindSchema).slice(0, 100);
+  }
+
+  function populateTargetSelect(targets) {
+    targetSelect.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select a target…";
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    targetSelect.append(placeholder);
+    for (const target of targets || []) {
+      const option = document.createElement("option");
+      option.value = target.alias;
+      option.textContent = target.label;
+      targetSelect.append(option);
+    }
+    if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
+      targetSelect.value = currentTarget;
+    }
+  }
+
+  function catalogueTargetsForRequest(targets) {
+    return targets.map((target, position) => ({
+      alias: target.alias,
+      label: target.label,
+      position,
+      selector: target.selector,
+    }));
+  }
+
+  async function replaceCatalogueTargets(targets) {
+    const response = await managerRequest("/api/v3/admin/vpn/targets", {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "X-SnarkyCtl-Request": "1",
+      },
+      body: JSON.stringify({
+        provider: committedCatalogue.provider,
+        expected_revision: committedCatalogue.revision,
+        targets: catalogueTargetsForRequest(targets),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const conflict = payload.error?.code === "CATALOG_CONFLICT";
+      throw new Error(
+        conflict
+          ? "The catalogue changed in another session. Reload before saving again."
+          : payload.error?.message || `Catalogue save failed (${response.status}).`,
+      );
+    }
+    return payload;
+  }
+
+  function queueUnavailableTarget(target) {
+    if (!editableCatalogue?.targets.includes(target) || target === newDestinationDraft) {
+      return;
+    }
+    unavailableTargets.add(target);
+    void cleanupUnavailableTargets();
+  }
+
+  async function cleanupUnavailableTargets() {
+    if (
+      cleanupInProgress ||
+      managerBusy ||
+      !managerLoaded ||
+      !committedCatalogue ||
+      unavailableTargets.size === 0
+    ) {
+      return;
+    }
+
+    const removing = new Set(
+      [...unavailableTargets].filter((target) => editableCatalogue.targets.includes(target)),
+    );
+    unavailableTargets.clear();
+    if (removing.size === 0) {
+      return;
+    }
+
+    const removedAliases = new Set(
+      [...removing].map((target) => targetIdentity.get(target) || target.alias),
+    );
+    const committedTargets = committedCatalogue.targets.filter(
+      (target) => !removedAliases.has(target.alias),
+    );
+    if (committedTargets.length === 0) {
+      setManagerMessage(
+        "The only saved destination is no longer available and cannot be removed automatically.",
+        "error",
+      );
+      return;
+    }
+
+    const editableTargets = editableCatalogue.targets.filter(
+      (target) => !removing.has(target),
+    );
+    cleanupInProgress = true;
+    managerBusy = true;
+    setManagerMessage(
+      `Removing ${removing.size} unavailable destination(s)…`,
+    );
+    renderEditor();
+    try {
+      const payload = await replaceCatalogueTargets(committedTargets);
+      committedCatalogue = payload;
+      editableCatalogue = {
+        ...payload,
+        targets: editableTargets,
+      };
+      managerRevision.textContent = String(payload.revision);
+      populateTargetSelect(payload.targets);
+      catalogueAvailable = payload.targets.length > 0;
+      setControlMessage(`${payload.targets.length} approved target(s) available.`);
+      setManagerMessage(
+        `Removed ${removing.size} unavailable destination(s).`,
+        "success",
+      );
+      syncControls();
+    } catch (error) {
+      setManagerMessage(
+        error instanceof Error ? error.message : "Unavailable destination cleanup failed.",
+        "error",
+      );
+    } finally {
+      managerBusy = false;
+      cleanupInProgress = false;
+      renderEditor();
+      if (unavailableTargets.size) {
+        void cleanupUnavailableTargets();
+      }
+    }
   }
 
   function targetDiscovery(target) {
@@ -304,6 +515,18 @@
       state.status = "ready";
       state.options = payload.options;
       state.message = "";
+      updateAutoLabel(target, kindSchema);
+      const value = target.selector[field.name];
+      if (
+        value !== "" &&
+        value !== null &&
+        value !== undefined &&
+        !state.options.some((option) => String(option.value) === String(value))
+      ) {
+        state.status = "removing";
+        state.message = "Saved value is no longer available; removing this destination.";
+        queueUnavailableTarget(target);
+      }
     } catch (error) {
       const current = discoveryState.get(target)?.get(field.name);
       if (current !== state) {
@@ -374,6 +597,23 @@
       );
     }
 
+    if (state.status === "removing") {
+      const choices = value
+        ? [{ value: String(value), label: String(value) }]
+        : [];
+      return fieldControl(
+        field,
+        value,
+        () => {},
+        {
+          choices,
+          disabled: true,
+          placeholder: value ? "" : "Removing unavailable destination…",
+          note: state.message,
+        },
+      );
+    }
+
     if (state.status === "error") {
       const choices = value
         ? [{ value: String(value), label: `${value} (options unavailable)` }]
@@ -392,27 +632,19 @@
       );
     }
 
-    const currentIsAvailable = state.options.some(
-      (option) => String(option.value) === String(value),
-    );
-    const staleValue = value && !currentIsAvailable ? String(value) : "";
     return fieldControl(
       field,
       value,
       (nextValue) => {
         target.selector[field.name] = nextValue;
         clearDependentFields(target, kindSchema, field.name);
+        updateAutoLabel(target, kindSchema);
         renderEditor();
       },
       {
         choices: state.options,
         placeholder: "Select an option…",
-        staleValue,
         disabled: managerBusy,
-        note: staleValue
-          ? `Saved value “${staleValue}” is no longer available. Choose a current value before saving.`
-          : "",
-        noteState: staleValue ? "error" : "",
       },
     );
   }
@@ -488,6 +720,7 @@
           { label: "Label", field_type: "text", required: true, max_length: 100 },
           target.label,
           (value) => {
+            autoLabelTargets.delete(target);
             target.label = value;
             syncManagerActions();
           },
@@ -511,6 +744,7 @@
         const kind = targetSchema.selector_kinds.find((item) => item.kind === kindSelect.value);
         target.selector = selectorDefaults(kind);
         discoveryState.delete(target);
+        updateAutoLabel(target, kind);
         renderEditor();
       });
       kindLabel.append(kindCaption, kindSelect);
@@ -534,6 +768,7 @@
             (value) => {
               target.selector[field.name] = value;
               clearDependentFields(target, selectedKind, field.name);
+              updateAutoLabel(target, selectedKind);
               if ((selectedKind.fields || []).some(
                 (item) => (item.depends_on || []).includes(field.name),
               )) {
@@ -573,16 +808,8 @@
         throw new Error(cataloguePayload.error?.message || "Editable catalogue request failed.");
       }
       targetSchema = schemaPayload;
-      editableCatalogue = {
-        ...cataloguePayload,
-        targets: cataloguePayload.targets.map((target) => ({
-          ...target,
-          selector: { ...target.selector },
-        })),
-      };
+      adoptCommittedCatalogue(cataloguePayload);
       managerProvider.textContent = editableCatalogue.provider;
-      managerRevision.textContent = String(editableCatalogue.revision);
-      newDestinationDraft = null;
       managerLoaded = true;
       setManagerMessage(`${editableCatalogue.targets.length} destination(s) loaded.`);
     } catch (error) {
@@ -610,6 +837,8 @@
       label: "",
       selector: selectorDefaults(kind),
     };
+    autoLabelTargets.add(newDestinationDraft);
+    updateAutoLabel(newDestinationDraft, kind);
     editableCatalogue.targets.push(newDestinationDraft);
     renderEditor();
   }
@@ -699,42 +928,14 @@
     managerBusy = true;
     setManagerMessage("Saving complete catalogue…");
     renderEditor();
-    const targets = editableCatalogue.targets.map((target, position) => ({
-      alias: target.alias,
-      label: target.label,
-      position,
-      selector: target.selector,
-    }));
     try {
-      const response = await managerRequest("/api/v3/admin/vpn/targets", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-SnarkyCtl-Request": "1",
-        },
-        body: JSON.stringify({
-          provider: editableCatalogue.provider,
-          expected_revision: editableCatalogue.revision,
-          targets,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        const conflict = payload.error?.code === "CATALOG_CONFLICT";
-        throw new Error(
-          conflict
-            ? "The catalogue changed in another session. Reload before saving again."
-            : payload.error?.message || `Catalogue save failed (${response.status}).`,
-        );
-      }
-      editableCatalogue = { ...payload, targets: payload.targets.map((target) => ({
-        ...target,
-        selector: { ...target.selector },
-      })) };
-      newDestinationDraft = null;
-      managerRevision.textContent = String(editableCatalogue.revision);
+      const payload = await replaceCatalogueTargets(editableCatalogue.targets);
+      adoptCommittedCatalogue(payload);
+      populateTargetSelect(payload.targets);
+      catalogueAvailable = payload.targets.length > 0;
+      setControlMessage(`${payload.targets.length} approved target(s) available.`);
       setManagerMessage("Catalogue saved.", "success");
-      await loadTargets();
+      syncControls();
     } catch (error) {
       setManagerMessage(error instanceof Error ? error.message : "Catalogue save failed.", "error");
     } finally {
@@ -866,19 +1067,7 @@
         );
       }
 
-      targetSelect.replaceChildren();
-      const placeholder = document.createElement("option");
-      placeholder.value = "";
-      placeholder.textContent = "Select a target…";
-      placeholder.disabled = true;
-      placeholder.selected = true;
-      targetSelect.append(placeholder);
-      for (const target of payload.targets || []) {
-        const option = document.createElement("option");
-        option.value = target.alias;
-        option.textContent = target.label;
-        targetSelect.append(option);
-      }
+      populateTargetSelect(payload.targets || []);
 
       catalogueAvailable =
         payload.capabilities?.connect === true &&
@@ -895,9 +1084,6 @@
         targetSelect.replaceChildren(option);
         setControlMessage("The configured provider does not support target selection.");
       } else {
-        if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
-          targetSelect.value = currentTarget;
-        }
         setControlMessage(`${targetSelect.options.length - 1} approved target(s) available.`);
       }
       setModeControlMessage(
