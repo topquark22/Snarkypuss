@@ -22,7 +22,13 @@ from snarkyctl.control.client import ControlClient, ControlClientError
 from snarkyctl.control.protocol import ControlResponse, TargetAlias
 from snarkyctl.providers.base import GatewayMode, VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
-from snarkyctl.targets.models import JsonValue, ProviderTargetSchema, StoredTarget, TargetCatalogue, TargetOptions
+from snarkyctl.targets.models import (
+    JsonObject,
+    ProviderTargetSchema,
+    StoredTarget,
+    TargetCatalogue,
+    TargetOptions,
+)
 
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
 UNKNOWN_WARNING = "The gateway's public-IP exposure state cannot be determined."
@@ -346,7 +352,7 @@ def create_app(
         _authenticate(active_runtime.auth_file, credentials)
         client = _control_client(active_runtime)
         provider = _active_provider(client)
-        context: dict[str, JsonValue] = {
+        context: JsonObject = {
             name: value
             for name, value in request.query_params.multi_items()
             if name not in {"kind", "field"}
