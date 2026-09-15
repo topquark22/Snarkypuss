@@ -302,37 +302,47 @@ Typical DNS symptoms include:
 - websites work by IP address but not by name,
 - Windows reports that DNS requests time out,
 - the SnarkyCtl DNS card reports an inactive or failed service,
-- `dnsmasq.service` is failed, or
+- `snarkypuss-dns.service` is failed, or
 - nothing is listening on `10.8.0.1:53`.
 
 The canonical setup procedure is in [02_SETUP_DNS.md](02_SETUP_DNS.md). Start diagnostics with:
 
 ```bash
-systemctl status dnsmasq.service --no-pager
-journalctl -u dnsmasq.service -b --no-pager
-sudo dnsmasq --test
+systemctl status snarkypuss-dns.service --no-pager
+journalctl -u snarkypuss-dns.service -b --no-pager
+sudo dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf
 sudo ss -luntp | grep ':53'
-cat /etc/dnsmasq.d/snarkypuss.conf
-systemctl cat dnsmasq.service
+cat /etc/snarkypuss/dnsmasq.conf
+systemctl cat snarkypuss-dns.service
 ```
 
-The reference generated file should bind `dnsmasq` to `wg0` and `10.8.0.1`. The systemd
-drop-in requires `wg-quick@wg0.service`, so a WireGuard startup failure can also prevent DNS
-from starting correctly.
+The reference generated file binds dnsmasq to `wg0` and `10.8.0.1`. The dedicated systemd
+unit requires and starts after `wg-quick@wg0.service`, so a WireGuard startup failure can also
+prevent DNS from starting correctly.
 
 Check the dependency and both services:
 
 ```bash
-systemctl status wg-quick@wg0.service dnsmasq.service --no-pager
-systemctl cat dnsmasq.service
+systemctl status wg-quick@wg0.service snarkypuss-dns.service --no-pager
+systemctl cat snarkypuss-dns.service
 ```
 
-If `dnsmasq --test` reports a configuration error, fix that error before repeatedly
+If the dedicated configuration fails its syntax test, fix that error before repeatedly
 restarting the service.
 
 If the configuration tests successfully but the service still fails, the journal normally
 contains the reason. Common categories include another process already using port 53, the
-expected WireGuard interface/address not existing yet, or a systemd dependency failure.
+expected WireGuard interface/address not existing, or a systemd dependency failure.
+
+On a system migrated from an older Snarkypuss installation, check whether the old stock
+service is unexpectedly competing for port 53:
+
+```bash
+systemctl status dnsmasq.service --no-pager 2>/dev/null || true
+```
+
+The normal migrated state has `dnsmasq.service` disabled/inactive and
+`snarkypuss-dns.service` active.
 
 From the Linode, test the listener directly:
 
@@ -344,7 +354,12 @@ From Windows with WireGuard active:
 
 ```powershell
 Resolve-DnsName example.com -Server 10.8.0.1
+Get-DnsClientServerAddress -AddressFamily IPv4 |
+    Format-Table InterfaceAlias, ServerAddresses -AutoSize
 ```
+
+A direct query proves that the private resolver is reachable. For normal Windows resolution,
+`10.8.0.1` should also be registered on the active WireGuard interface.
 
 Do not change the Windows tunnel to use an unrelated public DNS server merely to hide a
 broken Snarkypuss DNS configuration. Fix the private DNS path or deliberately redesign it.
@@ -541,7 +556,7 @@ Start with:
 
 ```bash
 systemctl --failed
-systemctl is-active wg-quick@wg0.service dnsmasq.service ssh.service
+systemctl is-active wg-quick@wg0.service snarkypuss-dns.service ssh.service
 systemctl is-active snarkyctl-control.socket snarkyctl-web.service
 ```
 
@@ -555,7 +570,7 @@ Useful examples are:
 
 ```bash
 journalctl -u wg-quick@wg0.service -b --no-pager
-journalctl -u dnsmasq.service -b --no-pager
+journalctl -u snarkypuss-dns.service -b --no-pager
 journalctl -u snarkyctl-control.socket -b --no-pager
 journalctl -u snarkyctl-web.service -b --no-pager
 ```
@@ -563,7 +578,7 @@ journalctl -u snarkyctl-web.service -b --no-pager
 Check enablement separately from current state:
 
 ```bash
-systemctl is-enabled wg-quick@wg0.service dnsmasq.service
+systemctl is-enabled wg-quick@wg0.service snarkypuss-dns.service
 systemctl is-enabled ssh.service snarkyctl-control.socket snarkyctl-web.service
 ```
 
@@ -608,7 +623,7 @@ sudo nordvpn status
 sudo nordvpn settings
 systemctl --failed
 systemctl status wg-quick@wg0.service --no-pager
-systemctl status dnsmasq.service --no-pager
+systemctl status snarkypuss-dns.service --no-pager
 systemctl status snarkyctl-control.socket --no-pager
 systemctl status snarkyctl-web.service --no-pager
 snarkyctl status
@@ -630,9 +645,9 @@ sudo iptables -t nat -L -n -v
 For DNS problems, add:
 
 ```bash
-sudo dnsmasq --test
+sudo dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf
 sudo ss -luntp | grep ':53'
-cat /etc/dnsmasq.d/snarkypuss.conf
+cat /etc/snarkypuss/dnsmasq.conf
 ```
 
 Do not publish private keys, NordVPN access tokens, passwords, TLS private keys, or other
