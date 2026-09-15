@@ -39,6 +39,7 @@
   let cleanupInProgress = false;
   const discoveryState = new WeakMap();
   const autoLabelTargets = new WeakSet();
+  const autoAliasTargets = new WeakSet();
   const targetIdentity = new WeakMap();
   const unavailableTargets = new Set();
 
@@ -312,6 +313,64 @@
     target.label = suggestedTargetLabel(target, kindSchema).slice(0, 100);
   }
 
+  function normalizedAlias(value) {
+    const ascii = value
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "");
+    let alias = ascii
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (!alias) {
+      alias = "target";
+    }
+    if (!/^[a-z]/.test(alias)) {
+      alias = `target_${alias}`;
+    }
+    alias = alias.slice(0, 32).replace(/_+$/g, "");
+    return alias || "target";
+  }
+
+  function uniqueAlias(target, label) {
+    const used = new Set(["recommended"]);
+    for (const item of editableCatalogue?.targets || []) {
+      if (item !== target && item.alias) {
+        used.add(item.alias);
+      }
+    }
+
+    const base = normalizedAlias(label);
+    if (!used.has(base)) {
+      return base;
+    }
+
+    let sequence = 2;
+    while (true) {
+      const suffix = `_${sequence}`;
+      const stem = base
+        .slice(0, 32 - suffix.length)
+        .replace(/_+$/g, "");
+      const candidate = `${stem}${suffix}`;
+      if (!used.has(candidate)) {
+        return candidate;
+      }
+      sequence += 1;
+    }
+  }
+
+  function updateAutoAlias(target, kindSchema) {
+    if (!autoAliasTargets.has(target)) {
+      return;
+    }
+    const label = suggestedTargetLabel(target, kindSchema);
+    target.alias = label ? uniqueAlias(target, label) : "";
+  }
+
+  function updateAutoMetadata(target, kindSchema) {
+    updateAutoLabel(target, kindSchema);
+    updateAutoAlias(target, kindSchema);
+  }
+
   function populateTargetSelect(targets) {
     targetSelect.replaceChildren();
     const placeholder = document.createElement("option");
@@ -514,7 +573,7 @@
       state.status = "ready";
       state.options = payload.options;
       state.message = "";
-      updateAutoLabel(target, kindSchema);
+      updateAutoMetadata(target, kindSchema);
       const value = target.selector[field.name];
       if (
         value !== "" &&
@@ -637,7 +696,7 @@
       (nextValue) => {
         target.selector[field.name] = nextValue;
         clearDependentFields(target, kindSchema, field.name);
-        updateAutoLabel(target, kindSchema);
+        updateAutoMetadata(target, kindSchema);
         renderEditor();
       },
       {
@@ -710,6 +769,7 @@
           { label: "Alias", field_type: "text", required: true, max_length: 32 },
           target.alias,
           (value) => {
+            autoAliasTargets.delete(target);
             target.alias = value;
             syncManagerActions();
           },
@@ -753,7 +813,7 @@
         const kind = targetSchema.selector_kinds.find((item) => item.kind === kindSelect.value);
         target.selector = selectorDefaults(kind);
         discoveryState.delete(target);
-        updateAutoLabel(target, kind);
+        updateAutoMetadata(target, kind);
         renderEditor();
       });
       kindLabel.append(kindCaption, kindSelect);
@@ -777,7 +837,7 @@
             (value) => {
               target.selector[field.name] = value;
               clearDependentFields(target, selectedKind, field.name);
-              updateAutoLabel(target, selectedKind);
+              updateAutoMetadata(target, selectedKind);
               if ((selectedKind.fields || []).some(
                 (item) => (item.depends_on || []).includes(field.name),
               )) {
@@ -846,6 +906,7 @@
       selector: { kind: "" },
     };
     autoLabelTargets.add(newDestinationDraft);
+    autoAliasTargets.add(newDestinationDraft);
     editableCatalogue.targets.push(newDestinationDraft);
     renderEditor();
   }
