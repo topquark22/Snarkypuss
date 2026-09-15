@@ -5,7 +5,7 @@ set -u
 tunnel_interface=wg0
 client_cidr=10.8.0.0/24
 listen_port=51820
-dns_service=dnsmasq
+dns_service=snarkypuss-dns
 failures=0
 warnings=0
 
@@ -19,7 +19,7 @@ Options:
   --tunnel-interface NAME  Private tunnel interface (default: wg0)
   --client-cidr CIDR       Private client network (default: 10.8.0.0/24)
   --listen-port PORT       Private tunnel UDP port (default: 51820)
-  --dns-service NAME       DNS systemd service (default: dnsmasq)
+  --dns-service NAME       DNS systemd service (default: snarkypuss-dns)
   -h, --help               Show this help
 
 Exit status:
