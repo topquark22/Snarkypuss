@@ -104,9 +104,9 @@ The helper does **not** connect NordVPN and does **not** perform the fail-closed
 test. Those remain explicit operational steps because they require observing the real
 network path.
 
-## 4. What the helper changes
+### Equivalent provider operations
 
-For a current NordVPN client using `allowlist`, the effective operations are equivalent to:
+For a current NordVPN client using `allowlist`, the helper performs operations equivalent to:
 
 ```bash
 sudo nordvpn set technology NordLynx
@@ -129,7 +129,7 @@ correct management-path exception.
 Snarkypuss does not require an invented `nordvpn set firewall on` command. The NordVPN client
 owns its own firewall behavior.
 
-## 5. Connect and inspect NordVPN
+## 4. Connect and inspect NordVPN
 
 After the policy helper succeeds, connect normally:
 
@@ -144,7 +144,7 @@ A plain `nordvpn connect` lets NordVPN choose a recommended server.
 Do not proceed to gateway activation unless the provider connection works and the Kill
 Switch remains enabled.
 
-## 6. Test fail-closed behavior
+## 5. Test fail-closed behavior
 
 The management exceptions are acceptable only if ordinary Windows Internet traffic cannot
 bypass NordVPN.
@@ -192,7 +192,7 @@ Switch is expected to protect it, treat that as a safety failure. Use LISH, remo
 exception responsible for the leak, and do not rely on the deployment until fail-closed
 behavior is restored and retested.
 
-## 7. Manual provider commands
+## 6. Manual provider commands
 
 Direct NordVPN commands remain useful for diagnosis and deliberate administration:
 
@@ -211,7 +211,7 @@ When the Kill Switch is enabled, losing public Internet access after `nordvpn di
 expected. In Snarkypuss that is desirable as long as the private WireGuard management path
 remains available.
 
-## 8. NordVPN destinations in SnarkyCtl
+## 7. NordVPN destinations in SnarkyCtl
 
 SnarkyCtl stores provider-neutral destination aliases in the root-owned SQLite catalogue.
 The built-in NordVPN adapter validates the provider-specific selector behind each alias.
@@ -239,7 +239,7 @@ nordvpn help
 Provider destinations can change independently of Snarkypuss, so validate selectors against
 the installed client rather than copying an old list from documentation.
 
-## 9. What the SnarkyCtl NordVPN adapter does
+## 8. What the SnarkyCtl NordVPN adapter does
 
 The privileged runtime adapter deliberately supports only a narrow command surface
 equivalent to:
@@ -260,7 +260,7 @@ The browser never supplies arbitrary shell commands. Target aliases are resolved
 trusted catalogue and provider selector fields are validated before the fixed NordVPN
 executable is invoked.
 
-## 10. NordVPN and Snarkypuss gateway modes
+## 9. NordVPN and Snarkypuss gateway modes
 
 SnarkyCtl translates provider state into four effective modes:
 
@@ -274,7 +274,7 @@ Direct VPS must never be an automatic response to a failed NordVPN connection. I
 transition fails after disabling the Kill Switch, the control daemon attempts to restore
 leak protection.
 
-## 11. Troubleshooting
+## 10. Troubleshooting
 
 Start with:
 
@@ -306,7 +306,7 @@ and use LISH for recovery. If Internet works through the Linode public IP when P
 was expected, stop using the connection for protected traffic and follow the wrong-public-IP
 procedure in [05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md).
 
-## 12. Provider-specific safety rules
+## 11. Provider-specific safety rules
 
 For the reference NordVPN deployment:
 
