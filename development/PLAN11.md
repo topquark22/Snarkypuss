@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This plan turns the provider-neutral target-discovery design in `REFACTOR.md` into an
+This plan ("Plan 11") turns the provider-neutral target-discovery design in `REFACTOR.md` into an
 implementation sequence for the `vpn-target-discovery` branch.
 
 The first delivery target is NordVPN discovery for countries, cities, and groups while
