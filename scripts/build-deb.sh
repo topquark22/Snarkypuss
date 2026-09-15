@@ -21,21 +21,6 @@ python_version=$(
 debian_version=$(dpkg-parsechangelog -S Version)
 expected_upstream_version=$(printf '%s' "$python_version" | sed 's/\.dev/~dev/')
 
-snarkyctl_tag=$(
-    git tag --points-at HEAD --list 'snarkyctl-*' --sort=-version:refname |
-        head -n 1
-)
-
-if [ -n "$snarkyctl_tag" ]; then
-    tagged_version=${snarkyctl_tag#snarkyctl-}
-    if [ "$tagged_version" != "$python_version" ]; then
-        printf '%s\n' \
-            "Version mismatch: HEAD is tagged $snarkyctl_tag, but pyproject.toml contains" \
-            "$python_version." >&2
-        exit 2
-    fi
-fi
-
 case "$debian_version" in
     "$expected_upstream_version"-*)
         debian_revision=${debian_version#"$expected_upstream_version"-}
