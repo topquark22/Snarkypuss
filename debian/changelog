@@ -1,3 +1,13 @@
+snarkyctl (1.1.0-1) unstable; urgency=medium
+
+  * Run private DNS through the dedicated snarkypuss-dns.service.
+  * Use a Snarkypuss-owned dnsmasq configuration instead of the distribution
+    dnsmasq service configuration.
+  * Add migration and cleanup support for legacy Snarkypuss DNS installations.
+  * Report the dedicated DNS service in SnarkyCtl status.
+
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Tue, 15 Sep 2026 11:40:00 -0400
+
 snarkyctl (1.0.3-1) unstable; urgency=medium
 
   * Show the full date, time, and local time zone for dashboard refresh timestamps.
