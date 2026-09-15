@@ -78,12 +78,17 @@ class ControlService:
         provider: VpnProvider,
         local_collector: Callable[
             [], tuple[DnsStatus | None, SystemStatus | None, list[ComponentFailure]]
-        ] = collect_local_status,
+        ] | None = None,
         public_ip_collector: Callable[[str, float], PublicIpStatus] = collect_public_ip,
         target_repository: TargetRepository | None = None,
     ) -> None:
         self._provider = provider
-        self._local_collector = local_collector
+        dns_address = str(config.settings.network.management_address.ip)
+        self._local_collector = (
+            local_collector
+            if local_collector is not None
+            else lambda: collect_local_status(dns_address=dns_address)
+        )
         self._public_ip_collector = public_ip_collector
         self._public_ip_url = config.settings.status.public_ip_url
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
