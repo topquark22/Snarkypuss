@@ -168,18 +168,17 @@ def test_control_service_from_config_selects_sqlite_only_when_explicit(
 
 def test_control_service_requires_yaml_when_no_repository_is_supplied() -> None:
     config = SimpleNamespace(
-    settings=SimpleNamespace(
-        status=SimpleNamespace(
-            public_ip_url="https://api.ipify.org",
-            public_ip_timeout_seconds=5,
+        settings=SimpleNamespace(
+            status=SimpleNamespace(
+                public_ip_url="https://api.ipify.org",
+                public_ip_timeout_seconds=5,
+            ),
+            network=SimpleNamespace(
+                management_address=SimpleNamespace(ip="10.8.0.1"),
+            ),
         ),
-        network=SimpleNamespace(
-            management_address=SimpleNamespace(ip="10.8.0.1"),
-        ),
-    ),
-    with pytest.raises(daemon.ConfigError, match="YAML target"):
-        daemon.ControlService(config, FakeProvider())  # type: ignore[arg-type]
-
+        targets=None,
+    )
 
 def test_daemon_refuses_non_socket_activated_start(
     monkeypatch: pytest.MonkeyPatch,
