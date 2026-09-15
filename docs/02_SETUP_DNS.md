@@ -2,8 +2,9 @@
 
 ## Purpose
 
-Snarkypuss uses `dnsmasq` on the Linode so that the Windows WireGuard client can send DNS
-queries through the private tunnel instead of using the local ISP's DNS server.
+Snarkypuss uses a dedicated `dnsmasq` instance on the Linode so that the Windows WireGuard
+client can send DNS queries through the private tunnel instead of using the local ISP's DNS
+server.
 
 The reference configuration is:
 
@@ -14,7 +15,8 @@ Windows PC
     v
 10.8.0.1:53 on the Linode
     |
-    | dnsmasq
+    | snarkypuss-dns.service
+    |   /usr/sbin/dnsmasq
     v
 configured upstream DNS servers
 ```
@@ -22,17 +24,16 @@ configured upstream DNS servers
 The DNS listener is private. It should listen on the WireGuard side of the Linode and must
 not be exposed to the public Internet.
 
-Complete [01_SETUP_VPS.md](01_SETUP_VPS.md) first. That guide installs `dnsmasq`, generates
-the Snarkypuss DNS configuration, and activates the networking services. This guide explains
-and verifies the DNS portion separately so that it can be checked without mixing it with
-WireGuard, NordVPN, or SnarkyCtl setup.
+Complete [01_SETUP_VPS.md](01_SETUP_VPS.md) first. The base installer installs
+`dnsmasq-base`, which supplies the `dnsmasq` executable without installing Ubuntu's stock
+`dnsmasq.service`. Snarkypuss then generates its own DNS configuration and systemd unit.
 
 ## 1. Understand the generated DNS configuration
 
-The networking setup creates this file on the Linode:
+The networking setup creates:
 
 ```text
-/etc/dnsmasq.d/snarkypuss.conf
+/etc/snarkypuss/dnsmasq.conf
 ```
 
 For the reference deployment, its important settings are equivalent to:
@@ -41,6 +42,7 @@ For the reference deployment, its important settings are equivalent to:
 interface=wg0
 bind-dynamic
 listen-address=10.8.0.1
+no-resolv
 domain-needed
 bogus-priv
 server=1.1.1.1
@@ -53,46 +55,57 @@ The exact upstream addresses come from the `dns_upstreams` value in
 The settings mean:
 
 - `interface=wg0` — use the private WireGuard interface.
-- `bind-dynamic` — on Linux, allow `dnsmasq` to start before `wg0` or `10.8.0.1` exists and
-  begin listening automatically when the interface/address appears.
-- `listen-address=10.8.0.1` — accept DNS queries on the Linode's private WireGuard address.
-- `server=...` — forward queries to the configured upstream resolvers.
+- `bind-dynamic` — allow dnsmasq to bind safely as the WireGuard interface/address appears.
+- `listen-address=10.8.0.1` — accept DNS queries only on the private WireGuard address.
+- `no-resolv` — do not silently add resolver addresses from the host's `/etc/resolv.conf`.
+- `server=...` — forward queries only to the configured upstream resolvers.
 
 Do not add a public Linode address to this file. Snarkypuss DNS is intended for the private
 WireGuard client, not for arbitrary Internet clients.
 
-The setup also creates this systemd drop-in:
+## 2. Understand the dedicated systemd unit
+
+Snarkypuss also creates:
 
 ```text
-/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf
+/etc/systemd/system/snarkypuss-dns.service
 ```
 
-For the reference deployment it contains a dependency on:
+The unit runs dnsmasq directly with the Snarkypuss-owned configuration:
 
 ```text
-wg-quick@wg0.service
+/usr/sbin/dnsmasq --keep-in-foreground \
+    --conf-file=/etc/snarkypuss/dnsmasq.conf \
+    --pid-file=/run/snarkypuss-dns.pid
 ```
 
-The drop-in uses `Requires=` so starting `dnsmasq` also pulls in the WireGuard service. It
-intentionally does **not** add `After=wg-quick@wg0.service`: Ubuntu's stock `dnsmasq.service`
-is ordered before `nss-lookup.target`, while `wg-quick@wg0.service` is ordered after that
-target, so adding the direct ordering edge would create a systemd dependency cycle.
+The unit requires and starts after the WireGuard service for the configured tunnel, for the
+reference deployment:
 
-`bind-dynamic` is what makes the remaining startup race safe: `dnsmasq` can start before the
-private WireGuard address exists and bind it later when WireGuard finishes starting.
+```text
+Requires=wg-quick@wg0.service
+After=wg-quick@wg0.service
+```
 
-## 2. Review the generated files
+This ordering is safe because `snarkypuss-dns.service` is a Snarkypuss-owned unit and does not
+inherit Ubuntu's stock `dnsmasq.service` ordering around `nss-lookup.target`.
+
+The important architectural point is that Snarkypuss does **not** use `/etc/dnsmasq.conf` or
+`/etc/dnsmasq.d/` for the active private resolver. Ubuntu package defaults therefore cannot
+inject incompatible global directives such as `bind-interfaces` into the Snarkypuss instance.
+
+## 3. Review the generated files
 
 On the Linode, through LISH or private SSH, display the DNS configuration:
 
 ```bash
-sudo cat /etc/dnsmasq.d/snarkypuss.conf
+sudo cat /etc/snarkypuss/dnsmasq.conf
 ```
 
-Then display the systemd drop-in:
+Then display the service unit:
 
 ```bash
-sudo cat /etc/systemd/system/dnsmasq.service.d/snarkypuss.conf
+sudo cat /etc/systemd/system/snarkypuss-dns.service
 ```
 
 For the reference deployment, confirm that:
@@ -100,55 +113,53 @@ For the reference deployment, confirm that:
 - the interface is `wg0`,
 - the binding mode is `bind-dynamic`,
 - the listening address is `10.8.0.1`,
-- the upstream DNS servers are the addresses you intended, and
-- the systemd drop-in refers to `wg-quick@wg0.service` with `Requires=` but does not add
-  `After=wg-quick@wg0.service`.
+- `no-resolv` is present,
+- the upstream DNS servers are the addresses you intended,
+- the unit uses `/etc/snarkypuss/dnsmasq.conf`, and
+- the unit refers to `wg-quick@wg0.service` with both `Requires=` and `After=`.
 
 These files are generated by `scripts/snarkypuss-configure.py`. Do not casually hand-edit
 them and then expect a later configuration run to preserve those edits.
 
-## 3. Test the dnsmasq configuration before starting it
+## 4. Test the dedicated dnsmasq configuration
 
-Run:
+Test exactly the configuration used by the service:
 
 ```bash
-sudo dnsmasq --test
+sudo dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf
 ```
 
 A valid configuration should report that the syntax check is OK.
 
-On a clean Snarkypuss installation, `scripts/snarkypuss-install.sh` prepares the stock Ubuntu
-dnsmasq configuration for this mode. If that invocation newly installed dnsmasq, it backs up
-`/etc/dnsmasq.conf` as `/etc/dnsmasq.conf.snarkypuss-original` and comments out an active
-standalone `bind-interfaces` directive. It does not rewrite `/etc/dnsmasq.conf` when dnsmasq
-was already installed before Snarkypuss, because that file may contain administrator-owned
-configuration.
+This command deliberately does not test `/etc/dnsmasq.conf`; that file is outside the
+Snarkypuss DNS path.
 
-If this command reports:
+If the dedicated configuration does not pass its syntax check, stop here. Do not repeatedly
+restart the service until the configuration error has been understood.
+
+## 5. Existing installations: cut over from the old stock service
+
+Older Snarkypuss installations used Ubuntu's `dnsmasq.service` with:
 
 ```text
-dnsmasq: cannot set --bind-interfaces and --bind-dynamic
+/etc/dnsmasq.d/snarkypuss.conf
+/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf
 ```
 
-then another dnsmasq configuration file still enables `bind-interfaces`. Locate active
-binding directives with:
+The current activation script recognizes those files as legacy Snarkypuss ownership. During
+a transactional activation it records the old service state, disables/stops the legacy
+`dnsmasq.service`, and starts `snarkypuss-dns.service`. If activation rolls back, the previous
+service states are restored.
 
-```bash
-grep -RniE '^[[:space:]]*(bind-interfaces|bind-dynamic)[[:space:]]*$' \
-    /etc/dnsmasq.conf /etc/dnsmasq.d
-```
+If `dnsmasq.service` is active or enabled **without** one of the recognized legacy Snarkypuss
+markers, activation refuses to disable it. That protects an administrator-owned dnsmasq
+installation from being silently taken over.
 
-Snarkypuss requires `bind-dynamic`; an older or locally edited global `bind-interfaces`
-directive must be commented out or otherwise removed before dnsmasq can start. Preserve a
-backup before changing an administrator-owned configuration file.
+The old files can remain on disk after cutover because they are no longer read by the active
+Snarkypuss resolver. Remove them only after the new service has been accepted and backed up.
+Snarkypuss no longer modifies `/etc/dnsmasq.conf`.
 
-If `dnsmasq --test` reports any other error, stop here. Do not repeatedly restart the service
-until the configuration error has been understood.
-
-## 4. Confirm that the WireGuard address exists
-
-`bind-dynamic` allows dnsmasq to start before the WireGuard address is present, but DNS cannot
-actually receive client queries on `10.8.0.1` until that address exists.
+## 6. Confirm that the WireGuard address exists
 
 Run:
 
@@ -162,25 +173,34 @@ If `wg0` does not exist or does not have that address after WireGuard is expecte
 the problem is in the WireGuard or networking setup rather than DNS itself. Return to
 [01_SETUP_VPS.md](01_SETUP_VPS.md).
 
-## 5. Start and enable dnsmasq
+## 7. Start and enable the private DNS service
 
-The Snarkypuss activation procedure normally enables and starts `dnsmasq.service`
-automatically. To verify or perform that step explicitly, run:
+The Snarkypuss activation procedure normally enables and starts the service automatically.
+To verify or perform that step explicitly, run:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now dnsmasq.service
+sudo systemctl enable --now snarkypuss-dns.service
 ```
 
-Then check the service:
+Then check it:
 
 ```bash
-sudo systemctl status dnsmasq.service --no-pager
+sudo systemctl status snarkypuss-dns.service --no-pager
 ```
 
 The expected state is `active (running)`.
 
-## 6. Verify that DNS is listening only on the private address
+On a migrated installation, also confirm that the old stock unit cannot compete for port 53:
+
+```bash
+systemctl is-enabled dnsmasq.service 2>/dev/null || true
+systemctl is-active dnsmasq.service 2>/dev/null || true
+```
+
+For a completed legacy cutover, the old unit should not be enabled or active.
+
+## 8. Verify that DNS is listening only on the private address
 
 Check the DNS listener:
 
@@ -188,14 +208,14 @@ Check the DNS listener:
 sudo ss -luntp | grep ':53'
 ```
 
-For the reference deployment, `dnsmasq` should be listening on `10.8.0.1` for DNS traffic.
-It should not be listening on the Linode's public IPv4 address merely to serve the Windows
+For the reference deployment, dnsmasq should be listening on `10.8.0.1` for DNS traffic. It
+should not be listening on the Linode's public IPv4 address merely to serve the Windows
 client.
 
 Do **not** open TCP or UDP port 53 in the Linode Firewall for the public Internet. Windows
 reaches DNS through the WireGuard tunnel.
 
-## 7. Test DNS locally on the Linode
+## 9. Test DNS locally on the Linode
 
 The base Snarkypuss package installation includes `dnsutils`, which provides `dig`.
 
@@ -211,44 +231,46 @@ server that answered the request.
 This confirms that the Linode's private DNS listener can receive a query and forward it to
 an upstream resolver.
 
-## 8. Test DNS from Windows
+## 10. Test DNS from Windows
 
 Make sure the `snarkypuss` WireGuard tunnel is active on Windows.
 
-The WireGuard configuration from the networking setup contains:
+The intended WireGuard client configuration uses:
 
 ```ini
 DNS = 10.8.0.1
 ```
 
-From PowerShell or Command Prompt, test the private DNS server directly:
-
-```powershell
-nslookup example.com 10.8.0.1
-```
-
-You can also use PowerShell:
+Test the private resolver directly:
 
 ```powershell
 Resolve-DnsName example.com -Server 10.8.0.1
 ```
 
-Then test ordinary name resolution without specifying a server:
+or:
 
 ```powershell
-nslookup example.com
+nslookup example.com 10.8.0.1
 ```
 
-With the WireGuard tunnel active, Windows should be using the DNS path configured by the
-WireGuard tunnel rather than falling back silently to an unrelated local resolver.
+Then inspect the DNS servers Windows has actually registered:
 
-## 9. Verify DNS after a reboot
+```powershell
+Get-DnsClientServerAddress -AddressFamily IPv4 |
+    Format-Table InterfaceAlias, ServerAddresses -AutoSize
+```
+
+`10.8.0.1` should appear on the active WireGuard interface before ordinary Windows name
+resolution is considered verified. A direct query to `10.8.0.1` proves only that the server
+is reachable; it does not prove that Windows is using it as its normal resolver.
+
+## 11. Verify DNS after a reboot
 
 After a controlled Linode reboot, check:
 
 ```bash
 systemctl is-active wg-quick@wg0.service
-systemctl is-active dnsmasq.service
+systemctl is-active snarkypuss-dns.service
 ```
 
 Both should report `active`.
@@ -259,19 +281,19 @@ Then repeat:
 dig @10.8.0.1 example.com
 ```
 
-and the Windows-side `nslookup` test.
+and the Windows-side tests.
 
 A service that worked immediately after installation but fails after reboot has a persistence
 or startup-order problem and should not be treated as a successful DNS setup.
 
-## 10. If dnsmasq.service fails
+## 12. If snarkypuss-dns.service fails
 
-Do not guess. Capture the service state and the current-boot journal first:
+Capture the service state and current-boot journal first:
 
 ```bash
-sudo systemctl status dnsmasq.service --no-pager -l
-sudo journalctl -u dnsmasq.service -b --no-pager -n 100
-sudo dnsmasq --test
+sudo systemctl status snarkypuss-dns.service --no-pager -l
+sudo journalctl -u snarkypuss-dns.service -b --no-pager -n 100
+sudo dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf
 ```
 
 Also record:
@@ -281,8 +303,14 @@ ip address show wg0
 sudo ss -luntp | grep ':53'
 ```
 
-These commands usually provide enough information to distinguish a configuration error,
-a missing WireGuard address, a port-53 conflict, or another startup problem.
+On a migrated system, if port 53 appears to be occupied unexpectedly, also inspect:
+
+```bash
+systemctl status dnsmasq.service --no-pager 2>/dev/null || true
+```
+
+These commands usually provide enough information to distinguish a configuration error, a
+missing WireGuard address, a port-53 conflict, or another startup problem.
 
 The detailed diagnosis belongs in [05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md).
 
@@ -290,14 +318,16 @@ The detailed diagnosis belongs in [05_TROUBLESHOOTING.md](05_TROUBLESHOOTING.md)
 
 DNS is ready when all of the following are true:
 
-- `dnsmasq --test` succeeds.
+- `dnsmasq --test --conf-file=/etc/snarkypuss/dnsmasq.conf` succeeds.
 - `wg0` has the private address `10.8.0.1/24`.
-- `dnsmasq.service` is active.
+- `snarkypuss-dns.service` is active.
+- the legacy `dnsmasq.service`, if present from an older installation, cannot compete with it.
 - DNS is listening on the private WireGuard address.
 - `dig @10.8.0.1 example.com` succeeds on the Linode.
-- Windows can resolve through `10.8.0.1` while the WireGuard tunnel is active.
-- Public port 53 is not opened in the Linode Firewall for this purpose.
-- The DNS service survives a controlled reboot.
+- Windows has actually registered `10.8.0.1` on the active WireGuard interface and can resolve
+  through it.
+- public port 53 is not opened in the Linode Firewall for this purpose.
+- the DNS service survives a controlled reboot.
 
 Continue with [03_SETUP_SNARKYCTL.md](03_SETUP_SNARKYCTL.md) to install the SnarkyCtl
 dashboard and control software.
