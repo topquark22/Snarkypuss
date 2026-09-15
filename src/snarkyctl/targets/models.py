@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 MAX_TARGETS = 100
 MAX_SELECTOR_FIELDS = 16
+MAX_TARGET_OPTIONS = 256
 JsonScalar = str | int | bool | None
 JsonObject = dict[str, JsonScalar]
 
@@ -134,7 +135,7 @@ class TargetOptions(BaseModel):
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     kind: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     field: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
-    options: tuple[TargetOption, ...] = Field(default=(), max_length=100)
+    options: tuple[TargetOption, ...] = Field(default=(), max_length=MAX_TARGET_OPTIONS)
 
 
 class StoredTarget(BaseModel):
