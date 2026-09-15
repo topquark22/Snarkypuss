@@ -197,7 +197,7 @@ Example:
     "details": {}
   },
   "dns": {
-    "service": "dnsmasq.service",
+    "service": "snarkypuss-dns.service",
     "load_state": "loaded",
     "active_state": "active",
     "sub_state": "running"
@@ -231,7 +231,7 @@ A partial failure has this shape:
 {
   "component": "dns",
   "code": "DNS_STATUS_FAILED",
-  "message": "dnsmasq status query failed"
+  "message": "private DNS status query failed"
 }
 ```
 
