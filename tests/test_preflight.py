@@ -196,7 +196,11 @@ def test_interface_checks_report_missing_interfaces(
     def missing(_name: str) -> int:
         raise OSError("missing")
 
+    def missing_ioctl(*_args: object) -> bytes:
+        raise OSError("missing")
+
     monkeypatch.setattr("snarkyctl.preflight.socket.if_nametoindex", missing)
+    monkeypatch.setattr("snarkyctl.preflight.ioctl", missing_ioctl)
     results = _interface_checks(config)
     assert results[0].status is CheckStatus.FAIL
     assert results[1].status is CheckStatus.FAIL
