@@ -106,7 +106,7 @@ def read_setup(path: Path) -> GatewayConfig:
         raise ConfigurationError("setup file may not contain a [DEFAULT] section")
     if set(document.sections()) != {ALLOWED_SECTION}:
         raise ConfigurationError(
-            f"setup file must contain exactly one [{ALLOWED_SECTION}] section")
+            f"setup file must contain exactly one [{ALLOWED_SECTION}] section"
         )
     section = document[ALLOWED_SECTION]
     unknown = set(section) - ALLOWED_OPTIONS
