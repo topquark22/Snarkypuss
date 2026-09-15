@@ -115,6 +115,7 @@ if [ "$dry_run" = true ]; then
     fi
     print_install_command
     printf '%s\n' \
+        "For a newly installed dnsmasq, an active stock bind-interfaces directive would be backed up and disabled so Snarkypuss can use bind-dynamic." \
         "A newly installed dnsmasq unit would be stopped and disabled pending configuration." \
         "No packages were installed and no services or network settings were changed."
     exit 0
@@ -152,6 +153,34 @@ fi
 # shellcheck disable=SC2086
 DEBIAN_FRONTEND=noninteractive apt-get install --yes $packages
 
+# Ubuntu's stock dnsmasq configuration enables bind-interfaces. Snarkypuss uses
+# bind-dynamic so dnsmasq can start safely before the WireGuard interface/address
+# appears. The two directives are mutually exclusive. Only alter the stock file
+# when this invocation installed dnsmasq itself; a pre-existing dnsmasq setup is
+# administrator-owned and is left untouched.
+if [ "$dnsmasq_preexisting" != true ] && [ -f /etc/dnsmasq.conf ]; then
+    if grep -Eq '^[[:space:]]*bind-interfaces[[:space:]]*$' /etc/dnsmasq.conf; then
+        backup=/etc/dnsmasq.conf.snarkypuss-original
+        if [ ! -e "$backup" ]; then
+            cp -a /etc/dnsmasq.conf "$backup"
+        fi
+        temporary=$(mktemp /etc/dnsmasq.conf.snarkypuss.XXXXXX)
+        awk '
+            /^[[:space:]]*bind-interfaces[[:space:]]*$/ {
+                print "# " $0 "  # disabled by Snarkypuss; bind-dynamic is used"
+                next
+            }
+            { print }
+        ' /etc/dnsmasq.conf >"$temporary"
+        chown --reference=/etc/dnsmasq.conf "$temporary"
+        chmod --reference=/etc/dnsmasq.conf "$temporary"
+        mv "$temporary" /etc/dnsmasq.conf
+        printf '%s\n' \
+            "Disabled the stock dnsmasq bind-interfaces directive for Snarkypuss bind-dynamic mode." \
+            "Original dnsmasq configuration saved as $backup."
+    fi
+fi
+
 if [ "$dnsmasq_preexisting" != true ] && command -v systemctl >/dev/null 2>&1; then
     systemctl disable --now dnsmasq.service
     printf '%s\n' \
@@ -163,5 +192,5 @@ trap - EXIT HUP INT TERM
 
 printf '%s\n' \
     "Base Snarkypuss gateway packages are installed." \
-    "No Snarkypuss configuration, route, or firewall rule was applied." \
+    "No Snarkypuss route or firewall rule was applied." \
     "Ubuntu package-maintainer scripts may have created or enabled default service units."

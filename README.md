@@ -124,41 +124,46 @@ provider modules.
 
 ## Getting started
 
-The documentation is divided by purpose:
+The user documentation lives under [`docs/`](docs/) and is numbered in the order a new user
+should normally read it:
 
-- [**SNARKYPUSS.md**](SNARKYPUSS.md) — technical reference for building and validating the
-  private VPN gateway itself.
-- [**INSTALL.md**](INSTALL.md) — detailed installation of SnarkyCtl and its system services.
-- [**CONFIGURATION.md**](CONFIGURATION.md) — application and target configuration.
-- [**ARCHITECTURE.md**](ARCHITECTURE.md) — components, privilege boundaries, and gateway modes.
-- [**NORDVPN.md**](NORDVPN.md) — NordVPN adapter behavior and operational considerations.
-- [**PREFLIGHT.md**](PREFLIGHT.md) — deployment validation and safety checks.
-- [**API.md**](API.md) — authenticated HTTPS API.
-- [**DEPLOYMENT.md**](DEPLOYMENT.md) — wheel and Debian packaging, upgrades, and release process.
-- [**development/**](development/README.md) — requirements, roadmap, and architectural
-  decision artifacts used during development.
+1. [**01_SETUP_VPS.md**](docs/01_SETUP_VPS.md) — create the Linode and configure WireGuard,
+   NordVPN, fail-closed behavior, and the Linode Firewall.
+2. [**02_SETUP_DNS.md**](docs/02_SETUP_DNS.md) — configure and verify the private `dnsmasq`
+   service used by the Windows WireGuard client.
+3. [**03_SETUP_SNARKYCTL.md**](docs/03_SETUP_SNARKYCTL.md) — install and configure SnarkyCtl
+   after networking and DNS are working.
+4. [**04_USER_MANUAL.md**](docs/04_USER_MANUAL.md) — normal day-to-day use of the dashboard,
+   VPN destinations, gateway modes, and CLI commands.
+5. [**05_TROUBLESHOOTING.md**](docs/05_TROUBLESHOOTING.md) — symptom-oriented diagnosis and
+   safe recovery when WireGuard, DNS, NordVPN, SnarkyCtl, or boot persistence fails.
+6. [**06_BACKUP_RECOVERY.md**](docs/06_BACKUP_RECOVERY.md) — backups, Linode snapshots,
+   restoration, migration, and full disaster recovery.
+7. [**07_NORDVPN.md**](docs/07_NORDVPN.md) — NordVPN-specific installation, safety settings,
+   management-path exceptions, destination selectors, and SnarkyCtl adapter behavior.
+8. [**08_CONFIGURATION.md**](docs/08_CONFIGURATION.md) — authoritative SnarkyCtl YAML and
+   SQLite target-catalogue configuration reference.
+9. [**09_PREFLIGHT.md**](docs/09_PREFLIGHT.md) — read-only deployment validation, result
+   states, implemented checks, and limits of what preflight proves.
+10. [**10_API.md**](docs/10_API.md) — private SnarkyCtl HTTP API contracts, authentication,
+    mutation protections, status/target endpoints, gateway-mode operations, and errors.
+11. [**11_ARCHITECTURE.md**](docs/11_ARCHITECTURE.md) — Snarkypuss system architecture,
+    trust boundaries, data/control planes, privilege separation, provider abstraction, and
+    failure model.
 
-A practical deployment proceeds in two stages:
-
-1. Build and verify the Snarkypuss private VPN gateway using
-   [SNARKYPUSS.md](SNARKYPUSS.md).
-2. Install SnarkyCtl using [INSTALL.md](INSTALL.md), then run the documented preflight checks.
+Additional numbered operations and reference documents will be added under `docs/` as the
+documentation consolidation proceeds.
 
 Do not expose the management listener publicly as a shortcut during installation.
+Development plans, architecture decisions, and historical design artifacts remain under
+[`development/`](development/README.md).
 
 ## Repository layout
 
 ```text
-README.md                 Project overview
-SNARKYPUSS.md             Private VPN gateway technical reference
-ARCHITECTURE.md           Software and security architecture
-development/              Requirements and design-process artifacts
-INSTALL.md                Administrator installation guide
-CONFIGURATION.md          Runtime configuration reference
-NORDVPN.md                NordVPN provider-adapter reference
-PREFLIGHT.md              Deployment validation reference
-API.md                    HTTP API reference
-DEPLOYMENT.md             Build and packaging reference
+README.md                 Project overview and documentation entry point
+docs/                     Numbered user, setup, operations, and reference documentation
+development/              Requirements, plans, decisions, and development artifacts
 src/snarkyctl/            Management utility source
 config/                   Example configuration
 scripts/                  Build, gateway, and archived migration utilities
@@ -167,9 +172,41 @@ debian/                   Debian package source
 tests/                    Automated tests
 ```
 
+## Versioning and release tags
+
+The Git repository is versioned as the complete Snarkypuss system. Repository release tags
+use this format:
+
+```text
+YYYY.MM.DD-N_<snarkyctl-version>
+```
+
+For example:
+
+```text
+2026.09.15-1_1.0.3
+```
+
+`YYYY.MM.DD` is the repository release date. `N` is a sequence number beginning at `1` and
+incremented only when more than one repository release is made on the same date. The suffix
+after the underscore records the SnarkyCtl application version contained in that repository
+snapshot.
+
+A repository release covers the gateway scripts, documentation, tests, build tooling,
+SnarkyCtl source, and Debian packaging as one source-tree snapshot.
+
+SnarkyCtl retains its own application/package version independently. The currently published
+application version is `1.0.3`, represented by `pyproject.toml`, wheel metadata, command
+version output, and the Debian upstream version. The corresponding Debian package version is
+`1.0.3-1`.
+
+The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
+version it contains without making the two release schemes identical. Repository-only changes
+can advance the date/sequence while retaining the same SnarkyCtl suffix.
+
 ## Project status
 
-Snarkypuss `0.10.0.dev4` has passed Plan 10 user-acceptance testing on the reference VPS.
-It remains a development release while reproducible packaging and clean-install coverage
-are completed. Administrators should retain console access and verify leak protection
-before relying on it for sensitive traffic.
+Repository releases use date-based tags such as `2026.09.15-1_1.0.3`. SnarkyCtl `1.0.3`
+remains the current published management-package version. Administrators should retain
+console access and verify leak protection before relying on a new repository release for
+sensitive traffic.
