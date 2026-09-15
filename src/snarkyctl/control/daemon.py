@@ -26,6 +26,7 @@ from snarkyctl.control.protocol import (
     StatusRequest,
     TargetCatalogGetRequest,
     TargetCatalogReplaceRequest,
+    TargetOptionsRequest,
     TargetSchemaRequest,
     TargetsRequest,
     encode_message,
@@ -54,7 +55,7 @@ from snarkyctl.status import (
     new_gateway_status,
 )
 from snarkyctl.targets.lifecycle import check_database
-from snarkyctl.targets.models import StoredTarget
+from snarkyctl.targets.models import SelectorOptionSource, StoredTarget
 from snarkyctl.targets.repository import RepositoryError, TargetRepository, YamlTargetRepository
 from snarkyctl.targets.sqlite import SqliteTargetRepository
 
@@ -164,6 +165,74 @@ class ControlService:
                 success=True,
                 message="Provider target schema retrieved.",
                 provider_target_schema=self._provider.target_schema(),
+            )
+        if isinstance(request, TargetOptionsRequest):
+            if response := self._require_active_provider(request):
+                return response
+            if not self._provider.capabilities.target_discovery:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNSUPPORTED_TARGET_DISCOVERY",
+                    message=f"{self._provider.name} does not support target discovery.",
+                )
+            schema = self._provider.target_schema()
+            selector_kind = next(
+                (item for item in schema.selector_kinds if item.kind == request.kind),
+                None,
+            )
+            if selector_kind is None:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNKNOWN_TARGET_KIND",
+                    message="The requested target selector kind is not supported.",
+                )
+            selector_field = next(
+                (item for item in selector_kind.fields if item.name == request.field),
+                None,
+            )
+            if selector_field is None:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="UNKNOWN_TARGET_FIELD",
+                    message="The requested target selector field is not supported.",
+                )
+            if selector_field.option_source is not SelectorOptionSource.PROVIDER:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="STATIC_TARGET_FIELD",
+                    message="The requested target selector field does not use provider discovery.",
+                )
+            dependency_names = set(selector_field.depends_on)
+            if set(request.context) != dependency_names:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="INVALID_TARGET_CONTEXT",
+                    message="Target discovery context does not match the field dependencies.",
+                )
+            options = self._provider.target_options(
+                request.kind,
+                request.field,
+                request.context,
+            )
+            if (
+                options.provider != self._provider.name
+                or options.kind != request.kind
+                or options.field != request.field
+            ):
+                raise ProviderError(
+                    "INVALID_TARGET_OPTIONS",
+                    "Provider returned target options for a different discovery request.",
+                )
+            return ControlResponse(
+                request_id=request.request_id,
+                success=True,
+                message="Provider target options retrieved.",
+                target_options=options,
             )
         if isinstance(request, TargetCatalogGetRequest):
             if response := self._require_active_provider(request):
@@ -444,7 +513,12 @@ class ControlService:
 
     def _require_active_provider(
         self,
-        request: TargetSchemaRequest | TargetCatalogGetRequest | TargetCatalogReplaceRequest,
+        request: (
+            TargetSchemaRequest
+            | TargetOptionsRequest
+            | TargetCatalogGetRequest
+            | TargetCatalogReplaceRequest
+        ),
     ) -> ControlResponse | None:
         if request.provider == self._provider.name:
             return None
