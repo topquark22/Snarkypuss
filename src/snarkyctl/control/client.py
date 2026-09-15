@@ -21,13 +21,14 @@ from snarkyctl.control.protocol import (
     StatusRequest,
     TargetCatalogGetRequest,
     TargetCatalogReplaceRequest,
+    TargetOptionsRequest,
     TargetSchemaRequest,
     TargetsRequest,
     encode_message,
     parse_response,
     receive_frame,
 )
-from snarkyctl.targets.models import StoredTarget
+from snarkyctl.targets.models import JsonObject, StoredTarget
 
 DEFAULT_CONTROL_SOCKET = Path("/run/snarkyctl/control.sock")
 DEFAULT_CONTROL_TIMEOUT_SECONDS = 65.0
@@ -129,6 +130,26 @@ class ControlClient:
                 request_id=uuid4(),
                 operation=Operation.TARGET_SCHEMA,
                 provider=provider,
+            )
+        )
+
+    def target_options(
+        self,
+        provider: str,
+        kind: str,
+        field: str,
+        context: JsonObject,
+    ) -> ControlResponse:
+        """Request dynamically discovered options for one provider selector field."""
+        return self.request(
+            TargetOptionsRequest(
+                version=PROTOCOL_VERSION,
+                request_id=uuid4(),
+                operation=Operation.TARGET_OPTIONS,
+                provider=provider,
+                kind=kind,
+                field=field,
+                context=context,
             )
         )
 

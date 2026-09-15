@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapte
 
 from snarkyctl.providers.base import VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
-from snarkyctl.targets.models import ProviderTargetSchema, StoredTarget, TargetCatalogue
+from snarkyctl.targets.models import JsonObject, ProviderTargetSchema, StoredTarget, TargetCatalogue, TargetOptions
 
 PROTOCOL_VERSION: Final = 3
 # Bounded for a complete catalogue of 100 maximum-size structured selectors.
@@ -40,6 +40,7 @@ class Operation(StrEnum):
     DISCONNECT = "DISCONNECT"
     DIRECT = "DIRECT"
     TARGET_SCHEMA = "TARGET_SCHEMA"
+    TARGET_OPTIONS = "TARGET_OPTIONS"
     TARGET_CATALOG_GET = "TARGET_CATALOG_GET"
     TARGET_CATALOG_REPLACE = "TARGET_CATALOG_REPLACE"
 
@@ -87,6 +88,14 @@ class TargetSchemaRequest(_RequestBase):
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
 
 
+class TargetOptionsRequest(_RequestBase):
+    operation: Literal[Operation.TARGET_OPTIONS]
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    kind: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    field: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    context: JsonObject = Field(default_factory=dict, max_length=16)
+
+
 class TargetCatalogGetRequest(_RequestBase):
     operation: Literal[Operation.TARGET_CATALOG_GET]
     provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
@@ -108,6 +117,7 @@ type ControlRequest = Annotated[
     | DisconnectRequest
     | DirectRequest
     | TargetSchemaRequest
+    | TargetOptionsRequest
     | TargetCatalogGetRequest
     | TargetCatalogReplaceRequest,
     Field(discriminator="operation"),
@@ -130,6 +140,7 @@ class ControlResponse(BaseModel):
     gateway_status: GatewayStatus | None = None
     target_catalog: VpnTargetCatalog | None = None
     provider_target_schema: ProviderTargetSchema | None = None
+    target_options: TargetOptions | None = None
     editable_target_catalogue: TargetCatalogue | None = None
 
 
