@@ -1,4 +1,4 @@
-snarkyctl (2.0.0) unstable; urgency=medium
+snarkyctl (2.0.0-1) unstable; urgency=medium
 
   * Add provider-neutral VPN target discovery models and capability metadata.
   * Add schema support for provider-backed selector choices and field dependencies.
