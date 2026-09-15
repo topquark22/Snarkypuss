@@ -28,7 +28,7 @@ Windows 11 client
 |  wg0 ----> Linux forwarding/NAT -----------------> upstream VPN ----+--> Internet
 |   |                                                  provider       |
 |   |                                                                 |
-|   +----> dnsmasq                                                    |
+|   +----> snarkypuss-dns.service / dnsmasq                           |
 |   |                                                                 |
 |   +----> private management plane                                   |
 |            |                                                        |
@@ -77,7 +77,7 @@ The VPS supplies three base gateway functions:
 
 - packet forwarding from the private client network;
 - source NAT for forwarded client traffic; and
-- private DNS service through `dnsmasq`.
+- private DNS service through a dedicated `dnsmasq` instance.
 
 The transactional gateway setup owns identifiable base firewall/NAT chains:
 
@@ -524,7 +524,7 @@ The control daemon builds a gateway snapshot from several independent sources:
 
 - provider connection status;
 - provider safety/settings state;
-- `dnsmasq.service` state;
+- `snarkypuss-dns.service` state;
 - basic local host health; and
 - observed public IPv4 when the gateway is in a mode where public egress is expected.
 
@@ -594,14 +594,25 @@ request.
 
 ## 15. DNS architecture
 
-`dnsmasq` is the private DNS service for the WireGuard client.
+Snarkypuss runs a dedicated `dnsmasq` instance as `snarkypuss-dns.service` for the WireGuard
+client. The resolver reads only the generated Snarkypuss configuration:
 
-It listens on the private gateway address and is ordered after the WireGuard interface so the
-configured address exists before DNS starts.
+```text
+/etc/snarkypuss/dnsmasq.conf
+```
 
-The Windows client sends DNS requests through WireGuard to the VPS. `dnsmasq` forwards those
-queries according to its configured upstreams, and the resulting traffic follows the VPS's
-current routing/provider policy.
+The service invokes `/usr/sbin/dnsmasq` with that file explicitly. It does not use Ubuntu's
+stock `dnsmasq.service`, `/etc/dnsmasq.conf`, or `/etc/dnsmasq.d/` for the active private
+resolver.
+
+The dedicated unit requires and starts after the configured WireGuard service. Its dnsmasq
+configuration uses `bind-dynamic`, binds to the private gateway address, and uses only the
+configured upstream resolvers (`no-resolv`). This keeps distro-global dnsmasq defaults from
+silently changing Snarkypuss DNS behavior.
+
+The Windows client sends DNS requests through WireGuard to the VPS. The private dnsmasq
+instance forwards those queries according to its configured upstreams, and the resulting
+traffic follows the VPS's current routing/provider policy.
 
 DNS is deliberately kept out of the SnarkyCtl web process. SnarkyCtl observes the systemd
 service state but does not act as a DNS proxy.
@@ -624,8 +635,8 @@ exactly one inherited Unix stream listener rather than creating its own competin
 
 The web service starts separately and connects through that socket.
 
-The broader gateway also relies on systemd ordering for services such as WireGuard and
-`dnsmasq`.
+The broader gateway also relies on systemd ordering for WireGuard and the dedicated
+`snarkypuss-dns.service`.
 
 ## 17. Failure model
 

@@ -1,4 +1,4 @@
-"""Regression checks for dnsmasq preparation in the base gateway installer."""
+"""Regression checks for dedicated dnsmasq ownership in the base gateway installer."""
 
 import subprocess
 from pathlib import Path
@@ -7,7 +7,7 @@ from pathlib import Path
 INSTALL_SCRIPT = Path("scripts/snarkypuss-install.sh")
 
 
-def test_install_dry_run_describes_dnsmasq_binding_fix() -> None:
+def test_install_dry_run_uses_dnsmasq_base_only() -> None:
     result = subprocess.run(  # noqa: S603, S607 - repository script under test
         [
             "sh",
@@ -21,20 +21,18 @@ def test_install_dry_run_describes_dnsmasq_binding_fix() -> None:
         text=True,
     )
 
-    assert "bind-interfaces" in result.stdout
-    assert "bind-dynamic" in result.stdout
+    assert "dnsmasq-base" in result.stdout
+    assert "dedicated snarkypuss-dns.service" in result.stdout
+    assert "stock dnsmasq service/configuration is not installed or modified" in result.stdout
     assert "No packages were installed" in result.stdout
 
 
-def test_installer_only_rewrites_dnsmasq_config_after_new_install() -> None:
+def test_installer_does_not_modify_stock_dnsmasq_configuration() -> None:
     script = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
-    assert (
-        'if [ "$dnsmasq_preexisting" != true ] && [ -f /etc/dnsmasq.conf ]; then'
-        in script
-    )
-    assert "dnsmasq.conf.snarkypuss-original" in script
-    assert "cp -a /etc/dnsmasq.conf" in script
-    assert "bind-interfaces" in script
-    assert "bind-dynamic" in script
-    assert "administrator-owned and is left untouched" in script
+    assert "dnsmasq-base" in script
+    assert "/etc/dnsmasq.conf" not in script
+    assert "bind-interfaces" not in script
+    assert "dnsmasq.conf.snarkypuss-original" not in script
+    assert "systemctl disable --now dnsmasq.service" not in script
+    assert "dpkg-query" not in script

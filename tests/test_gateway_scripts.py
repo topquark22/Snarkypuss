@@ -111,7 +111,8 @@ def test_gateway_installer_dry_run_prints_fixed_package_plan() -> None:
 
     assert "apt-get install --yes" in result.stdout
     assert "wireguard-tools" in result.stdout
-    assert "dnsmasq" in result.stdout
+    assert "dnsmasq-base" in result.stdout
+    assert "snarkypuss-dns.service" in result.stdout
     assert "No packages were installed" in result.stdout
 
 
@@ -120,7 +121,8 @@ def test_gateway_installer_does_not_activate_networking() -> None:
 
     assert "systemctl start" not in script
     assert "systemctl enable" not in script
-    assert "systemctl disable --now dnsmasq.service" in script
+    assert "systemctl disable --now dnsmasq.service" not in script
+    assert "/etc/dnsmasq.conf" not in script
     assert "iptables -A" not in script
     assert "ip route add" not in script
     assert "nordvpn connect" not in script.lower()
@@ -246,10 +248,8 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     wireguard_directory = destination / "etc/wireguard"
     private_key = wireguard_directory / "wg0.private.key"
     wireguard_config = wireguard_directory / "wg0.conf"
-    dns_config = destination / "etc/dnsmasq.d/snarkypuss.conf"
-    dnsmasq_drop_in = (
-        destination / "etc/systemd/system/dnsmasq.service.d/snarkypuss.conf"
-    )
+    dns_config = destination / "etc/snarkypuss/dnsmasq.conf"
+    dns_service = destination / "etc/systemd/system/snarkypuss-dns.service"
     sysctl_config = destination / "etc/sysctl.d/90-snarkypuss.conf"
 
     assert "Server WireGuard public key" in first.stdout
@@ -265,9 +265,12 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     assert "server=1.1.1.1" in dns_text
     assert "bind-dynamic" in dns_text
     assert "bind-interfaces" not in dns_text
-    drop_in = dnsmasq_drop_in.read_text(encoding="utf-8")
-    assert "Requires=wg-quick@wg0.service" in drop_in
-    assert "After=wg-quick@wg0.service" not in drop_in
+    assert "no-resolv" in dns_text
+    service_text = dns_service.read_text(encoding="utf-8")
+    assert "Requires=wg-quick@wg0.service" in service_text
+    assert "After=wg-quick@wg0.service" in service_text
+    assert "ExecStart=/usr/sbin/dnsmasq --keep-in-foreground" in service_text
+    assert "--conf-file=/etc/snarkypuss/dnsmasq.conf" in service_text
     assert "net.ipv4.ip_forward=1" in sysctl_config.read_text(encoding="utf-8")
     assert stat.S_IMODE(private_key.stat().st_mode) == 0o600
     assert stat.S_IMODE(wireguard_config.stat().st_mode) == 0o600
@@ -278,7 +281,7 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     third = subprocess.run(  # noqa: S603 - fixed interpreter and repository script
         command, check=True, capture_output=True, text=True
     )
-    dns_backups = list(dns_config.parent.glob("snarkypuss.conf.bak.*"))
+    dns_backups = list(dns_config.parent.glob("dnsmasq.conf.bak.*"))
     assert "BACKUP" in third.stdout
     assert len(dns_backups) == 1
     assert "server=1.1.1.1" in dns_backups[0].read_text(encoding="utf-8")
@@ -346,6 +349,8 @@ def test_gateway_activation_schedules_rollback_before_network_changes() -> None:
     assert "netfilter-persistent" in script
     assert "--console-confirmed" in script
     assert "--provider-leak-protection-confirmed" in script
+    assert 'DNS_SERVICE = "snarkypuss-dns.service"' in script
+    assert "administrator-owned service" in script
 
 
 def test_gateway_rollback_restores_complete_snapshot_and_service_state() -> None:
@@ -391,6 +396,7 @@ def test_gateway_apply_schedules_timer_before_firewall(
         "service_state",
         lambda unit: {"unit": unit, "active": False, "enabled": False},
     )
+    monkeypatch.setattr(module, "legacy_dns_owned_by_snarkypuss", lambda: False)
     monkeypatch.setattr(module, "write_state", fake_write_state)
     monkeypatch.setattr(module, "apply_firewall", lambda _config: events.append("FIREWALL"))
     monkeypatch.setattr(module.os, "geteuid", lambda: 0)
@@ -415,7 +421,55 @@ def test_gateway_apply_schedules_timer_before_firewall(
     assert timer_index < events.index("FIREWALL")
     reload_index = events.index("systemctl daemon-reload")
     wireguard_index = events.index("systemctl enable --now wg-quick@wg0.service")
-    dnsmasq_index = events.index("systemctl enable --now dnsmasq.service")
-    assert reload_index < wireguard_index < dnsmasq_index
+    dns_index = events.index("systemctl enable --now snarkypuss-dns.service")
+    assert reload_index < wireguard_index < dns_index
     assert state["status"] == "pending"
     assert state["token"] == "0123456789abcdef"
+
+
+def test_gateway_apply_migrates_only_recognized_legacy_dns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = load_script_module(ACTIVATE_SCRIPT, "snarkypuss_activate_legacy_test")
+    events: list[str] = []
+
+    def fake_run(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess[str]:
+        events.append(" ".join(command))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    def fake_service_state(unit: str) -> dict[str, str | bool]:
+        if unit == "dnsmasq.service":
+            return {"unit": unit, "active": True, "enabled": True}
+        return {"unit": unit, "active": False, "enabled": False}
+
+    monkeypatch.setattr(module, "run", fake_run)
+    monkeypatch.setattr(module, "service_state", fake_service_state)
+    monkeypatch.setattr(module, "legacy_dns_owned_by_snarkypuss", lambda: True)
+    monkeypatch.setattr(
+        module,
+        "output",
+        lambda command: "*filter\nCOMMIT\n" if command == ["iptables-save"] else "0\n",
+    )
+    monkeypatch.setattr(module, "write_state", lambda _path, _state: None)
+    monkeypatch.setattr(module, "apply_firewall", lambda _config: None)
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.Path, "is_file", lambda _path: True)
+    monkeypatch.setattr(module.secrets, "token_hex", lambda _length: "0123456789abcdef")
+    monkeypatch.setattr(module, "STATE_DIRECTORY", tmp_path)
+    monkeypatch.setattr(module, "PERSISTENT_RULES", tmp_path / "rules.v4")
+
+    arguments = SimpleNamespace(
+        console_confirmed=True,
+        provider_leak_protection_confirmed=True,
+        rollback_after=120,
+    )
+    config = {
+        "tunnel_interface": "wg0",
+        "protected_egress_interface": "nordlynx",
+        "client_cidr": "10.8.0.0/24",
+    }
+
+    assert module.apply(arguments, config) == 0
+    disable = events.index("systemctl disable --now dnsmasq.service")
+    enable = events.index("systemctl enable --now snarkypuss-dns.service")
+    assert disable < enable

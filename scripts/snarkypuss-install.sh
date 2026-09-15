@@ -18,10 +18,11 @@ Options:
   --allow-unsupported  Permit a Linux release other than Ubuntu 24.04
   -h, --help           Show this help
 
-This script installs only provider-neutral gateway dependencies. It does not
-install or configure NordVPN or another upstream VPN provider, write gateway
-configuration, explicitly activate gateway services, change routes, or alter
-firewall rules. Package-maintainer scripts remain subject to Ubuntu policy.
+This script installs only provider-neutral gateway dependencies. It installs
+`dnsmasq-base` for the dnsmasq executable but does not install or configure the
+Ubuntu dnsmasq system service. It does not install or configure NordVPN or
+another upstream VPN provider, write gateway configuration, explicitly activate
+gateway services, change routes, or alter firewall rules.
 EOF
 }
 
@@ -72,11 +73,6 @@ if ! command -v apt-get >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! command -v dpkg-query >/dev/null 2>&1; then
-    printf '%s\n' "Required command is unavailable: dpkg-query" >&2
-    exit 1
-fi
-
 if [ "$dry_run" != true ] && [ "$(id -u)" -ne 0 ]; then
     printf '%s\n' "Run this script as root, for example with sudo." >&2
     exit 1
@@ -85,7 +81,7 @@ fi
 packages="
 ca-certificates
 curl
-dnsmasq
+dnsmasq-base
 dnsutils
 iproute2
 iptables
@@ -115,37 +111,13 @@ if [ "$dry_run" = true ]; then
     fi
     print_install_command
     printf '%s\n' \
-        "For a newly installed dnsmasq, an active stock bind-interfaces directive would be backed up and disabled so Snarkypuss can use bind-dynamic." \
-        "A newly installed dnsmasq unit would be stopped and disabled pending configuration." \
+        "Snarkypuss uses dnsmasq-base and a dedicated snarkypuss-dns.service; the stock dnsmasq service/configuration is not installed or modified." \
         "No packages were installed and no services or network settings were changed."
     exit 0
 fi
 
-dnsmasq_preexisting=false
-if dpkg-query --show --showformat='${Status}\n' dnsmasq 2>/dev/null \
-    | grep -qx 'install ok installed'; then
-    dnsmasq_preexisting=true
-fi
-
 if [ "$skip_update" != true ]; then
     apt-get update
-fi
-
-policy_path=/usr/sbin/policy-rc.d
-policy_created=false
-cleanup() {
-    if [ "$policy_created" = true ]; then
-        rm -f "$policy_path"
-    fi
-}
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
-
-if [ "$dnsmasq_preexisting" != true ] && [ ! -e "$policy_path" ]; then
-    umask 022
-    printf '%s\n' '#!/bin/sh' 'exit 101' >"$policy_path"
-    chmod 0755 "$policy_path"
-    policy_created=true
 fi
 
 # Deliberately avoid shell expansion of user-provided values. The package list
@@ -153,44 +125,7 @@ fi
 # shellcheck disable=SC2086
 DEBIAN_FRONTEND=noninteractive apt-get install --yes $packages
 
-# Ubuntu's stock dnsmasq configuration enables bind-interfaces. Snarkypuss uses
-# bind-dynamic so dnsmasq can start safely before the WireGuard interface/address
-# appears. The two directives are mutually exclusive. Only alter the stock file
-# when this invocation installed dnsmasq itself; a pre-existing dnsmasq setup is
-# administrator-owned and is left untouched.
-if [ "$dnsmasq_preexisting" != true ] && [ -f /etc/dnsmasq.conf ]; then
-    if grep -Eq '^[[:space:]]*bind-interfaces[[:space:]]*$' /etc/dnsmasq.conf; then
-        backup=/etc/dnsmasq.conf.snarkypuss-original
-        if [ ! -e "$backup" ]; then
-            cp -a /etc/dnsmasq.conf "$backup"
-        fi
-        temporary=$(mktemp /etc/dnsmasq.conf.snarkypuss.XXXXXX)
-        awk '
-            /^[[:space:]]*bind-interfaces[[:space:]]*$/ {
-                print "# " $0 "  # disabled by Snarkypuss; bind-dynamic is used"
-                next
-            }
-            { print }
-        ' /etc/dnsmasq.conf >"$temporary"
-        chown --reference=/etc/dnsmasq.conf "$temporary"
-        chmod --reference=/etc/dnsmasq.conf "$temporary"
-        mv "$temporary" /etc/dnsmasq.conf
-        printf '%s\n' \
-            "Disabled the stock dnsmasq bind-interfaces directive for Snarkypuss bind-dynamic mode." \
-            "Original dnsmasq configuration saved as $backup."
-    fi
-fi
-
-if [ "$dnsmasq_preexisting" != true ] && command -v systemctl >/dev/null 2>&1; then
-    systemctl disable --now dnsmasq.service
-    printf '%s\n' \
-        "The newly installed dnsmasq service is stopped and disabled until configuration."
-fi
-
-cleanup
-trap - EXIT HUP INT TERM
-
 printf '%s\n' \
     "Base Snarkypuss gateway packages are installed." \
-    "No Snarkypuss route or firewall rule was applied." \
-    "Ubuntu package-maintainer scripts may have created or enabled default service units."
+    "The stock dnsmasq service/configuration was not installed or modified." \
+    "No Snarkypuss service, route, or firewall rule was activated."

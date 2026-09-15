@@ -14,10 +14,10 @@ This guide sets up the VPS and networking layer of a new Snarkypuss deployment. 
 - verifying the private management path and protected Internet path, and
 - restricting public administrative access after the private path is proven.
 
-DNS configuration files are generated as part of the gateway configuration because the
-current Snarkypuss activation process manages `dnsmasq` together with WireGuard. The next
-numbered guide, [02_SETUP_DNS.md](02_SETUP_DNS.md), explains DNS in detail and performs the
-full DNS verification.
+The gateway generator also creates the Snarkypuss-owned private DNS configuration and
+`snarkypuss-dns.service`. The next numbered guide,
+[02_SETUP_DNS.md](02_SETUP_DNS.md), explains DNS in detail and performs the full DNS
+verification.
 
 After networking and DNS are working, continue with
 [03_SETUP_SNARKYCTL.md](03_SETUP_SNARKYCTL.md).
@@ -29,7 +29,7 @@ The tested reference deployment uses:
 - Ubuntu 24.04 LTS on the VPS,
 - Linode as the VPS host,
 - NordVPN as the upstream VPN provider,
-- `dnsmasq` for DNS on the private tunnel, and
+- a dedicated `dnsmasq` instance for DNS on the private tunnel, and
 - SnarkyCtl for private status and control.
 
 These are the tested reference choices, not architectural requirements.
@@ -196,8 +196,10 @@ The installer supplies the provider-neutral WireGuard, DNS, routing, firewall, a
 dependencies used by the gateway. It does not install, log in to, connect, or configure
 NordVPN.
 
-If `dnsmasq` is newly installed, the installer deliberately leaves it stopped and disabled
-until managed configuration exists.
+For DNS, the installer installs `dnsmasq-base`, which provides `/usr/sbin/dnsmasq` without
+installing Ubuntu's stock `dnsmasq.service` or making Snarkypuss depend on
+`/etc/dnsmasq.conf`. The Snarkypuss DNS service is generated later and is not started by the
+package-install step.
 
 ## 4. Create the WireGuard tunnel on Windows and copy its public key
 
@@ -288,8 +290,8 @@ The generator creates these managed files:
 |---|---|
 | `/etc/wireguard/wg0.private.key` | Persistent Linode WireGuard private key |
 | `/etc/wireguard/wg0.conf` | Linode WireGuard interface and Windows peer |
-| `/etc/dnsmasq.d/snarkypuss.conf` | Private DNS listener and upstreams |
-| `/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf` | `dnsmasq` dependency on WireGuard |
+| `/etc/snarkypuss/dnsmasq.conf` | Snarkypuss-owned private DNS listener and upstreams |
+| `/etc/systemd/system/snarkypuss-dns.service` | Dedicated private DNS service and WireGuard dependency |
 | `/etc/sysctl.d/90-snarkypuss.conf` | Persistent IPv4 forwarding setting |
 
 Generating these files does not by itself make the forwarding path live. Live changes are
@@ -434,7 +436,7 @@ Before applying it, confirm that:
 - NordVPN leak protection is enabled,
 - the configured protected egress interface matches the actual provider interface,
 - the Windows WireGuard tunnel configuration has been saved, and
-- the generated WireGuard and `dnsmasq` files exist.
+- the generated WireGuard and dedicated DNS files exist.
 
 Review the activation plan:
 
@@ -458,7 +460,11 @@ sudo scripts/snarkypuss-activate.py \
 The activation process captures the previous firewall, forwarding, and relevant service
 state before changing anything. It schedules a transient systemd rollback timer, creates the
 dedicated Snarkypuss forwarding/NAT chains, enables IPv4 forwarding at runtime, and starts
-the managed WireGuard and `dnsmasq` services.
+the managed WireGuard and `snarkypuss-dns.service` services.
+
+On a legacy Snarkypuss installation, activation also cuts over from the recognized old
+`dnsmasq.service` configuration to `snarkypuss-dns.service`. It refuses to disable an
+unrecognized administrator-owned dnsmasq service.
 
 The script prints an activation token. **Do not confirm the activation yet.** First test the
 real Windows client path.
