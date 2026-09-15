@@ -299,9 +299,10 @@
       }))
       .filter((item) => item.label);
     selections.sort((left, right) => right.depth - left.depth || left.index - right.index);
-    return selections.length
-      ? selections.map((item) => item.label).join(", ")
-      : kindSchema.label;
+    if (selections.length) {
+      return selections.map((item) => item.label).join(", ");
+    }
+    return (kindSchema.fields || []).length === 0 ? kindSchema.label : "";
   }
 
   function updateAutoLabel(target, kindSchema) {
@@ -732,6 +733,13 @@
       const kindCaption = document.createElement("span");
       kindCaption.textContent = "Target type";
       const kindSelect = document.createElement("select");
+      if (!target.selector.kind) {
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Select target type…";
+        placeholder.disabled = true;
+        kindSelect.append(placeholder);
+      }
       for (const kind of targetSchema.selector_kinds) {
         const option = document.createElement("option");
         option.value = kind.kind;
@@ -831,14 +839,12 @@
     ) {
       return;
     }
-    const kind = targetSchema.selector_kinds[0];
     newDestinationDraft = {
       alias: "",
       label: "",
-      selector: selectorDefaults(kind),
+      selector: { kind: "" },
     };
     autoLabelTargets.add(newDestinationDraft);
-    updateAutoLabel(newDestinationDraft, kind);
     editableCatalogue.targets.push(newDestinationDraft);
     renderEditor();
   }
@@ -992,7 +998,11 @@
       timeZoneName: "short",
     });
     currentTarget = status?.target || null;
-    if (currentTarget && targetSelect.querySelector(`option[value="${currentTarget}"]`)) {
+    if (
+      !targetSelect.value &&
+      currentTarget &&
+      targetSelect.querySelector(`option[value="${currentTarget}"]`)
+    ) {
       targetSelect.value = currentTarget;
     }
     syncControls();
