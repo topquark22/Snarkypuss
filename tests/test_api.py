@@ -34,6 +34,8 @@ from snarkyctl.targets.models import (
     SelectorKind,
     StoredTarget,
     TargetCatalogue,
+    TargetOption,
+    TargetOptions,
 )
 
 REQUEST_ID = UUID("0de2718e-98b1-43a0-879f-867d87b81a75")
@@ -603,6 +605,143 @@ def test_admin_schema_and_catalogue_are_authenticated(
     assert catalogue.status_code == 200
     assert catalogue.json()["revision"] == 3
     assert catalogue.json()["targets"][0]["selector"] == {"kind": "recommended"}
+
+
+def test_admin_target_options_are_authenticated_and_provider_neutral(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    received: list[tuple[str, str, str, dict[str, object]]] = []
+    options = TargetOptions(
+        provider="nordvpn",
+        kind="city",
+        field="city",
+        options=(TargetOption(value="dallas", label="Dallas"),),
+    )
+
+    def target_options(
+        _self: object,
+        provider: str,
+        kind: str,
+        field: str,
+        context: dict[str, object],
+    ) -> ControlResponse:
+        received.append((provider, kind, field, context))
+        return ControlResponse(
+            request_id=REQUEST_ID,
+            success=True,
+            message="ok",
+            target_options=options,
+        )
+
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.targets",
+        lambda _self: _active_provider_response(),
+    )
+    monkeypatch.setattr("snarkyctl.main.ControlClient.target_options", target_options)
+    app = create_app(make_runtime(tmp_path))
+    path = (
+        "/api/v3/admin/vpn/target-options"
+        "?kind=city&field=city&country=united_states"
+    )
+
+    assert get(app, path=path).status_code == 401
+    response = get(app, path=path, auth=("admin", "secret"))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "nordvpn",
+        "kind": "city",
+        "field": "city",
+        "options": [{"value": "dallas", "label": "Dallas"}],
+    }
+    assert received == [
+        ("nordvpn", "city", "city", {"country": "united_states"})
+    ]
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_status"),
+    [
+        ("UNKNOWN_TARGET_KIND", 404),
+        ("UNKNOWN_TARGET_FIELD", 404),
+        ("INVALID_TARGET_CONTEXT", 400),
+        ("STATIC_TARGET_FIELD", 409),
+        ("UNSUPPORTED_TARGET_DISCOVERY", 409),
+        ("PROVIDER_TIMEOUT", 504),
+    ],
+)
+def test_admin_target_options_maps_control_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_code: str,
+    expected_status: int,
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.targets",
+        lambda _self: _active_provider_response(),
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.target_options",
+        lambda *_args: ControlResponse(
+            request_id=REQUEST_ID,
+            success=False,
+            error_code=error_code,
+            message="discovery failed",
+        ),
+    )
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v3/admin/vpn/target-options?kind=city&field=city",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == error_code
+
+
+def test_admin_target_options_rejects_invalid_request_before_daemon_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def forbidden(*_args: object) -> ControlResponse:
+        raise AssertionError("invalid target-options request must not reach the daemon")
+
+    monkeypatch.setattr("snarkyctl.main.ControlClient.target_options", forbidden)
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v3/admin/vpn/target-options?kind=City&field=city",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_admin_target_options_requires_response_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.targets",
+        lambda _self: _active_provider_response(),
+    )
+    monkeypatch.setattr(
+        "snarkyctl.main.ControlClient.target_options",
+        lambda *_args: ControlResponse(
+            request_id=REQUEST_ID,
+            success=True,
+            message="missing options",
+        ),
+    )
+
+    response = get(
+        create_app(make_runtime(tmp_path)),
+        path="/api/v3/admin/vpn/target-options?kind=city&field=city",
+        auth=("admin", "secret"),
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "INVALID_RESPONSE"
 
 
 def test_admin_catalogue_replace_requires_same_origin_and_maps_conflict(

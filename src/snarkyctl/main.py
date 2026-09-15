@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Annotated, Final, Literal
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -22,7 +22,7 @@ from snarkyctl.control.client import ControlClient, ControlClientError
 from snarkyctl.control.protocol import ControlResponse, TargetAlias
 from snarkyctl.providers.base import GatewayMode, VpnStatus, VpnTargetCatalog
 from snarkyctl.status import GatewayStatus
-from snarkyctl.targets.models import ProviderTargetSchema, StoredTarget, TargetCatalogue
+from snarkyctl.targets.models import JsonValue, ProviderTargetSchema, StoredTarget, TargetCatalogue, TargetOptions
 
 EXPOSURE_WARNING = "The VPS real public IP address is exposed."
 UNKNOWN_WARNING = "The gateway's public-IP exposure state cannot be determined."
@@ -331,6 +331,36 @@ def create_app(
         return response.provider_target_schema
 
     @application.get(
+        "/api/v3/admin/vpn/target-options",
+        response_model=TargetOptions,
+        responses=_OPERATION_ERROR_RESPONSES,
+    )
+    def admin_target_options(
+        request: Request,
+        kind: Annotated[str, Query(pattern=r"^[a-z][a-z0-9_-]{0,31}$")],
+        field: Annotated[str, Query(pattern=r"^[a-z][a-z0-9_]{0,31}$")],
+        credentials: Annotated[HTTPBasicCredentials | None, Depends(_BASIC_AUTH)],
+    ) -> TargetOptions:
+        """Return dynamically discovered values for one provider selector field."""
+        active_runtime = _get_runtime(request)
+        _authenticate(active_runtime.auth_file, credentials)
+        client = _control_client(active_runtime)
+        provider = _active_provider(client)
+        context: dict[str, JsonValue] = {
+            name: value
+            for name, value in request.query_params.multi_items()
+            if name not in {"kind", "field"}
+        }
+        if len(context) > 16:
+            raise ApiError(400, "INVALID_REQUEST", "target discovery context is too large")
+        response = _target_control(
+            lambda: client.target_options(provider, kind, field, context)
+        )
+        if response.target_options is None:
+            raise ApiError(502, "INVALID_RESPONSE", "control response has no target options")
+        return response.target_options
+
+    @application.get(
         "/api/v3/admin/vpn/targets",
         response_model=TargetCatalogue,
         responses=_OPERATION_ERROR_RESPONSES,
@@ -527,7 +557,13 @@ def _target_control(operation: Callable[[], ControlResponse]) -> ControlResponse
     status_code = {
         "INVALID_CATALOG": 400,
         "UNKNOWN_PROVIDER": 404,
+        "UNKNOWN_TARGET_KIND": 404,
+        "UNKNOWN_TARGET_FIELD": 404,
+        "INVALID_TARGET_CONTEXT": 400,
+        "STATIC_TARGET_FIELD": 409,
         "UNSUPPORTED_TARGET_SELECTION": 409,
+        "UNSUPPORTED_TARGET_DISCOVERY": 409,
+        "PROVIDER_TIMEOUT": 504,
         "CATALOG_CONFLICT": 409,
         "CATALOG_MIGRATION_REQUIRED": 409,
     }.get(code, 502)
