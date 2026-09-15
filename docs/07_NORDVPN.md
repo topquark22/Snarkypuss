@@ -63,9 +63,6 @@ The helper derives the WireGuard listener port and management subnet from
 - a narrow exception for the private WireGuard management subnet, and
 - Kill Switch enabled.
 
-The helper detects whether the installed NordVPN client uses the current `allowlist`
-command or the older `whitelist` spelling.
-
 Keep the LISH console available before applying provider firewall changes. LISH is
 independent of WireGuard, SSH, and the NordVPN firewall and is the recovery path if remote
 management is interrupted.
@@ -106,7 +103,7 @@ network path.
 
 ### Equivalent provider operations
 
-For a current NordVPN client using `allowlist`, the helper performs operations equivalent to:
+The helper performs operations equivalent to:
 
 ```bash
 sudo nordvpn set technology NordLynx
@@ -119,15 +116,9 @@ sudo nordvpn set killswitch on
 The actual port and subnet come from `/etc/snarkypuss-setup.conf`; the reference values above
 are not hard-coded policy values.
 
-Older NordVPN clients may use the equivalent `whitelist` command. The helper detects the
-accepted spelling rather than requiring the administrator to choose it manually.
-
 Do not broadly allowlist TCP port 22 or TCP port 8443. SSH and SnarkyCtl remain private
 services reached through WireGuard. Do not expose them publicly as a substitute for a
 correct management-path exception.
-
-Snarkypuss does not require an invented `nordvpn set firewall on` command. The NordVPN client
-owns its own firewall behavior.
 
 ## 4. Connect and inspect NordVPN
 
