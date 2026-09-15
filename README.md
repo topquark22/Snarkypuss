@@ -175,14 +175,23 @@ tests/                    Automated tests
 ## Versioning and release tags
 
 The Git repository is versioned as the complete Snarkypuss system. Repository release tags
-use a date-based `sp-YYYY.MM.DD-N` format. For example:
+use this format:
 
 ```text
-sp-2026.09.15-1
+YYYY.MM.DD-N_<snarkyctl-version>
 ```
 
-`YYYY.MM.DD` is the repository release date. The final integer is a sequence number beginning
-at `1` and incremented only when more than one repository release is made on the same date.
+For example:
+
+```text
+2026.09.15-1_1.0.3
+```
+
+`YYYY.MM.DD` is the repository release date. `N` is a sequence number beginning at `1` and
+incremented only when more than one repository release is made on the same date. The suffix
+after the underscore records the SnarkyCtl application version contained in that repository
+snapshot.
+
 A repository release covers the gateway scripts, documentation, tests, build tooling,
 SnarkyCtl source, and Debian packaging as one source-tree snapshot.
 
@@ -191,13 +200,13 @@ application version is `1.0.3`, represented by `pyproject.toml`, wheel metadata,
 version output, and the Debian upstream version. The corresponding Debian package version is
 `1.0.3-1`.
 
-Git repository tags do not mirror the SnarkyCtl package version. A later `sp-*` release may
-therefore contain the same SnarkyCtl `.deb` version when only gateway scripts, documentation,
-tests, or other repository-level components have changed.
+The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
+version it contains without making the two release schemes identical. Repository-only changes
+can advance the date/sequence while retaining the same SnarkyCtl suffix.
 
 ## Project status
 
-The repository uses date-based `sp-*` release tags beginning with `sp-2026.09.15-1`.
-SnarkyCtl `1.0.3` remains the current published management-package version. Administrators
-should retain console access and verify leak protection before relying on a new repository
-release for sensitive traffic.
+Repository releases use date-based tags such as `2026.09.15-1_1.0.3`. SnarkyCtl `1.0.3`
+remains the current published management-package version. Administrators should retain
+console access and verify leak protection before relying on a new repository release for
+sensitive traffic.
