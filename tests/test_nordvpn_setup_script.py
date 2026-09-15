@@ -9,6 +9,7 @@ import pytest
 
 
 SCRIPT = Path("scripts/snarkypuss-nordvpn-configure.py")
+GUIDE = Path("docs/07_NORDVPN.md")
 
 
 def load_module() -> Any:
@@ -132,3 +133,25 @@ def test_settings_verification_rejects_unsafe_state() -> None:
         module.verify_settings(
             "Technology: NordLynx\nKill Switch: disabled\nAuto-connect: disabled\n"
         )
+
+
+def test_apply_requires_console_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_module()
+    config = write_config(tmp_path)
+
+    monkeypatch.setattr(module, "detect_allowlist_command", lambda _runner: "allowlist")
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+
+    result = module.main(["--config", str(config), "--apply"])
+
+    assert result == 1
+
+
+def test_nordvpn_guide_invokes_setup_helper() -> None:
+    guide = GUIDE.read_text(encoding="utf-8")
+
+    assert "scripts/snarkypuss-nordvpn-configure.py" in guide
+    assert "--dry-run" in guide
+    assert "--apply" in guide
+    assert "--console-confirmed" in guide
+    assert "fail-closed" in guide.casefold()
