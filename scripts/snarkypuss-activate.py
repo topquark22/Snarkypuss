@@ -22,6 +22,14 @@ STATE_DIRECTORY = Path("/var/lib/snarkypuss/activations")
 PERSISTENT_RULES = Path("/etc/iptables/rules.v4")
 FORWARD_CHAIN = "SNARKYPUSS_FORWARD"
 NAT_CHAIN = "SNARKYPUSS_NAT"
+DNS_SERVICE = "snarkypuss-dns.service"
+LEGACY_DNS_SERVICE = "dnsmasq.service"
+DNS_CONFIG = Path("/etc/snarkypuss/dnsmasq.conf")
+DNS_UNIT = Path("/etc/systemd/system/snarkypuss-dns.service")
+LEGACY_DNS_MARKERS = (
+    Path("/etc/dnsmasq.d/snarkypuss.conf"),
+    Path("/etc/systemd/system/dnsmasq.service.d/snarkypuss.conf"),
+)
 
 
 class ActivationError(RuntimeError):
@@ -115,6 +123,10 @@ def service_state(unit: str) -> dict[str, str | bool]:
     active = run(["systemctl", "is-active", "--quiet", unit], check=False).returncode == 0
     enabled = run(["systemctl", "is-enabled", "--quiet", unit], check=False).returncode == 0
     return {"unit": unit, "active": active, "enabled": enabled}
+
+
+def legacy_dns_owned_by_snarkypuss() -> bool:
+    return any(path.is_file() for path in LEGACY_DNS_MARKERS)
 
 
 def write_state(path: Path, state: dict[str, Any]) -> None:
@@ -258,11 +270,24 @@ def apply(arguments: argparse.Namespace, config: dict[str, str]) -> int:
     wireguard_config = Path(f"/etc/wireguard/{tunnel}.conf")
     if not wireguard_config.is_file():
         raise ActivationError(f"generated WireGuard configuration is missing: {wireguard_config}")
-    if not Path("/etc/dnsmasq.d/snarkypuss.conf").is_file():
-        raise ActivationError("generated dnsmasq configuration is missing")
+    if not DNS_CONFIG.is_file():
+        raise ActivationError(f"generated DNS configuration is missing: {DNS_CONFIG}")
+    if not DNS_UNIT.is_file():
+        raise ActivationError(f"generated DNS service unit is missing: {DNS_UNIT}")
     run(["ip", "link", "show", "dev", egress], capture=True)
     run(["wg-quick", "strip", tunnel], capture=True)
-    run(["dnsmasq", "--test"], capture=True)
+    run(
+        ["dnsmasq", "--test", f"--conf-file={DNS_CONFIG}"],
+        capture=True,
+    )
+
+    legacy_dns = service_state(LEGACY_DNS_SERVICE)
+    legacy_owned = legacy_dns_owned_by_snarkypuss()
+    if (legacy_dns["active"] or legacy_dns["enabled"]) and not legacy_owned:
+        raise ActivationError(
+            "dnsmasq.service is active or enabled but is not recognized as a legacy "
+            "Snarkypuss resolver; refusing to disable an administrator-owned service"
+        )
 
     token = secrets.token_hex(8)
     state_path = STATE_DIRECTORY / f"{token}.json"
@@ -272,7 +297,8 @@ def apply(arguments: argparse.Namespace, config: dict[str, str]) -> int:
     persistent = PERSISTENT_RULES.read_text(encoding="utf-8") if PERSISTENT_RULES.exists() else ""
     services = [
         service_state(f"wg-quick@{tunnel}.service"),
-        service_state("dnsmasq.service"),
+        service_state(DNS_SERVICE),
+        legacy_dns,
     ]
     state: dict[str, Any] = {
         "token": token,
@@ -309,7 +335,9 @@ def apply(arguments: argparse.Namespace, config: dict[str, str]) -> int:
         run(["sysctl", "-w", "net.ipv4.ip_forward=1"])
         run(["systemctl", "daemon-reload"])
         run(["systemctl", "enable", "--now", f"wg-quick@{tunnel}.service"])
-        run(["systemctl", "enable", "--now", "dnsmasq.service"])
+        if legacy_owned and (legacy_dns["active"] or legacy_dns["enabled"]):
+            run(["systemctl", "disable", "--now", LEGACY_DNS_SERVICE])
+        run(["systemctl", "enable", "--now", DNS_SERVICE])
     except ActivationError:
         run(
             [
