@@ -26,6 +26,7 @@ from snarkyctl.control.protocol import (
     StatusRequest,
     TargetCatalogGetRequest,
     TargetCatalogReplaceRequest,
+    TargetOptionsRequest,
     TargetSchemaRequest,
     TargetsRequest,
     encode_message,
@@ -44,9 +45,14 @@ from snarkyctl.providers.base import (
 from snarkyctl.status import PublicIpStatus, StatusCollectionError
 from snarkyctl.targets.models import (
     ProviderTargetSchema,
+    SelectorField,
+    SelectorFieldType,
     SelectorKind,
+    SelectorOptionSource,
     StoredTarget,
     TargetCatalogue,
+    TargetOption,
+    TargetOptions,
 )
 from snarkyctl.targets.repository import (
     MemoryTargetRepository,
@@ -351,6 +357,205 @@ def test_daemon_returns_schema_and_editable_catalogue() -> None:
     assert catalogue.success
     assert catalogue.editable_target_catalogue is not None
     assert catalogue.editable_target_catalogue.targets[0].selector["value"] == "us9167"
+
+
+def test_daemon_returns_provider_target_options() -> None:
+    class DiscoveryProvider(FakeProvider):
+        capabilities = FakeProvider.capabilities.model_copy(
+            update={"target_discovery": True}
+        )
+
+        def target_schema(self) -> ProviderTargetSchema:
+            return ProviderTargetSchema(
+                provider="fake",
+                selector_kinds=(
+                    SelectorKind(
+                        kind="city",
+                        label="City",
+                        fields=(
+                            SelectorField(
+                                name="country",
+                                label="Country",
+                                field_type=SelectorFieldType.CHOICE,
+                                option_source=SelectorOptionSource.PROVIDER,
+                            ),
+                            SelectorField(
+                                name="city",
+                                label="City",
+                                field_type=SelectorFieldType.CHOICE,
+                                option_source=SelectorOptionSource.PROVIDER,
+                                depends_on=("country",),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        def target_options(
+            self, kind: str, field: str, context: dict[str, str | int | bool | None]
+        ) -> TargetOptions:
+            assert kind == "city"
+            assert field == "city"
+            assert context == {"country": "united_states"}
+            return TargetOptions(
+                provider="fake",
+                kind=kind,
+                field=field,
+                options=(TargetOption(value="dallas", label="Dallas"),),
+            )
+
+    response = control_service(DiscoveryProvider()).dispatch(
+        TargetOptionsRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_OPTIONS,
+            provider="fake",
+            kind="city",
+            field="city",
+            context={"country": "united_states"},
+        )
+    )
+
+    assert response.success
+    assert response.target_options is not None
+    assert response.target_options.options[0].value == "dallas"
+
+
+@pytest.mark.parametrize(
+    ("provider", "kind", "field", "context", "error_code"),
+    [
+        ("other", "city", "city", {"country": "united_states"}, "UNKNOWN_PROVIDER"),
+        ("fake", "unknown", "city", {"country": "united_states"}, "UNKNOWN_TARGET_KIND"),
+        ("fake", "city", "unknown", {"country": "united_states"}, "UNKNOWN_TARGET_FIELD"),
+        ("fake", "city", "city", {}, "INVALID_TARGET_CONTEXT"),
+        (
+            "fake",
+            "city",
+            "city",
+            {"country": "united_states", "extra": "value"},
+            "INVALID_TARGET_CONTEXT",
+        ),
+    ],
+)
+def test_daemon_rejects_invalid_target_option_requests_before_provider_call(
+    provider: str,
+    kind: str,
+    field: str,
+    context: dict[str, str],
+    error_code: str,
+) -> None:
+    class DiscoveryProvider(FakeProvider):
+        capabilities = FakeProvider.capabilities.model_copy(
+            update={"target_discovery": True}
+        )
+
+        def target_schema(self) -> ProviderTargetSchema:
+            return ProviderTargetSchema(
+                provider="fake",
+                selector_kinds=(
+                    SelectorKind(
+                        kind="city",
+                        label="City",
+                        fields=(
+                            SelectorField(
+                                name="country",
+                                label="Country",
+                                field_type=SelectorFieldType.CHOICE,
+                                option_source=SelectorOptionSource.PROVIDER,
+                            ),
+                            SelectorField(
+                                name="city",
+                                label="City",
+                                field_type=SelectorFieldType.CHOICE,
+                                option_source=SelectorOptionSource.PROVIDER,
+                                depends_on=("country",),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        def target_options(
+            self, kind: str, field: str, context: dict[str, str | int | bool | None]
+        ) -> TargetOptions:
+            raise AssertionError("target_options must not be called")
+
+    response = control_service(DiscoveryProvider()).dispatch(
+        TargetOptionsRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_OPTIONS,
+            provider=provider,
+            kind=kind,
+            field=field,
+            context=context,
+        )
+    )
+
+    assert not response.success
+    assert response.error_code == error_code
+
+
+def test_daemon_rejects_discovery_for_unsupported_provider() -> None:
+    response = control_service().dispatch(
+        TargetOptionsRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_OPTIONS,
+            provider="fake",
+            kind="legacy",
+            field="value",
+            context={},
+        )
+    )
+    assert not response.success
+    assert response.error_code == "UNSUPPORTED_TARGET_DISCOVERY"
+
+
+def test_daemon_rejects_discovery_for_static_field() -> None:
+    class DiscoveryProvider(FakeProvider):
+        capabilities = FakeProvider.capabilities.model_copy(
+            update={"target_discovery": True}
+        )
+
+        def target_schema(self) -> ProviderTargetSchema:
+            return ProviderTargetSchema(
+                provider="fake",
+                selector_kinds=(
+                    SelectorKind(
+                        kind="legacy",
+                        label="Legacy",
+                        fields=(
+                            SelectorField(
+                                name="value",
+                                label="Value",
+                                field_type=SelectorFieldType.CHOICE,
+                                choices=("one",),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+
+        def target_options(
+            self, kind: str, field: str, context: dict[str, str | int | bool | None]
+        ) -> TargetOptions:
+            raise AssertionError("target_options must not be called")
+
+    response = control_service(DiscoveryProvider()).dispatch(
+        TargetOptionsRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_OPTIONS,
+            provider="fake",
+            kind="legacy",
+            field="value",
+            context={},
+        )
+    )
+
+    assert not response.success
+    assert response.error_code == "STATIC_TARGET_FIELD"
 
 
 def test_daemon_commits_replacement_before_switching_snapshot() -> None:

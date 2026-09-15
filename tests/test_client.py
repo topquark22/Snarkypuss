@@ -82,6 +82,11 @@ def test_targets_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     ("method", "arguments", "operation"),
     [
         ("target_schema", ("nordvpn",), Operation.TARGET_SCHEMA),
+        (
+            "target_options",
+            ("nordvpn", "city", "city", {"country": "united_states"}),
+            Operation.TARGET_OPTIONS,
+        ),
         ("editable_catalogue", ("nordvpn",), Operation.TARGET_CATALOG_GET),
         (
             "replace_catalogue",
