@@ -261,10 +261,13 @@ def test_gateway_configuration_apply_is_idempotent_and_private(
     assert "PersistentKeepalive = 25" in wireguard_config.read_text(encoding="utf-8")
     assert "PostUp" not in wireguard_config.read_text(encoding="utf-8")
     assert "PostDown" not in wireguard_config.read_text(encoding="utf-8")
-    assert "server=1.1.1.1" in dns_config.read_text(encoding="utf-8")
+    dns_text = dns_config.read_text(encoding="utf-8")
+    assert "server=1.1.1.1" in dns_text
+    assert "bind-dynamic" in dns_text
+    assert "bind-interfaces" not in dns_text
     drop_in = dnsmasq_drop_in.read_text(encoding="utf-8")
     assert "Requires=wg-quick@wg0.service" in drop_in
-    assert "After=wg-quick@wg0.service" in drop_in
+    assert "After=wg-quick@wg0.service" not in drop_in
     assert "net.ipv4.ip_forward=1" in sysctl_config.read_text(encoding="utf-8")
     assert stat.S_IMODE(private_key.stat().st_mode) == 0o600
     assert stat.S_IMODE(wireguard_config.stat().st_mode) == 0o600
