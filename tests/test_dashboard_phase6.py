@@ -35,7 +35,7 @@ def test_dashboard_autofills_new_labels_until_manually_edited() -> None:
 
     assert "const autoLabelTargets = new WeakSet();" in script
     assert "function suggestedTargetLabel(" in script
-    assert "updateAutoLabel(newDestinationDraft, kind);" in script
+    assert "updateAutoMetadata(target, kind);" in script
     assert "autoLabelTargets.delete(target);" in script
 
 
@@ -53,5 +53,5 @@ def test_dashboard_refreshes_target_dropdown_from_committed_save() -> None:
     script = dashboard_script()
 
     assert "function populateTargetSelect(targets)" in script
-    assert "populateTargetSelect(payload.targets);" in script
+    assert "await loadTargets();" in script
     assert "Catalogue saved." in script

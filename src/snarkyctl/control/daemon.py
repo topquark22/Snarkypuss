@@ -295,6 +295,13 @@ class ControlService:
                     error_code="UNSUPPORTED_TARGET_SELECTION",
                     message=f"{self._provider.name} does not support target selection.",
                 )
+            if not request.targets and self._builtin_recommended_target is None:
+                return ControlResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error_code="INVALID_CATALOG",
+                    message="A target catalogue must contain at least one target.",
+                )
             if any(self._is_reserved_builtin_target(target) for target in request.targets):
                 return ControlResponse(
                     request_id=request.request_id,
