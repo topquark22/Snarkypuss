@@ -117,6 +117,13 @@ sudo dnsmasq --test
 
 A valid configuration should report that the syntax check is OK.
 
+On a clean Snarkypuss installation, `scripts/snarkypuss-install.sh` prepares the stock Ubuntu
+dnsmasq configuration for this mode. If that invocation newly installed dnsmasq, it backs up
+`/etc/dnsmasq.conf` as `/etc/dnsmasq.conf.snarkypuss-original` and comments out an active
+standalone `bind-interfaces` directive. It does not rewrite `/etc/dnsmasq.conf` when dnsmasq
+was already installed before Snarkypuss, because that file may contain administrator-owned
+configuration.
+
 If this command reports:
 
 ```text
