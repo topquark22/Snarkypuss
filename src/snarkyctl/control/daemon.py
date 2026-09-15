@@ -63,6 +63,8 @@ LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
 CONTROL_IO_TIMEOUT_SECONDS = 5.0
 CONTROL_WORKER_COUNT = 8
+BUILTIN_RECOMMENDED_ALIAS = "recommended"
+BUILTIN_RECOMMENDED_LABEL = "Fastest available server"
 _PEER_CREDENTIALS = struct.Struct("3i")
 
 
@@ -105,7 +107,47 @@ class ControlService:
             )
         self._target_repository = repository
         self._catalogue = repository.get_catalogue(provider.name)
-        self._targets = {target.alias: target for target in self._catalogue.targets}
+        self._builtin_recommended_target = self._make_builtin_recommended_target()
+        self._targets = {
+            target.alias: target
+            for target in self._catalogue.targets
+            if not self._is_reserved_builtin_target(target)
+        }
+
+    def _make_builtin_recommended_target(self) -> StoredTarget | None:
+        """Return the provider's parameterless recommended target, if supported."""
+        if not self._provider.capabilities.target_selection:
+            return None
+        schema = self._provider.target_schema()
+        recommended = next(
+            (item for item in schema.selector_kinds if item.kind == "recommended"),
+            None,
+        )
+        if recommended is None or recommended.fields:
+            return None
+        selector = self._provider.validate_selector({"kind": "recommended"})
+        return StoredTarget(
+            alias=BUILTIN_RECOMMENDED_ALIAS,
+            label=BUILTIN_RECOMMENDED_LABEL,
+            position=0,
+            selector=selector,
+        )
+
+    def _is_reserved_builtin_target(self, target: StoredTarget) -> bool:
+        """Return whether a persisted target conflicts with the built-in target."""
+        return self._builtin_recommended_target is not None and (
+            target.alias == BUILTIN_RECOMMENDED_ALIAS
+            or target.selector.get("kind") == "recommended"
+        )
+
+    def _resolve_target(self, alias: str) -> StoredTarget | None:
+        """Resolve one public alias, including the non-persisted built-in target."""
+        if (
+            self._builtin_recommended_target is not None
+            and alias == BUILTIN_RECOMMENDED_ALIAS
+        ):
+            return self._builtin_recommended_target
+        return self._targets.get(alias)
 
     @classmethod
     def from_config(cls, path: Path = DEFAULT_CONFIG_PATH) -> ControlService:
@@ -253,12 +295,15 @@ class ControlService:
                     error_code="UNSUPPORTED_TARGET_SELECTION",
                     message=f"{self._provider.name} does not support target selection.",
                 )
-            if not request.targets:
+            if any(self._is_reserved_builtin_target(target) for target in request.targets):
                 return ControlResponse(
                     request_id=request.request_id,
                     success=False,
                     error_code="INVALID_CATALOG",
-                    message="A target catalogue must contain at least one target.",
+                    message=(
+                        "The recommended target is built in and must not be stored "
+                        "in the editable catalogue."
+                    ),
                 )
             try:
                 normalized = tuple(
@@ -295,7 +340,11 @@ class ControlService:
                     message=str(exc),
                 )
             self._catalogue = catalogue
-            self._targets = {target.alias: target for target in catalogue.targets}
+            self._targets = {
+                target.alias: target
+                for target in catalogue.targets
+                if not self._is_reserved_builtin_target(target)
+            }
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -303,13 +352,22 @@ class ControlService:
                 editable_target_catalogue=catalogue,
             )
         if isinstance(request, TargetsRequest):
+            targets: list[VpnTargetSummary] = []
+            if self._builtin_recommended_target is not None:
+                targets.append(
+                    VpnTargetSummary(
+                        alias=self._builtin_recommended_target.alias,
+                        label=self._builtin_recommended_target.label,
+                    )
+                )
+            targets.extend(
+                VpnTargetSummary(alias=target.alias, label=target.label)
+                for target in self._targets.values()
+            )
             catalog = VpnTargetCatalog(
                 provider=self._provider.name,
                 capabilities=self._provider.capabilities,
-                targets=tuple(
-                    VpnTargetSummary(alias=target.alias, label=target.label)
-                    for target in self._targets.values()
-                ),
+                targets=tuple(targets),
             )
             return ControlResponse(
                 request_id=request.request_id,
@@ -382,9 +440,8 @@ class ControlService:
                 ),
             )
         if isinstance(request, ProtectedRequest):
-            try:
-                target = self._targets[request.target]
-            except KeyError:
+            target = self._resolve_target(request.target)
+            if target is None:
                 return ControlResponse(
                     request_id=request.request_id,
                     success=False,
@@ -414,9 +471,8 @@ class ControlService:
                 vpn_status=status,
             )
         if isinstance(request, ConnectRequest):
-            try:
-                target = self._targets[request.target]
-            except KeyError:
+            target = self._resolve_target(request.target)
+            if target is None:
                 return ControlResponse(
                     request_id=request.request_id,
                     success=False,

@@ -423,9 +423,7 @@
         targets: editableTargets,
       };
       managerRevision.textContent = String(payload.revision);
-      populateTargetSelect(payload.targets);
-      catalogueAvailable = payload.targets.length > 0;
-      setControlMessage(`${payload.targets.length} approved target(s) available.`);
+      await loadTargets();
       setManagerMessage(
         `Removed ${removing.size} unavailable destination(s).`,
         "success",
@@ -741,6 +739,9 @@
         kindSelect.append(placeholder);
       }
       for (const kind of targetSchema.selector_kinds) {
+        if (kind.kind === "recommended") {
+          continue;
+        }
         const option = document.createElement("option");
         option.value = kind.kind;
         option.textContent = kind.label;
@@ -937,11 +938,8 @@
     try {
       const payload = await replaceCatalogueTargets(editableCatalogue.targets);
       adoptCommittedCatalogue(payload);
-      populateTargetSelect(payload.targets);
-      catalogueAvailable = payload.targets.length > 0;
-      setControlMessage(`${payload.targets.length} approved target(s) available.`);
+      await loadTargets();
       setManagerMessage("Catalogue saved.", "success");
-      syncControls();
     } catch (error) {
       setManagerMessage(error instanceof Error ? error.message : "Catalogue save failed.", "error");
     } finally {
