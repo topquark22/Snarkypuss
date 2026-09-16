@@ -3,8 +3,9 @@ snarkyctl (2.0.0-1) unstable; urgency=medium
   * Add provider-neutral VPN target discovery models and capability metadata.
   * Add schema support for provider-backed selector choices and field dependencies.
   * Validate selector dependencies and reject dependency cycles.
-  * Add provider-neutral target option response models.
+  * Add provider-neutral discovery across control, API, and UI layers.
   * Extend the VPN provider interface with controlled target discovery support.
+  * Update NordVPN target selection and documentation.
 
  -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Tue, 15 Sep 2026 17:28:57 -0400
 
