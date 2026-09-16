@@ -169,13 +169,20 @@
 
 \newcommand{\coverrule}[1]{{\color{covercyan}\rule{#1}{0.5pt}}}
 
+% Distance from the paper edge to the trim edge: zero in the screen edition,
+% the bleed-plus-marks margin in the press edition. Cover type is positioned
+% against the TRIM, never against the paper, or it shifts between editions.
+\newlength{\trimoffset}
+\setlength{\trimoffset}{%%TRIMOFFSET%%}
+
 \newcommand{\backcoverpage}[1]{%
   \thispagestyle{empty}%
   \IfFileExists{#1}{\bleedimage{#1}}{%
     \null\vfill\begin{center}\sffamily\color{snarkymute} missing plate: #1\end{center}\vfill\null}%
   \begin{tikzpicture}[remember picture,overlay,
       every node/.style={inner sep=0pt,outer sep=0pt}]
-    \coordinate (tl) at (current page.north west);
+    \coordinate (tl) at
+      ($(current page.north west)+(\trimoffset,-\trimoffset)$);
 
     \node[anchor=north, text=coverwhite, align=center,
           font=\sffamily\bfseries\fontsize{12.6pt}{15pt}\selectfont]
@@ -196,7 +203,7 @@
 
     \node[anchor=north, text=coverwhite,
           font=\sffamily\fontsize{12pt}{14pt}\selectfont]
-      at ($(tl)+(74mm,-186mm)$) {snarkypuss.ca};
+      at ($(tl)+(74mm,-186mm)$) {%%SITEURL%%};
     \node[anchor=north] at ($(tl)+(74mm,-193mm)$) {\coverrule{112mm}};
     \node[anchor=north, text=covermute, align=center,
           font=\sffamily\fontsize{6.6pt}{9pt}\selectfont]

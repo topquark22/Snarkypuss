@@ -420,8 +420,11 @@ def compile_pdf(verbose=False, press=False):
     engine = shutil.which("lualatex")
     if not engine:
         raise BuildError("lualatex was not found in PATH")
+    # TeX treats a backslash as an escape, so hand it forward-slash paths even
+    # on Windows. Both MiKTeX and TeX Live accept them.
     command = [engine, "-interaction=nonstopmode", "-halt-on-error",
-               "-output-directory", str(BUILD), str(artifacts(press)[0])]
+               "-output-directory", BUILD.as_posix(),
+               artifacts(press)[0].as_posix()]
     log = ""
     for _ in range(2):
         env = dict(os.environ, max_print_line="10000", error_line="254", half_error_line="238")
@@ -469,13 +472,32 @@ def print_fit(rows):
         print(f"  {page:>4}  {layout:<13}  {pct:>5.1f}%  {status}")
 
 
-def validate_pdf(press=False):
+def validate_pdf(press=False, log=""):
+    """Check the produced PDF.
+
+    pdfinfo (poppler) gives the strongest check, reading page count and page
+    size out of the finished file. It is standard on Linux and macOS but is
+    not part of a Windows TeX installation, so when it is absent we fall back
+    to the engine's own report of what it wrote. That still catches a wrong
+    page count; it cannot independently confirm the page size.
+    """
     pdf = artifacts(press)[1]
     if not pdf.exists():
         raise BuildError("PDF was not produced")
+
     pdfinfo = shutil.which("pdfinfo")
     if not pdfinfo:
-        raise BuildError("pdfinfo was not found in PATH")
+        m = re.search(r"Output written on \S+ \((\d+) pages?", log)
+        if not m:
+            raise BuildError(
+                "cannot verify the PDF: pdfinfo is not in PATH and the LaTeX "
+                "log did not report a page count")
+        count = int(m.group(1))
+        if count != PAGE_COUNT:
+            raise BuildError(f"expected exactly {PAGE_COUNT} pages, got {count}")
+        print("note: pdfinfo not found; page size not independently verified")
+        return count
+
     info = subprocess.run([pdfinfo, str(pdf)], text=True,
                           capture_output=True, check=True).stdout
     pages = re.search(r"^Pages:\s+(\d+)$", info, re.M)
@@ -526,7 +548,7 @@ def main():
         return
 
     log = compile_pdf(args.verbose, args.press)
-    count = validate_pdf(args.press)
+    count = validate_pdf(args.press, log)
     rows = fit_report(log)
     target = artifacts(args.press)[1]
     geometry = "press, trim + 3mm bleed + marks" if args.press else "screen, A5 trim"

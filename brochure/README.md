@@ -89,6 +89,31 @@ sudo apt install \
 | tikz / pgf | texlive-pictures | all four diagrams |
 | Libertinus Serif, Libertinus Sans | texlive-fonts-extra | body and display faces |
 
+### Windows
+
+Install a Windows TeX distribution and run the build from `cmd` or
+PowerShell with native Windows Python. MiKTeX is the easier of the two,
+because it fetches missing packages on demand rather than needing the right
+collections chosen up front:
+
+```
+winget install MiKTeX.MiKTeX
+winget install Python.Python.3.12
+python tools\build.py
+```
+
+TeX Live for Windows works equally well if you already have it.
+
+`pdfinfo` is a poppler tool and is not part of either distribution. The build
+does not require it: without it, the page count is taken from the engine's own
+report instead, and it says so. Page size then goes unverified, which only
+matters if you are editing the geometry. To get the stronger check, install
+poppler for Windows and put its `bin` on PATH.
+
+Do not run the build under Cygwin against a native Windows TeX. Cygwin gives
+POSIX paths that a Windows binary cannot resolve, and the failure is obscure.
+Use Cygwin's own TeX Live, WSL2, or native Windows throughout -- not a mixture.
+
 The Libertinus faces are loaded by name through fontspec and resolved from the
 TeX tree, so they do not need to be installed as system fonts. If the build
 fails on `\setmainfont`, `texlive-fonts-extra` is missing.
@@ -160,6 +185,7 @@ template change, not a page-source change.
 | `<!-- figure: name width=100% height=45mm -->` | Raster or PDF figure from `images/diagrams/name.pdf` |
 | `<!-- snapshot -->` | The legislative dating line, from `edition.conf` |
 | `<!-- edition -->` | The publication line: edition, build date, snapshot |
+| `{{site}}` | Inline: the site address from `edition.conf` |
 
 Content files must not contain raw LaTeX or manual spacing adjustments. The
 template owns typography, colour, geometry and spacing. Page markers are the
@@ -228,6 +254,29 @@ snapshot_warn_months = 6
 ```
 
 `version` is the brochure edition. Bump it when you publish a revision.
+
+`site_url` is the project's public address, and the only place it is written.
+It reaches the back cover through the template, page 15 through the `{{site}}`
+token in `content/`, and the QR through `tools/make_qr.py`. Change it in one
+place and reissue the code:
+
+```bash
+python3 tools/make_qr.py          # regenerates images/diagrams/qr-site.tex
+```
+
+If you forget, the build stops rather than producing a brochure whose printed
+address and QR disagree:
+
+```
+build failed: QR mismatch: qr-site.tex encodes https://snarkypuss.ca, but
+edition.conf says https://snarkypuss.org.
+            Reissue it: python3 tools/make_qr.py
+```
+
+`qr-site.tex` is committed, not ignored. The build does not run `make_qr.py`
+-- deliberately, so that a clone builds with nothing beyond the Python
+standard library -- which makes the generated file a build *input*, like the
+diagrams.
 
 `legislative_snapshot` is the month against which pages 2–4 were researched
 and verified. **Set it by hand, and only after re-checking the claims against
