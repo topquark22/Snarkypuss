@@ -151,13 +151,6 @@ should normally read it:
     trust boundaries, data/control planes, privilege separation, provider abstraction, and
     failure model.
 
-Additional numbered operations and reference documents will be added under `docs/` as the
-documentation consolidation proceeds.
-
-Do not expose the management listener publicly as a shortcut during installation.
-Development plans, architecture decisions, and historical design artifacts remain under
-[`development/`](development/README.md).
-
 ## Repository layout
 
 ```text
@@ -184,7 +177,7 @@ YYYY.MM.DD-N_<snarkyctl-version>
 For example:
 
 ```text
-2026.09.15-1_1.0.3
+2026.09.15-4_2.0.0
 ```
 
 `YYYY.MM.DD` is the repository release date. `N` is a sequence number beginning at `1` and
@@ -196,17 +189,10 @@ A repository release covers the gateway scripts, documentation, tests, build too
 SnarkyCtl source, and Debian packaging as one source-tree snapshot.
 
 SnarkyCtl retains its own application/package version independently. The currently published
-application version is `1.0.3`, represented by `pyproject.toml`, wheel metadata, command
+application version is `2.0.0`, represented by `pyproject.toml`, wheel metadata, command
 version output, and the Debian upstream version. The corresponding Debian package version is
-`1.0.3-1`.
+`2.0.0-1`.
 
 The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
 version it contains without making the two release schemes identical. Repository-only changes
 can advance the date/sequence while retaining the same SnarkyCtl suffix.
-
-## Project status
-
-Repository releases use date-based tags such as `2026.09.15-1_1.0.3`. SnarkyCtl `1.0.3`
-remains the current published management-package version. Administrators should retain
-console access and verify leak protection before relying on a new repository release for
-sensitive traffic.
