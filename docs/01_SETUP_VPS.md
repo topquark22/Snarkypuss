@@ -576,11 +576,10 @@ Only do this after the private WireGuard path has been proven from a fresh Windo
 In **Akamai Cloud Manager**, open the Linode Firewall attached to the Snarkypuss VPS and
 review the inbound rules.
 
-For the reference deployment:
-
-- allow `51820/UDP` publicly so the Windows WireGuard client can reach the Linode,
-- remove public `22/TCP` access after private SSH through WireGuard has been proven, and
-- keep `8443/TCP` closed to the public Internet.
+For the reference deployment, configure the Akamai Cloud Firewall with a default-deny
+inbound policy and allow only `51820/UDP` publicly so the Windows WireGuard client can reach
+the Linode. After private SSH through WireGuard has been proven, remove any public `22/TCP`
+rule. Keep `8443/TCP` and all other management services closed to the public Internet.
 
 Keep LISH open while changing the cloud firewall. An incorrect rule must not remove your last
 administrative path.
