@@ -266,3 +266,60 @@ def test_catalogue_rejects_persisted_builtin_target(target: StoredTarget) -> Non
     assert not response.success
     assert response.error_code == "INVALID_CATALOG"
     assert repository.get_catalogue("fake").targets == ()
+
+def test_legacy_persisted_recommended_target_is_filtered_and_removed_on_save() -> None:
+    repository = MemoryTargetRepository(
+        (
+            TargetCatalogue(
+                provider="fake",
+                revision=4,
+                targets=(
+                    StoredTarget(
+                        alias="alahuakbar",
+                        label="Fastest available server",
+                        position=0,
+                        selector={"kind": "recommended"},
+                    ),
+                    StoredTarget(
+                        alias="server1",
+                        label="Server 1",
+                        position=1,
+                        selector={"kind": "server", "server": "server1"},
+                    ),
+                ),
+            ),
+        )
+    )
+    service, _provider, repository = control_service(repository)
+
+    editable = service.dispatch(
+        TargetCatalogGetRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_GET,
+            provider="fake",
+        )
+    )
+
+    assert editable.success
+    assert editable.editable_target_catalogue is not None
+    assert [
+        (target.alias, target.position)
+        for target in editable.editable_target_catalogue.targets
+    ] == [("server1", 0)]
+
+    saved = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=4,
+            targets=editable.editable_target_catalogue.targets,
+        )
+    )
+
+    assert saved.success
+    persisted = repository.get_catalogue("fake")
+    assert persisted.revision == 5
+    assert [target.alias for target in persisted.targets] == ["server1"]

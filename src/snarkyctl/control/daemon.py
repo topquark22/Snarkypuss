@@ -108,10 +108,20 @@ class ControlService:
         self._target_repository = repository
         self._catalogue = repository.get_catalogue(provider.name)
         self._builtin_recommended_target = self._make_builtin_recommended_target()
+        editable_targets = tuple(
+            target.model_copy(update={"position": position})
+            for position, target in enumerate(
+                target
+                for target in self._catalogue.targets
+                if not self._is_reserved_builtin_target(target)
+            )
+        )
+        self._catalogue = self._catalogue.model_copy(
+            update={"targets": editable_targets}
+        )
         self._targets = {
             target.alias: target
             for target in self._catalogue.targets
-            if not self._is_reserved_builtin_target(target)
         }
 
     def _make_builtin_recommended_target(self) -> StoredTarget | None:
