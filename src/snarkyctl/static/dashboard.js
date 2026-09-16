@@ -35,6 +35,7 @@
   let targetSchema = null;
   let editableCatalogue = null;
   let newDestinationDraft = null;
+  const discoveryState = new WeakMap();
 
   const fields = {
     provider: document.querySelector("#provider"),
@@ -138,20 +139,28 @@
     });
   }
 
+  function fieldDefault(field) {
+    if (field.field_type === "boolean") {
+      return false;
+    }
+    if (field.field_type === "integer") {
+      return 0;
+    }
+    if (field.option_source !== "provider" && field.choices?.length) {
+      return field.choices[0];
+    }
+    return "";
+  }
+
   function selectorDefaults(kindSchema) {
     const selector = { kind: kindSchema.kind };
     for (const field of kindSchema.fields || []) {
-      selector[field.name] =
-        field.field_type === "boolean"
-          ? false
-          : field.field_type === "integer"
-            ? 0
-            : field.choices?.[0] || "";
+      selector[field.name] = fieldDefault(field);
     }
     return selector;
   }
 
-  function fieldControl(field, value, onChange) {
+  function fieldControl(field, value, onChange, settings = {}) {
     const wrapper = document.createElement("label");
     wrapper.className = "editor-field";
     const caption = document.createElement("span");
@@ -160,11 +169,28 @@
     let control;
     if (field.field_type === "choice") {
       control = document.createElement("select");
-      for (const choice of field.choices || []) {
+      const choices = settings.choices || (field.choices || []).map((choice) => ({
+        value: choice,
+        label: choice,
+      }));
+      if (settings.placeholder) {
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = settings.placeholder;
+        placeholder.disabled = settings.placeholderDisabled !== false;
+        control.append(placeholder);
+      }
+      for (const choice of choices) {
         const option = document.createElement("option");
-        option.value = choice;
-        option.textContent = choice;
+        option.value = choice.value;
+        option.textContent = choice.label;
         control.append(option);
+      }
+      if (settings.staleValue) {
+        const stale = document.createElement("option");
+        stale.value = settings.staleValue;
+        stale.textContent = `${settings.staleValue} (no longer available)`;
+        control.append(stale);
       }
       control.value = String(value ?? "");
     } else {
@@ -185,6 +211,7 @@
       }
     }
     control.required = field.required === true;
+    control.disabled = settings.disabled === true;
     control.addEventListener("input", () => {
       const nextValue =
         control.type === "checkbox"
@@ -195,7 +222,199 @@
       onChange(nextValue);
     });
     wrapper.append(control);
+    if (settings.note) {
+      const note = document.createElement("small");
+      note.className = "control-message";
+      if (settings.noteState) {
+        note.dataset.state = settings.noteState;
+      }
+      note.textContent = settings.note;
+      wrapper.append(note);
+    }
     return wrapper;
+  }
+
+  function targetDiscovery(target) {
+    let state = discoveryState.get(target);
+    if (!state) {
+      state = new Map();
+      discoveryState.set(target, state);
+    }
+    return state;
+  }
+
+  function dependenciesHaveValues(target, field) {
+    return (field.depends_on || []).every((name) => {
+      const value = target.selector[name];
+      return value !== "" && value !== null && value !== undefined;
+    });
+  }
+
+  function discoveryContext(target, field) {
+    const context = {};
+    for (const name of field.depends_on || []) {
+      context[name] = target.selector[name];
+    }
+    return context;
+  }
+
+  function discoveryContextKey(context) {
+    return JSON.stringify(Object.entries(context));
+  }
+
+  function clearDependentFields(target, kindSchema, changedField) {
+    const states = discoveryState.get(target);
+    for (const field of kindSchema.fields || []) {
+      if (!(field.depends_on || []).includes(changedField)) {
+        continue;
+      }
+      target.selector[field.name] = fieldDefault(field);
+      states?.delete(field.name);
+      clearDependentFields(target, kindSchema, field.name);
+    }
+  }
+
+  async function loadProviderOptions(target, kindSchema, field, state, context) {
+    const params = new URLSearchParams({
+      kind: kindSchema.kind,
+      field: field.name,
+    });
+    for (const [name, value] of Object.entries(context)) {
+      params.append(name, String(value));
+    }
+    try {
+      const response = await managerRequest(
+        `/api/v3/admin/vpn/target-options?${params.toString()}`,
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message || `Option discovery failed (${response.status}).`);
+      }
+      const current = discoveryState.get(target)?.get(field.name);
+      if (current !== state) {
+        return;
+      }
+      if (
+        payload.kind !== kindSchema.kind ||
+        payload.field !== field.name ||
+        !Array.isArray(payload.options)
+      ) {
+        throw new Error("Target option response does not match the requested field.");
+      }
+      state.status = "ready";
+      state.options = payload.options;
+      state.message = "";
+    } catch (error) {
+      const current = discoveryState.get(target)?.get(field.name);
+      if (current !== state) {
+        return;
+      }
+      state.status = "error";
+      state.options = [];
+      state.message = error instanceof Error ? error.message : "Target option discovery failed.";
+    } finally {
+      if (discoveryState.get(target)?.get(field.name) === state) {
+        renderEditor();
+      }
+    }
+  }
+
+  function ensureProviderOptions(target, kindSchema, field) {
+    if (field.option_source !== "provider" || !dependenciesHaveValues(target, field)) {
+      return null;
+    }
+    const context = discoveryContext(target, field);
+    const contextKey = discoveryContextKey(context);
+    const states = targetDiscovery(target);
+    const existing = states.get(field.name);
+    if (existing?.contextKey === contextKey) {
+      return existing;
+    }
+    const state = {
+      contextKey,
+      status: "loading",
+      options: [],
+      message: "",
+    };
+    states.set(field.name, state);
+    void loadProviderOptions(target, kindSchema, field, state, context);
+    return state;
+  }
+
+  function providerFieldControl(target, kindSchema, field) {
+    const value = target.selector[field.name];
+    if (!dependenciesHaveValues(target, field)) {
+      return fieldControl(
+        field,
+        value,
+        () => {},
+        {
+          disabled: true,
+          placeholder: "Choose required fields first…",
+          note: "This field becomes available after its dependencies are selected.",
+        },
+      );
+    }
+
+    const state = ensureProviderOptions(target, kindSchema, field);
+    if (!state || state.status === "loading") {
+      const choices = value
+        ? [{ value: String(value), label: `${value} (checking…)` }]
+        : [];
+      return fieldControl(
+        field,
+        value,
+        () => {},
+        {
+          choices,
+          disabled: true,
+          placeholder: value ? "" : "Loading options…",
+          note: "Loading current options from the VPN provider…",
+        },
+      );
+    }
+
+    if (state.status === "error") {
+      const choices = value
+        ? [{ value: String(value), label: `${value} (options unavailable)` }]
+        : [];
+      return fieldControl(
+        field,
+        value,
+        () => {},
+        {
+          choices,
+          disabled: true,
+          placeholder: value ? "" : "Options unavailable",
+          note: state.message,
+          noteState: "error",
+        },
+      );
+    }
+
+    const currentIsAvailable = state.options.some(
+      (option) => String(option.value) === String(value),
+    );
+    const staleValue = value && !currentIsAvailable ? String(value) : "";
+    return fieldControl(
+      field,
+      value,
+      (nextValue) => {
+        target.selector[field.name] = nextValue;
+        clearDependentFields(target, kindSchema, field.name);
+        renderEditor();
+      },
+      {
+        choices: state.options,
+        placeholder: "Select an option…",
+        staleValue,
+        disabled: managerBusy,
+        note: staleValue
+          ? `Saved value “${staleValue}” is no longer available. Choose a current value before saving.`
+          : "",
+        noteState: staleValue ? "error" : "",
+      },
+    );
   }
 
   function hasUnfinishedDestination() {
@@ -261,14 +480,18 @@
           target.alias,
           (value) => {
             target.alias = value;
+            syncManagerActions();
           },
+          { disabled: managerBusy },
         ),
         fieldControl(
           { label: "Label", field_type: "text", required: true, max_length: 100 },
           target.label,
           (value) => {
             target.label = value;
+            syncManagerActions();
           },
+          { disabled: managerBusy },
         ),
       );
       const kindLabel = document.createElement("label");
@@ -283,9 +506,11 @@
         kindSelect.append(option);
       }
       kindSelect.value = target.selector.kind;
+      kindSelect.disabled = managerBusy;
       kindSelect.addEventListener("change", () => {
         const kind = targetSchema.selector_kinds.find((item) => item.kind === kindSelect.value);
         target.selector = selectorDefaults(kind);
+        discoveryState.delete(target);
         renderEditor();
       });
       kindLabel.append(kindCaption, kindSelect);
@@ -298,22 +523,33 @@
       const selectorFields = document.createElement("div");
       selectorFields.className = "editor-fields selector-fields";
       for (const field of selectedKind?.fields || []) {
+        if (field.field_type === "choice" && field.option_source === "provider") {
+          selectorFields.append(providerFieldControl(target, selectedKind, field));
+          continue;
+        }
         selectorFields.append(
-          fieldControl(field, target.selector[field.name], (value) => {
-            target.selector[field.name] = value;
-          }),
+          fieldControl(
+            field,
+            target.selector[field.name],
+            (value) => {
+              target.selector[field.name] = value;
+              clearDependentFields(target, selectedKind, field.name);
+              if ((selectedKind.fields || []).some(
+                (item) => (item.depends_on || []).includes(field.name),
+              )) {
+                renderEditor();
+              } else {
+                syncManagerActions();
+              }
+            },
+            { disabled: managerBusy },
+          ),
         );
       }
       card.append(selectorFields);
       editorList.append(card);
     });
-    addTargetButton.disabled =
-      managerBusy ||
-      editableCatalogue.targets.length >= 100 ||
-      newDestinationDraft !== null ||
-      hasUnfinishedDestination();
-    reloadTargetsButton.disabled = managerBusy;
-    saveTargetsButton.disabled = managerBusy;
+    syncManagerActions();
   }
 
   async function loadManager() {
@@ -401,12 +637,54 @@
         return `Destination ${target.alias} has an unsupported target type.`;
       }
       for (const field of kind.fields || []) {
-        if (field.required && (target.selector[field.name] === "" || target.selector[field.name] == null)) {
+        const value = target.selector[field.name];
+        if (field.required && (value === "" || value == null)) {
           return `Destination ${target.alias} requires ${field.label}.`;
+        }
+        if (
+          field.field_type === "choice" &&
+          field.option_source !== "provider" &&
+          value !== "" &&
+          !(field.choices || []).includes(value)
+        ) {
+          return `Destination ${target.alias} has an invalid ${field.label} value.`;
+        }
+        if (field.field_type !== "choice" || field.option_source !== "provider") {
+          continue;
+        }
+        if (!dependenciesHaveValues(target, field)) {
+          return `Destination ${target.alias} requires dependencies for ${field.label}.`;
+        }
+        const state = discoveryState.get(target)?.get(field.name);
+        if (!state || state.status === "loading") {
+          return `Destination ${target.alias} is still loading ${field.label} options.`;
+        }
+        if (state.status === "error") {
+          return `Destination ${target.alias} cannot load ${field.label} options.`;
+        }
+        if (
+          value !== "" &&
+          !state.options.some((option) => String(option.value) === String(value))
+        ) {
+          return `Destination ${target.alias} has a stale ${field.label} value.`;
         }
       }
     }
     return null;
+  }
+
+  function syncManagerActions() {
+    if (!editableCatalogue) {
+      return;
+    }
+    addTargetButton.disabled =
+      managerBusy ||
+      editableCatalogue.targets.length >= 100 ||
+      newDestinationDraft !== null ||
+      hasUnfinishedDestination();
+    reloadTargetsButton.disabled = managerBusy;
+    saveTargetsButton.disabled =
+      managerBusy || !managerLoaded || validateEditor() !== null;
   }
 
   async function saveManager() {

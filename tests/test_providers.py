@@ -155,6 +155,8 @@ def test_nordvpn_target_schema_declares_dynamic_discovery() -> None:
     server = kinds["server"].fields[0]
 
     assert provider.capabilities.target_discovery
+    assert kinds["country"].label == "Fastest in country"
+    assert kinds["city"].label == "Fastest in city"
     assert country.field_type is SelectorFieldType.CHOICE
     assert country.option_source is SelectorOptionSource.PROVIDER
     assert city_country.option_source is SelectorOptionSource.PROVIDER
@@ -286,8 +288,8 @@ def test_nordvpn_discovery_rejects_excessive_option_count() -> None:
         ({"kind": "recommended"}, ("connect",)),
         ({"kind": "country", "country": "US"}, ("connect", "us")),
         (
-            {"kind": "city", "country": "us", "city": "Dallas"},
-            ("connect", "Dallas"),
+            {"kind": "city", "country": "US", "city": "Dallas"},
+            ("connect", "us", "Dallas"),
         ),
         ({"kind": "group", "group": "P2P"}, ("connect", "P2P")),
         ({"kind": "server", "server": "us4955"}, ("connect", "us4955")),

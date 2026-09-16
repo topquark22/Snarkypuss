@@ -381,12 +381,12 @@ class NordVpnProvider(VpnProvider):
                 SelectorKind(kind="recommended", label="Fastest available server"),
                 SelectorKind(
                     kind="country",
-                    label="Country",
+                    label="Fastest in country",
                     fields=(_provider_choice_field("country", "Country"),),
                 ),
                 SelectorKind(
                     kind="city",
-                    label="City",
+                    label="Fastest in city",
                     fields=(
                         _provider_choice_field("country", "Country"),
                         _provider_choice_field(
@@ -500,7 +500,10 @@ class NordVpnProvider(VpnProvider):
         if kind == "recommended":
             arguments = ()
         elif kind == "city":
-            arguments = (str(selector["city"]),)
+            arguments = (
+                str(selector["country"]),
+                str(selector["city"]),
+            )
         elif kind == "country":
             arguments = (str(selector["country"]),)
         elif kind == "group":
