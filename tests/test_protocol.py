@@ -20,6 +20,7 @@ from snarkyctl.control.protocol import (
     StatusRequest,
     TargetCatalogGetRequest,
     TargetCatalogReplaceRequest,
+    TargetOptionsRequest,
     TargetSchemaRequest,
     TargetsRequest,
     encode_message,
@@ -112,6 +113,22 @@ def test_oversized_request_is_rejected() -> None:
         parse_request(b"x" * (MAX_MESSAGE_SIZE + 1))
 
 
+def test_parse_target_options_request() -> None:
+    request = parse_request(
+        request_bytes(
+            "TARGET_OPTIONS",
+            provider="nordvpn",
+            kind="city",
+            field="city",
+            context={"country": "united_states"},
+        )
+    )
+    assert isinstance(request, TargetOptionsRequest)
+    assert request.kind == "city"
+    assert request.field == "city"
+    assert request.context == {"country": "united_states"}
+
+
 def test_parse_target_administration_requests() -> None:
     schema = parse_request(request_bytes("TARGET_SCHEMA", provider="nordvpn"))
     catalogue = parse_request(request_bytes("TARGET_CATALOG_GET", provider="nordvpn"))
@@ -140,6 +157,27 @@ def test_parse_target_administration_requests() -> None:
     "payload",
     [
         request_bytes("TARGET_SCHEMA", provider="NordVPN"),
+        request_bytes(
+            "TARGET_OPTIONS",
+            provider="nordvpn",
+            kind="City",
+            field="city",
+            context={},
+        ),
+        request_bytes(
+            "TARGET_OPTIONS",
+            provider="nordvpn",
+            kind="city",
+            field="City",
+            context={},
+        ),
+        request_bytes(
+            "TARGET_OPTIONS",
+            provider="nordvpn",
+            kind="city",
+            field="city",
+            context={f"field_{index}": "value" for index in range(17)},
+        ),
         request_bytes("TARGET_CATALOG_GET", provider="nordvpn", unexpected=True),
         request_bytes(
             "TARGET_CATALOG_REPLACE",
