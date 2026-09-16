@@ -111,6 +111,8 @@ is broken, but safety should not be inferred from missing information.
 The **VPN target** section contains the approved destinations that were configured during
 setup.
 
+On a fresh installation, the targets catalogue contains this built-in **Fastest available server** target, but no target is initially selected as the active target. Before connecting for the first time, select **Fastest available server** or another configured target.
+
 For routine use while the system is already protected or locked:
 
 1. Choose a destination from **Connection target**.
