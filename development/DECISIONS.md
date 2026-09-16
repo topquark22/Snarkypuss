@@ -750,3 +750,117 @@ never initialize, migrate, replace, or delete the SQLite database automatically.
 its first destination through the authenticated dashboard. The database is persistent
 application data owned by `root:root`, mode `0600`, inside a mode-`0700` root-owned
 directory. Only the privileged daemon opens it in production.
+
+## ADR-016: Provider-neutral target discovery and built-in recommended target
+
+**Status:** Accepted for Plan 11.
+
+### Context
+
+ADR-014 established provider-owned structured selectors and a generic schema-driven target
+editor, but its first implementation assumed that editor choices were static metadata and
+that every selectable target was a persisted catalogue row.
+
+Plan 11 added live provider-backed choices. NordVPN exposes changing country, city, and group
+lists, and City depends on a selected Country. This information must be discoverable without
+letting the browser execute provider commands or adding NordVPN-specific branching to generic
+HTTP, protocol, or dashboard code.
+
+Implementation and UAT also exposed several lifecycle cases that the original catalogue
+decision did not settle:
+
+- the provider's parameterless recommended target should always exist without consuming a
+  database row;
+- old migrated legacy selectors must remain operable and removable without encouraging new
+  legacy data;
+- discovered provider choices can disappear after they have been saved;
+- friendly labels and stable aliases should not require repetitive manual entry; and
+- advanced free-text provider selectors should not require the dashboard to duplicate
+  provider-specific semantic validation.
+
+### Decision
+
+Target discovery is part of the provider-neutral adapter contract.
+
+`ProviderCapabilities` includes a `target_discovery` capability. Choice fields in provider
+schema metadata identify their option source as static or provider-backed and may declare
+dependencies on other fields in the same selector kind. Provider-backed discovery returns
+bounded `(value, label)` option records so machine values remain separate from presentation
+text.
+
+The privileged control protocol includes the read-only `TARGET_OPTIONS` operation. The
+authenticated HTTP API exposes the corresponding generic target-options endpoint. Before
+calling an adapter, the daemon verifies:
+
+- the active provider identity;
+- selector kind and field name;
+- that the field is provider-backed;
+- the exact declared dependency-key set; and
+- the provider discovery capability.
+
+Provider-native discovery remains inside the compiled adapter. The web process and dashboard
+never execute provider commands directly and contain no NordVPN-specific discovery branches.
+
+The NordVPN adapter discovers:
+
+- countries with `nordvpn countries`;
+- cities with `nordvpn cities <country>`; and
+- groups with `nordvpn groups`.
+
+Exact server enumeration remains out of scope. `Specific server` stays an advanced text
+selector. SnarkyCtl enforces structural safety limits but does not attempt to prove that a
+server identifier such as `us9176` currently exists. NordVPN remains authoritative for that
+semantic check when a connection is attempted.
+
+A zero-field provider selector kind named `recommended` is treated as a built-in target. The
+daemon synthesizes the reserved public target:
+
+```text
+alias: recommended
+label: Fastest available server
+selector: {"kind": "recommended"}
+```
+
+The built-in target is not stored in SQLite, is not editable, and cannot be renamed,
+duplicated, or deleted. A provider with this built-in target may have an empty persisted
+catalogue. Persisted rows that conflict with the reserved alias or selector are rejected on
+replacement; legacy persisted recommended rows are filtered from the editable view and are
+removed by the next successful catalogue replacement.
+
+This supersedes ADR-014's requirement that the dashboard universally refuse an empty
+catalogue and ADR-015's consequence that a clean installation must create a first persisted
+destination before it has a usable target. Providers without a built-in recommended target
+still require at least one persisted destination.
+
+Legacy selectors remain compatibility data. Existing legacy targets stay visible,
+connectable, editable, and removable, and may be converted to a modern selector. The dashboard
+does not offer the Legacy type when adding a new destination.
+
+For new structured destinations, the dashboard automatically proposes a label from provider
+display labels and generates a unique normalized alias from the same information. Manual
+editing of either field stops automatic replacement of that field. The reserved
+`recommended` alias is never generated for an editable target.
+
+If a persisted provider-backed option disappears from current discovery results, the
+dashboard never silently substitutes another option. It normally cleans up the unavailable
+persisted destination automatically; if automatic cleanup cannot complete, the problem is
+surfaced for administrator removal or replacement. This intentionally differs from the
+original Plan 11 deferred-work note that automatic deletion would be postponed.
+
+Provider command failures keep their stable structured error code and bounded diagnostic
+message at the control/API boundary. The dashboard may replace raw provider command output
+with a shorter generic user-facing message.
+
+### Consequences
+
+- Country -> City cascading and Group discovery remain generic UI behavior.
+- Provider discovery can evolve independently of the public HTTP/API contract.
+- Provider output is treated as untrusted, bounded data before it reaches the browser.
+- Discovery does not weaken authoritative selector validation before storage or use.
+- A usable default target can exist without mutable database state.
+- Legacy data can age out through ordinary administrator editing rather than a destructive
+  migration.
+- Provider-backed stale destinations are never silently retargeted and are normally cleaned
+  up automatically.
+- Exact server semantics remain owned by the provider instead of being duplicated in the
+  dashboard.

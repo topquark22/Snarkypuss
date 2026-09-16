@@ -204,31 +204,64 @@ remains available.
 
 ## 7. NordVPN destinations in SnarkyCtl
 
-SnarkyCtl stores provider-neutral destination aliases in the root-owned SQLite catalogue.
-The built-in NordVPN adapter validates the provider-specific selector behind each alias.
+SnarkyCtl keeps the editable NordVPN destination catalogue in root-owned SQLite, but not
+every public connection target is a database row. The NordVPN adapter declares a
+parameterless recommended selector, so SnarkyCtl synthesizes this built-in target:
 
-The dashboard supports these NordVPN destination types:
+```text
+Alias: recommended
+Label: Fastest available server
+```
 
-| Type | Meaning |
+It appears in the normal connection selector and ultimately invokes a plain
+`nordvpn connect`. It is not stored in SQLite, cannot be renamed or removed, and does not
+appear as an editable destination.
+
+The dashboard supports these NordVPN target forms:
+
+| Target type | Meaning |
 |---|---|
-| Recommended | Let NordVPN choose its recommended server. |
-| Country | Select a server within one country. |
-| City | Select a server in one city within a country. |
-| Group | Select a NordVPN specialty group. |
-| Server | Select one exact NordVPN server. |
+| **Fastest in country** | Let NordVPN choose a server within a selected country. |
+| **Fastest in city** | Let NordVPN choose a server in a selected city within a selected country. |
+| **Server group** | Connect using one of the groups reported by `nordvpn groups`. |
+| **Specific server** | Pass one explicit NordVPN server identifier, such as `us9176`. |
+| **Legacy configured target** | Compatibility form for an older migrated target; existing entries only. |
 
-Use the installed NordVPN client to discover available values. Depending on client version,
-commands include:
+Country, city, and group fields are discovered live through the installed client:
 
 ```bash
 nordvpn countries
 nordvpn cities united_states
 nordvpn groups
-nordvpn help
 ```
 
-Provider destinations can change independently of Snarkypuss, so validate selectors against
-the installed client rather than copying an old list from documentation.
+The dashboard renders those provider-backed choices generically. City is a cascading choice:
+Country must be selected before the City list can be loaded. Labels shown to the user are
+kept separate from the stored machine values.
+
+A group is whatever category the installed NordVPN client currently reports. Some groups may
+represent account-specific or specialty services. Selecting a group does not add another IP
+or server field; SnarkyCtl passes the selected group to NordVPN and NordVPN decides whether
+that target is available for the logged-in account. If it is not, the connection fails with
+a controlled provider error.
+
+**Specific server** deliberately remains an advanced text field. SnarkyCtl applies basic
+structural safety limits but does not duplicate NordVPN's semantic validation rules. For
+example, `us9176` can be stored and passed as the server identifier. A nonexistent or
+otherwise invalid identifier is allowed to fail when NordVPN performs the connection.
+SnarkyCtl does not enumerate exact servers in this release.
+
+For new destinations, the dashboard proposes a friendly label and a unique alias from the
+selected provider labels. Manual edits to either value are preserved.
+
+`Legacy configured target` exists only so old imported values remain usable. Existing legacy
+entries can be connected, changed to a modern target type, or removed. The dashboard does not
+offer Legacy when adding a new destination.
+
+Provider choices can change independently of Snarkypuss. If a saved provider-backed choice
+disappears from current discovery results, the destination manager never silently changes its
+selector to another value. It normally cleans up unavailable persisted entries automatically;
+if automatic cleanup cannot complete, the administrator can remove or replace the entry.
 
 ## 8. What the SnarkyCtl NordVPN adapter does
 
@@ -250,6 +283,16 @@ performs bounded runtime operations after deployment.
 The browser never supplies arbitrary shell commands. Target aliases are resolved against the
 trusted catalogue and provider selector fields are validated before the fixed NordVPN
 executable is invoked.
+
+Dynamic option discovery follows the same privilege boundary. The unprivileged web process
+requests a schema-declared kind, field, and dependency context from the control daemon; only
+the NordVPN adapter executes `countries`, `cities`, or `groups`. Provider output is bounded,
+parsed, and returned as separate machine values and display labels.
+
+For a city target, the adapter supplies both the validated country and city to
+`nordvpn connect`. For a Specific server target, the adapter passes the validated text value
+unchanged as the one server argument. Provider command failures remain available as
+structured API errors, while the dashboard presents a shorter user-facing failure message.
 
 ## 9. NordVPN and Snarkypuss gateway modes
 
