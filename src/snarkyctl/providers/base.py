@@ -9,7 +9,7 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from snarkyctl.targets.models import JsonObject, ProviderTargetSchema, StoredTarget
+from snarkyctl.targets.models import JsonObject, ProviderTargetSchema, StoredTarget, TargetOptions
 
 
 class VpnState(StrEnum):
@@ -40,6 +40,7 @@ class ProviderCapabilities(BaseModel):
     connect: bool
     disconnect: bool
     target_selection: bool
+    target_discovery: bool = False
     server_details: bool
     leak_protection_configuration: bool = False
 
@@ -135,6 +136,14 @@ class VpnProvider(ABC):
         raise ProviderError(
             "UNSUPPORTED_TARGET_SELECTION",
             f"{self.name} does not support target selection.",
+        )
+
+    def target_options(self, kind: str, field: str, context: JsonObject) -> TargetOptions:
+        """Return dynamically discovered values for one selector field."""
+        del kind, field, context
+        raise ProviderError(
+            "UNSUPPORTED_TARGET_DISCOVERY",
+            f"{self.name} does not support target discovery.",
         )
 
     def validate_selector(self, selector: JsonObject) -> JsonObject:

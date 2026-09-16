@@ -28,6 +28,13 @@ class SelectorFieldType(StrEnum):
     INTEGER = "integer"
 
 
+class SelectorOptionSource(StrEnum):
+    """Source of values for one choice selector field."""
+
+    STATIC = "static"
+    PROVIDER = "provider"
+
+
 class SelectorField(BaseModel):
     """One provider-declared selector field."""
 
@@ -38,7 +45,17 @@ class SelectorField(BaseModel):
     field_type: SelectorFieldType
     required: bool = True
     choices: tuple[str, ...] = Field(default=(), max_length=100)
+    option_source: SelectorOptionSource = SelectorOptionSource.STATIC
+    depends_on: tuple[str, ...] = Field(default=(), max_length=MAX_SELECTOR_FIELDS)
     max_length: int | None = Field(default=None, ge=1, le=200)
+
+    @model_validator(mode="after")
+    def validate_option_source(self) -> SelectorField:
+        if self.option_source is SelectorOptionSource.PROVIDER and self.field_type is not SelectorFieldType.CHOICE:
+            raise ValueError("provider-backed options require a choice field")
+        if self.option_source is SelectorOptionSource.PROVIDER and self.choices:
+            raise ValueError("provider-backed choice fields cannot declare static choices")
+        return self
 
 
 class SelectorKind(BaseModel):
@@ -49,6 +66,38 @@ class SelectorKind(BaseModel):
     kind: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
     label: str = Field(min_length=1, max_length=100)
     fields: tuple[SelectorField, ...] = Field(default=(), max_length=MAX_SELECTOR_FIELDS)
+
+    @model_validator(mode="after")
+    def validate_dependencies(self) -> SelectorKind:
+        field_names = [field.name for field in self.fields]
+        if len(field_names) != len(set(field_names)):
+            raise ValueError("selector field names must be unique")
+
+        known_fields = set(field_names)
+        dependencies = {field.name: field.depends_on for field in self.fields}
+        for field in self.fields:
+            if len(field.depends_on) != len(set(field.depends_on)):
+                raise ValueError("selector field dependencies must be unique")
+            if any(dependency not in known_fields for dependency in field.depends_on):
+                raise ValueError("selector field dependencies must refer to fields in the same kind")
+
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(field_name: str) -> None:
+            if field_name in visiting:
+                raise ValueError("selector field dependencies must not contain cycles")
+            if field_name in visited:
+                return
+            visiting.add(field_name)
+            for dependency in dependencies[field_name]:
+                visit(dependency)
+            visiting.remove(field_name)
+            visited.add(field_name)
+
+        for field_name in field_names:
+            visit(field_name)
+        return self
 
 
 class ProviderTargetSchema(BaseModel):
@@ -66,6 +115,26 @@ class ProviderTargetSchema(BaseModel):
         if len(kinds) != len(set(kinds)):
             raise ValueError("selector kinds must be unique")
         return self
+
+
+class TargetOption(BaseModel):
+    """One provider-discovered selector value and its display label."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    value: str = Field(min_length=1, max_length=200)
+    label: str = Field(min_length=1, max_length=100)
+
+
+class TargetOptions(BaseModel):
+    """Provider-neutral response for one dynamic selector field."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    provider: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    kind: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,31}$")
+    field: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    options: tuple[TargetOption, ...] = Field(default=(), max_length=100)
 
 
 class StoredTarget(BaseModel):

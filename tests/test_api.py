@@ -491,6 +491,7 @@ def test_target_catalogue_is_provider_neutral(
                 target_selection=True,
                 server_details=True,
                 leak_protection_configuration=True,
+                target_discovery=False,
             ),
             targets=(
                 VpnTargetSummary(alias="dallas", label="Dallas, United States"),
@@ -516,12 +517,13 @@ def test_target_catalogue_is_provider_neutral(
             "target_selection": True,
             "server_details": True,
             "leak_protection_configuration": True,
+            "target_discovery": False,
         },
         "targets": [
             {"alias": "dallas", "label": "Dallas, United States"},
             {"alias": "prague", "label": "Prague, Czechia"},
         ],
-    }
+    } 
     assert "provider_target" not in response.text
 
 
