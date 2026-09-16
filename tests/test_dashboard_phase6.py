@@ -55,3 +55,12 @@ def test_dashboard_refreshes_target_dropdown_from_committed_save() -> None:
     assert "function populateTargetSelect(targets)" in script
     assert "await loadTargets();" in script
     assert "Catalogue saved." in script
+
+def test_dashboard_hides_raw_provider_command_failures_from_operation_messages() -> None:
+    script = dashboard_script()
+
+    assert "function vpnOperationErrorMessage(" in script
+    assert 'payload?.error?.code === "PROVIDER_COMMAND_FAILED"' in script
+    assert 'The VPN provider could not connect to "${targetLabel}".' in script
+    assert "The VPN provider could not complete the requested mode change." in script
+    assert "return payload?.error?.message || fallback;" in script
