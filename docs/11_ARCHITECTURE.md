@@ -279,6 +279,7 @@ PROTECTED
 LOCK
 DIRECT
 TARGET_SCHEMA
+TARGET_OPTIONS
 TARGET_CATALOG_GET
 TARGET_CATALOG_REPLACE
 ```
@@ -296,9 +297,14 @@ manage the catalogue:
 
 ```text
 TARGET_SCHEMA
+TARGET_OPTIONS
 TARGET_CATALOG_GET
 TARGET_CATALOG_REPLACE
 ```
+
+`TARGET_OPTIONS` is read-only discovery. The daemon validates its provider, selector kind,
+field, option source, and dependency context against the active provider schema before the
+adapter can perform provider-specific discovery.
 
 This separation prevents provider-specific selector documents from leaking into ordinary
 status or connection flows.
@@ -323,8 +329,53 @@ The core provider contract includes concepts such as:
 - status;
 - settings relevant to safety decisions;
 - connect/disconnect;
-- target-schema and selector validation when target selection is supported; and
+- target-schema and selector validation when target selection is supported;
+- provider-backed target-option discovery when the provider supports it; and
 - leak-protection configuration when the provider supports it.
+
+### Provider-neutral target discovery
+
+Target discovery extends the provider abstraction without moving provider semantics into the
+browser or HTTP layer.
+
+A schema choice field declares whether its options are static or provider-backed. A
+provider-backed field may also declare dependencies on other fields in the same selector kind.
+The generic flow is:
+
+```text
+dashboard
+   |
+   | kind + field + declared dependency context
+   v
+authenticated target-options HTTP endpoint
+   |
+   v
+TARGET_OPTIONS control request
+   |
+   v
+privileged daemon schema/context validation
+   |
+   v
+compiled provider adapter
+   |
+   | bounded provider-native discovery
+   v
+TargetOption(value, label) records
+   |
+   v
+generic dashboard choice control
+```
+
+The unprivileged web process never runs provider discovery commands. The privileged daemon
+admits only fields that the reviewed schema marks as provider-backed and requires the exact
+declared dependency context. The adapter owns provider-native discovery, output parsing,
+normalization, and limits.
+
+Discovery values are editing assistance, not a replacement for authoritative validation. A
+selector is validated by the adapter before storage and again before use. Advanced text
+selectors may intentionally receive only structural safety validation; for example, a
+Specific server identifier can be stored without proving that the provider currently offers
+that server, and a semantic error may therefore occur at connection time.
 
 ### Fixed provider registry
 
@@ -405,6 +456,23 @@ commits successfully.
 
 A stale revision produces `CATALOG_CONFLICT`; it does not silently overwrite another
 administrator's newer edit.
+
+### Built-in and compatibility targets
+
+A provider may declare a parameterless `recommended` selector as a built-in public target.
+When present, the daemon synthesizes the reserved alias `recommended` at runtime instead of
+persisting a row in SQLite. Ordinary target listings include it; the editable catalogue does
+not. This permits an otherwise empty persisted catalogue while still retaining a usable
+provider-selected default target.
+
+Legacy selectors remain a compatibility mechanism for previously migrated values. Existing
+legacy rows remain visible to administration so they can be connected, converted, or deleted,
+but the dashboard does not offer Legacy as a type for newly created targets.
+
+For provider-backed discovered choices, the dashboard treats a saved value that disappears
+from current discovery as stale. It never silently substitutes a different value and normally
+cleans up the unavailable persisted destination automatically; failed automatic cleanup is
+surfaced for administrator action.
 
 ## 10. Gateway modes are observed state
 
@@ -694,6 +762,8 @@ The architecture follows several recurring principles:
    interface.
 10. **Independent recovery.** VPS console access remains available when network policy goes
     wrong.
+11. **Provider-neutral discovery.** Generic clients request only schema-declared options;
+    provider-native discovery stays inside the trusted adapter.
 
 ## 19. Design patterns used
 

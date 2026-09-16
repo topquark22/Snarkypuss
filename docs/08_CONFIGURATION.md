@@ -443,7 +443,16 @@ is stored or used.
 The selector is **data**, not provider-supplied executable code. The browser does not submit
 arbitrary shell fragments or executable paths.
 
-## 12. Provider target schema
+A public target does not necessarily correspond to a SQLite row. If the active provider
+declares a zero-field `recommended` selector, the control daemon synthesizes the reserved
+built-in target `recommended` at runtime. For NordVPN its label is **Fastest available
+server**. The built-in target is excluded from the editable catalogue and is never persisted.
+
+Because of that built-in fallback, a provider catalogue may contain zero persisted rows when
+the active adapter supplies the built-in recommended target. Providers without such a
+built-in target still require at least one persisted destination.
+
+## 12. Provider target schema and discovery
 
 The active provider exposes reviewed schema metadata describing the target forms that the
 generic dashboard may render.
@@ -457,14 +466,28 @@ boolean
 integer
 ```
 
-The schema may define multiple selector kinds, each with its own fields.
+The schema may define multiple selector kinds, each with its own fields. A choice field also
+declares whether its options are static schema data or must be discovered from the active
+provider. Provider-backed fields may declare dependencies on earlier fields. For example, a
+City field can depend on Country without the generic dashboard knowing what either concept
+means to a particular provider.
 
-This schema is provider-neutral metadata. The dashboard renders the form generically rather
-than containing provider-specific HTML or JavaScript.
+Dynamic discovery is exposed as a provider capability and returns bounded option records with
+separate machine values and display labels. Before the adapter is called, the privileged
+daemon verifies the active provider, selector kind, field, option source, and exact declared
+dependency context against the reviewed schema. The web process never invokes provider
+commands directly.
 
-This document describes the currently implemented static schema behavior only. Planned
-dynamic provider target discovery is development work and is not part of the current
-configuration contract.
+Discovery assists editing; it does not replace authoritative selector validation. Every
+selector is still validated by the compiled adapter before it is stored and again before it
+is used.
+
+Text fields remain text fields. In particular, NordVPN's **Specific server** selector is not
+semantically validated against a live server inventory. It is stored subject to structural
+safety limits and is allowed to succeed or fail when NordVPN performs the actual connection.
+
+The schema and discovery contracts are provider-neutral metadata. The dashboard contains no
+NordVPN-specific branching for Country, City, or Group discovery.
 
 ## 13. Administrative target commands
 

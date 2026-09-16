@@ -115,6 +115,9 @@ Request-schema failures return HTTP `400` with:
 ```
 
 Error `code` values are intended to be more stable for clients than free-form message text.
+A `PROVIDER_COMMAND_FAILED` response may include bounded provider diagnostic detail in its
+message. The dashboard may replace that detail with a shorter user-facing explanation while
+preserving the structured error code at the API boundary.
 
 ## 5. `GET /api/health/live`
 
@@ -128,7 +131,7 @@ Example response:
 {
   "status": "ok",
   "service": "snarkyctl-web",
-  "version": "0.10.0.dev4"
+  "version": "2.0.0"
 }
 ```
 
@@ -254,10 +257,15 @@ Example:
     "connect": true,
     "disconnect": true,
     "target_selection": true,
+    "target_discovery": true,
     "server_details": true,
     "leak_protection_configuration": true
   },
   "targets": [
+    {
+      "alias": "recommended",
+      "label": "Fastest available server"
+    },
     {
       "alias": "dallas",
       "label": "Dallas, United States"
@@ -272,6 +280,10 @@ Example:
 
 This endpoint deliberately omits provider-specific selector documents. Ordinary clients see
 only aliases, labels, the active provider identifier, and provider capabilities.
+
+The public catalogue may include non-persisted built-in targets synthesized by the privileged
+daemon. With NordVPN, `recommended` / `Fastest available server` is such a target. It appears
+here even though it is intentionally absent from the editable v3 catalogue.
 
 ## 9. `POST /api/v2/vpn/connect`
 
@@ -379,10 +391,11 @@ configuration.
 
 ## 11. Administrative target catalogue API
 
-The destination editor uses three authenticated v3 endpoints:
+The destination editor uses four authenticated v3 endpoints:
 
 ```text
 GET /api/v3/admin/vpn/target-schema
+GET /api/v3/admin/vpn/target-options
 GET /api/v3/admin/vpn/targets
 PUT /api/v3/admin/vpn/targets
 ```
@@ -403,8 +416,57 @@ boolean
 integer
 ```
 
-The endpoint does not return provider-supplied HTML, JavaScript, executable code, or shell
-commands.
+Choice fields identify their option source as static or provider-backed and may declare
+dependencies on other fields in the same selector kind. The endpoint does not return
+provider-supplied HTML, JavaScript, executable code, or shell commands.
+
+### `GET /api/v3/admin/vpn/target-options`
+
+Returns dynamically discovered values for one schema-declared provider-backed choice field.
+
+Authentication is required. The selector kind and field are explicit query parameters; any
+additional query parameters form the dependency context. For example:
+
+```text
+GET /api/v3/admin/vpn/target-options?kind=city&field=city&country=united_states
+```
+
+Example response:
+
+```json
+{
+  "provider": "nordvpn",
+  "kind": "city",
+  "field": "city",
+  "options": [
+    {
+      "value": "dallas",
+      "label": "Dallas"
+    },
+    {
+      "value": "new_york",
+      "label": "New York"
+    }
+  ]
+}
+```
+
+The web process does not interpret provider-specific discovery semantics. It forwards the
+provider-neutral request through the control socket. The daemon verifies that the active
+provider supports discovery, that the kind and field exist, that the field is
+provider-backed, and that the context keys exactly match the field's declared dependencies
+before invoking the adapter.
+
+Important discovery errors include:
+
+- `UNKNOWN_TARGET_KIND` (`404`),
+- `UNKNOWN_TARGET_FIELD` (`404`),
+- `INVALID_TARGET_CONTEXT` (`400`),
+- `STATIC_TARGET_FIELD` (`409`),
+- `UNSUPPORTED_TARGET_DISCOVERY` (`409`), and
+- `PROVIDER_TIMEOUT` (`504`).
+
+Provider output is bounded and validated by the adapter before option values are returned.
 
 ### `GET /api/v3/admin/vpn/targets`
 
@@ -433,6 +495,10 @@ Example:
 
 The `revision` value is used for optimistic concurrency.
 
+This endpoint returns only persisted editable targets. Built-in targets such as NordVPN's
+`recommended` target are intentionally omitted. Legacy persisted targets may still appear so
+an administrator can connect them, convert them to a modern selector, or remove them.
+
 ### `PUT /api/v3/admin/vpn/targets`
 
 Atomically replaces the active provider's complete catalogue.
@@ -460,7 +526,10 @@ Example request:
 }
 ```
 
-The replacement request currently requires at least one target and accepts at most 100.
+The replacement request accepts at most 100 persisted targets. An empty persisted catalogue
+is allowed only when the active provider supplies a built-in parameterless recommended
+target; otherwise the daemon rejects an empty catalogue. A built-in target must not itself be
+stored in the replacement request.
 
 If the stored revision no longer matches `expected_revision`, SnarkyCtl returns HTTP `409`
 with `CATALOG_CONFLICT`. The client must reload the current catalogue instead of overwriting

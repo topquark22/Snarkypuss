@@ -125,6 +125,11 @@ If the selected destination is already active, the button may read **Reconnect**
 A destination shown in the menu is an alias from SnarkyCtl's approved catalogue. The browser
 does not send arbitrary NordVPN command-line arguments to the privileged service.
 
+For providers that support a parameterless recommended target, SnarkyCtl may also expose a
+built-in destination. With NordVPN this is **Fastest available server**. It is always available
+in the connection selector, is not stored in SQLite, and therefore does not appear as an
+editable destination in **Manage VPN destinations**.
+
 ### Important after Direct VPS mode
 
 If the gateway is currently in **Direct VPS** mode, do not rely on an ordinary
@@ -159,6 +164,28 @@ Each destination has:
 Aliases must begin with a lowercase letter and may contain lowercase letters, digits,
 underscores, and hyphens. Keep aliases short and stable; examples are `dallas`, `new_york`,
 or `uk-fast`.
+
+For a new destination, the dashboard automatically proposes both the label and a unique alias
+from the selected provider values. You can edit either one manually; after manual editing,
+the dashboard leaves your value alone.
+
+For the current NordVPN adapter:
+
+- **Fastest in country**, **Fastest in city**, and **Server group** use live choices discovered
+  from the installed NordVPN client.
+- City selection is cascading: choose the country first, then choose a city from that country.
+- **Specific server** is an advanced free-text selector. Enter the server identifier expected
+  by NordVPN, for example `us9176`. SnarkyCtl does not try to determine whether that server
+  currently exists; an invalid value is reported when NordVPN is asked to connect.
+- **Legacy configured target** may appear on older migrated entries. Existing legacy entries
+  remain connectable, editable, and removable, but the dashboard does not offer Legacy as a
+  type for newly added destinations.
+
+Provider discovery can change over time. If an existing saved provider-backed choice no
+longer appears in the provider's current discovery results, the destination manager never
+silently substitutes a different provider value. It normally removes unavailable saved
+entries automatically; if automatic cleanup cannot complete, it reports the problem for
+manual removal or replacement.
 
 After editing, select **Save catalogue**. SnarkyCtl saves the catalogue as one validated
 change. If another session changed the catalogue while you were editing it, SnarkyCtl may
