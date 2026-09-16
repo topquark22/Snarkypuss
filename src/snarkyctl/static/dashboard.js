@@ -127,6 +127,13 @@
     }
   }
 
+  function vpnOperationErrorMessage(payload, commandFailureMessage, fallback) {
+    if (payload?.error?.code === "PROVIDER_COMMAND_FAILED") {
+      return commandFailureMessage;
+    }
+    return payload?.error?.message || fallback;
+  }
+
   function setManagerMessage(message, state = "") {
     managerMessage.textContent = message;
     if (state) {
@@ -798,8 +805,12 @@
         placeholder.disabled = true;
         kindSelect.append(placeholder);
       }
+      const creating = target === newDestinationDraft;
       for (const kind of targetSchema.selector_kinds) {
-        if (kind.kind === "recommended") {
+        if (
+          kind.kind === "recommended" ||
+          (creating && kind.kind === "legacy")
+        ) {
           continue;
         }
         const option = document.createElement("option");
@@ -1182,6 +1193,8 @@
     if (!catalogueAvailable || operationInProgress || !target) {
       return;
     }
+    const targetLabel =
+      targetSelect.selectedOptions[0]?.textContent?.trim() || target;
 
     operationInProgress = true;
     setControlMessage("Requesting VPN connection…");
@@ -1200,7 +1213,13 @@
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error?.message || `Connection request failed (${response.status})`);
+        throw new Error(
+          vpnOperationErrorMessage(
+            payload,
+            `The VPN provider could not connect to "${targetLabel}". Check that the target is available for this account and try again.`,
+            `Connection request failed (${response.status})`,
+          ),
+        );
       }
       currentTarget = payload.vpn_status?.target || target;
       targetSelect.value = currentTarget;
@@ -1239,7 +1258,13 @@
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error?.message || `Mode request failed (${response.status})`);
+        throw new Error(
+          vpnOperationErrorMessage(
+            payload,
+            "The VPN provider could not complete the requested mode change.",
+            `Mode request failed (${response.status})`,
+          ),
+        );
       }
       currentTarget = payload.vpn_status?.target || currentTarget;
       setModeControlMessage(payload.message || "Gateway mode changed.", "success");
