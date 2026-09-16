@@ -18,6 +18,8 @@ dist/
 .ruff_cache/
 htmlcov/
 
+tmp/
+
 # Editor and operating-system files
 .idea/
 .vscode/
