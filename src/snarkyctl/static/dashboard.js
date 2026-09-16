@@ -805,8 +805,12 @@
         placeholder.disabled = true;
         kindSelect.append(placeholder);
       }
+      const creating = target === newDestinationDraft;
       for (const kind of targetSchema.selector_kinds) {
-        if (kind.kind === "recommended") {
+        if (
+          kind.kind === "recommended" ||
+          (creating && kind.kind === "legacy")
+        ) {
           continue;
         }
         const option = document.createElement("option");
