@@ -23,7 +23,12 @@ from snarkyctl.providers.nordvpn import (
     run_command,
 )
 from snarkyctl.providers.placeholder import PlaceholderProvider
-from snarkyctl.targets.models import StoredTarget
+from snarkyctl.targets.models import (
+    MAX_TARGET_OPTIONS,
+    SelectorFieldType,
+    SelectorOptionSource,
+    StoredTarget,
+)
 
 
 def target() -> VpnTarget:
@@ -137,6 +142,142 @@ def test_nordvpn_connect_uses_one_configured_target_argument() -> None:
     status = NordVpnProvider(runner=runner).connect(target())
     assert calls == [("connect", "us9167"), ("status",)]
     assert status.target == "dallas"
+
+
+def test_nordvpn_target_schema_declares_dynamic_discovery() -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    schema = provider.target_schema()
+    kinds = {item.kind: item for item in schema.selector_kinds}
+
+    country = kinds["country"].fields[0]
+    city_country, city = kinds["city"].fields
+    group = kinds["group"].fields[0]
+    server = kinds["server"].fields[0]
+
+    assert provider.capabilities.target_discovery
+    assert country.field_type is SelectorFieldType.CHOICE
+    assert country.option_source is SelectorOptionSource.PROVIDER
+    assert city_country.option_source is SelectorOptionSource.PROVIDER
+    assert city.option_source is SelectorOptionSource.PROVIDER
+    assert city.depends_on == ("country",)
+    assert group.option_source is SelectorOptionSource.PROVIDER
+    assert server.field_type is SelectorFieldType.TEXT
+    assert server.option_source is SelectorOptionSource.STATIC
+
+
+@pytest.mark.parametrize("kind", ["country", "city"])
+def test_nordvpn_discovers_countries_for_country_fields(kind: str) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
+        args = tuple(arguments)  # type: ignore[arg-type]
+        calls.append(args)
+        return CommandResult(0, "United States\nCanada\n", "")
+
+    options = NordVpnProvider(runner=runner).target_options(kind, "country", {})
+
+    assert calls == [("countries",)]
+    assert [(item.value, item.label) for item in options.options] == [
+        ("united_states", "United States"),
+        ("canada", "Canada"),
+    ]
+
+
+def test_nordvpn_discovers_cities_with_country_context() -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
+        args = tuple(arguments)  # type: ignore[arg-type]
+        calls.append(args)
+        return CommandResult(0, "New_York\nLos_Angeles\n", "")
+
+    options = NordVpnProvider(runner=runner).target_options(
+        "city",
+        "city",
+        {"country": "US"},
+    )
+
+    assert calls == [("cities", "us")]
+    assert [(item.value, item.label) for item in options.options] == [
+        ("new_york", "New York"),
+        ("los_angeles", "Los Angeles"),
+    ]
+
+
+def test_nordvpn_discovers_server_groups() -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def runner(_executable: object, arguments: object, _timeout: float) -> CommandResult:
+        args = tuple(arguments)  # type: ignore[arg-type]
+        calls.append(args)
+        return CommandResult(0, "P2P\nDouble_VPN\nOnion_Over_VPN\n", "")
+
+    options = NordVpnProvider(runner=runner).target_options("group", "group", {})
+
+    assert calls == [("groups",)]
+    assert [(item.value, item.label) for item in options.options] == [
+        ("p2p", "P2P"),
+        ("double_vpn", "Double VPN"),
+        ("onion_over_vpn", "Onion Over VPN"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "context",
+    [
+        {},
+        {"country": None},
+        {"country": "--help"},
+        {"country": "us", "extra": "bad"},
+    ],
+)
+def test_nordvpn_city_discovery_rejects_invalid_context(
+    context: dict[str, str | int | bool | None],
+) -> None:
+    def forbidden(*_args: object) -> CommandResult:
+        raise AssertionError("invalid discovery context must not invoke NordVPN")
+
+    provider = NordVpnProvider(runner=forbidden)
+    with pytest.raises(ProviderError) as error:
+        provider.target_options("city", "city", context)
+    assert error.value.code == "INVALID_TARGET_CONTEXT"
+
+
+def test_nordvpn_discovery_rejects_unsupported_selector_field() -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    with pytest.raises(ProviderError) as error:
+        provider.target_options("server", "server", {})
+    assert error.value.code == "UNSUPPORTED_TARGET_DISCOVERY"
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "",
+        "New York\nNew_York\n",
+        "\x1b[31mParis\n",
+        "x" * 101 + "\n",
+    ],
+)
+def test_nordvpn_discovery_rejects_malformed_output(output: str) -> None:
+    provider = NordVpnProvider(
+        runner=lambda *_args: CommandResult(0, output, "")
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.target_options("city", "city", {"country": "us"})
+    assert error.value.code == "PROVIDER_OUTPUT_INVALID"
+
+
+def test_nordvpn_discovery_rejects_excessive_option_count() -> None:
+    output = "\n".join(
+        f"Country_{index}" for index in range(MAX_TARGET_OPTIONS + 1)
+    )
+    provider = NordVpnProvider(
+        runner=lambda *_args: CommandResult(0, output, "")
+    )
+    with pytest.raises(ProviderError) as error:
+        provider.target_options("country", "country", {})
+    assert error.value.code == "PROVIDER_OUTPUT_TOO_LARGE"
 
 
 @pytest.mark.parametrize(

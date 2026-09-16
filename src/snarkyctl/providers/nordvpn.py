@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import unicodedata
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,11 +28,15 @@ from snarkyctl.providers.base import (
 )
 from snarkyctl.targets.models import (
     JsonObject,
+    MAX_TARGET_OPTIONS,
     ProviderTargetSchema,
     SelectorField,
     SelectorFieldType,
     SelectorKind,
+    SelectorOptionSource,
     StoredTarget,
+    TargetOption,
+    TargetOptions,
 )
 
 NORDVPN_EXECUTABLE = Path("/usr/bin/nordvpn")
@@ -39,6 +44,8 @@ DEFAULT_TIMEOUT_SECONDS = 45.0
 MAX_OUTPUT_LENGTH = 64 * 1024
 MAX_ERROR_DETAIL_LENGTH = 512
 MAX_FIELD_LENGTH = 256
+MAX_DISCOVERY_LABEL_LENGTH = 100
+MAX_DISCOVERY_VALUE_LENGTH = 100
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._#-]{0,99}$")
 CODE_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,31}$")
 
@@ -97,6 +104,21 @@ def _text_field(name: str, label: str) -> SelectorField:
         label=label,
         field_type=SelectorFieldType.TEXT,
         max_length=100,
+    )
+
+
+def _provider_choice_field(
+    name: str,
+    label: str,
+    *,
+    depends_on: tuple[str, ...] = (),
+) -> SelectorField:
+    return SelectorField(
+        name=name,
+        label=label,
+        field_type=SelectorFieldType.CHOICE,
+        option_source=SelectorOptionSource.PROVIDER,
+        depends_on=depends_on,
     )
 
 
@@ -244,6 +266,70 @@ def parse_settings(output: str) -> VpnSettings:
     )
 
 
+def _normalize_discovery_value(label: str, max_length: int) -> str:
+    decomposed = unicodedata.normalize("NFKD", label)
+    ascii_text = decomposed.encode("ascii", "ignore").decode("ascii")
+    value = re.sub(r"[^A-Za-z0-9]+", "_", ascii_text).strip("_").casefold()
+    if (
+        not value
+        or len(value) > max_length
+        or TARGET_PATTERN.fullmatch(value) is None
+    ):
+        raise ProviderError(
+            "PROVIDER_OUTPUT_INVALID",
+            "NordVPN returned an invalid target option.",
+        )
+    return value
+
+
+def _parse_discovery_options(
+    output: str,
+    *,
+    max_value_length: int = MAX_DISCOVERY_VALUE_LENGTH,
+    require_code_shape: bool = False,
+) -> tuple[TargetOption, ...]:
+    items = [line.strip() for line in output.splitlines() if line.strip()]
+    if not items:
+        raise ProviderError(
+            "PROVIDER_OUTPUT_INVALID",
+            "NordVPN returned an empty target option list.",
+        )
+    if len(items) > MAX_TARGET_OPTIONS:
+        raise ProviderError(
+            "PROVIDER_OUTPUT_TOO_LARGE",
+            "NordVPN returned too many target options.",
+        )
+
+    options: list[TargetOption] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item.isprintable():
+            raise ProviderError(
+                "PROVIDER_OUTPUT_INVALID",
+                "NordVPN returned an invalid target option.",
+            )
+        label = " ".join(item.replace("_", " ").split())
+        if not label or len(label) > MAX_DISCOVERY_LABEL_LENGTH:
+            raise ProviderError(
+                "PROVIDER_OUTPUT_INVALID",
+                "NordVPN returned an invalid target option.",
+            )
+        value = _normalize_discovery_value(item, max_value_length)
+        if require_code_shape and CODE_PATTERN.fullmatch(value) is None:
+            raise ProviderError(
+                "PROVIDER_OUTPUT_INVALID",
+                "NordVPN returned an invalid country option.",
+            )
+        if value in seen:
+            raise ProviderError(
+                "PROVIDER_OUTPUT_INVALID",
+                "NordVPN returned duplicate target options.",
+            )
+        seen.add(value)
+        options.append(TargetOption(value=value, label=label))
+    return tuple(options)
+
+
 class NordVpnProvider(VpnProvider):
     """Built-in adapter for the NordVPN Linux CLI."""
 
@@ -252,6 +338,7 @@ class NordVpnProvider(VpnProvider):
         connect=True,
         disconnect=True,
         target_selection=True,
+        target_discovery=True,
         server_details=True,
         leak_protection_configuration=True,
     )
@@ -295,20 +382,24 @@ class NordVpnProvider(VpnProvider):
                 SelectorKind(
                     kind="country",
                     label="Country",
-                    fields=(_text_field("country", "Country"),),
+                    fields=(_provider_choice_field("country", "Country"),),
                 ),
                 SelectorKind(
                     kind="city",
                     label="City",
                     fields=(
-                        _text_field("country", "Country"),
-                        _text_field("city", "City"),
+                        _provider_choice_field("country", "Country"),
+                        _provider_choice_field(
+                            "city",
+                            "City",
+                            depends_on=("country",),
+                        ),
                     ),
                 ),
                 SelectorKind(
                     kind="group",
                     label="Server group",
-                    fields=(_text_field("group", "Group"),),
+                    fields=(_provider_choice_field("group", "Group"),),
                 ),
                 SelectorKind(
                     kind="server",
@@ -321,6 +412,63 @@ class NordVpnProvider(VpnProvider):
                     fields=(_text_field("value", "Provider target"),),
                 ),
             ),
+        )
+
+    def target_options(
+        self,
+        kind: str,
+        field: str,
+        context: JsonObject,
+    ) -> TargetOptions:
+        options: tuple[TargetOption, ...]
+        if kind in {"country", "city"} and field == "country":
+            if context:
+                raise ProviderError(
+                    "INVALID_TARGET_CONTEXT",
+                    "Country discovery does not accept dependency context.",
+                )
+            options = _parse_discovery_options(
+                self._run("countries").stdout,
+                max_value_length=32,
+                require_code_shape=True,
+            )
+        elif kind == "city" and field == "city":
+            if set(context) != {"country"}:
+                raise ProviderError(
+                    "INVALID_TARGET_CONTEXT",
+                    "City discovery requires exactly one country dependency.",
+                )
+            country = context.get("country")
+            if (
+                not isinstance(country, str)
+                or len(country) < 2
+                or len(country) > 32
+                or CODE_PATTERN.fullmatch(country) is None
+            ):
+                raise ProviderError(
+                    "INVALID_TARGET_CONTEXT",
+                    "City discovery country dependency is invalid.",
+                )
+            options = _parse_discovery_options(
+                self._run("cities", country.casefold()).stdout,
+            )
+        elif kind == "group" and field == "group":
+            if context:
+                raise ProviderError(
+                    "INVALID_TARGET_CONTEXT",
+                    "Group discovery does not accept dependency context.",
+                )
+            options = _parse_discovery_options(self._run("groups").stdout)
+        else:
+            raise ProviderError(
+                "UNSUPPORTED_TARGET_DISCOVERY",
+                "NordVPN does not support discovery for this selector field.",
+            )
+        return TargetOptions(
+            provider=self.name,
+            kind=kind,
+            field=field,
+            options=options,
         )
 
     def validate_selector(self, selector: JsonObject) -> JsonObject:
