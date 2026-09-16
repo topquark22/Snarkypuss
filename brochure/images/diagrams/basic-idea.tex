@@ -1,0 +1,43 @@
+% The Basic Idea — page 6. Vertical route from the user's PC to the Internet.
+% Private, user-controlled infrastructure is tinted; the commercial service is
+% plain. Traffic connectors are heavy; all connectors are orthogonal.
+\begin{tikzpicture}[
+  font=\sffamily\small,
+  >=Latex,
+  box/.style={draw=snarkysteel, line width=0.6pt, rounded corners=1mm,
+              align=center, minimum width=52mm, minimum height=13mm,
+              inner sep=2mm},
+  private/.style={box, fill=snarkypale!35},
+  commercial/.style={box, fill=white},
+  traffic/.style={->, line width=1.4pt, draw=snarkycyan},
+  edgelabel/.style={font=\sffamily\scriptsize, text=snarkysteel,
+                    fill=white, inner xsep=1.5mm}
+]
+
+\node[private]    (pc)       at (0, 0)    {\textbf{Your PC}};
+\node[private]    (vps)      at (0,-3.4)  {\textbf{Your VPS}\\[-0.6mm]
+                                           \scriptsize Snarkypuss gateway};
+\node[commercial] (provider) at (0,-6.8)  {\textbf{Your VPN provider}};
+\node[commercial] (internet) at (0,-10.2)  {\textbf{Internet}};
+
+\draw[traffic] (pc)       -- node[edgelabel] {private WireGuard tunnel} (vps);
+\draw[traffic] (vps)      -- node[edgelabel] {commercial VPN connection}(provider);
+\draw[traffic] (provider) -- (internet);
+
+% Scope brackets
+\draw[snarkysteel, line width=0.5pt]
+  ($(pc.north west)+(-4mm,1mm)$) -- ($(pc.north west)+(-7mm,1mm)$)
+  -- ($(vps.south west)+(-7mm,-1mm)$) -- ($(vps.south west)+(-4mm,-1mm)$);
+\node[rotate=90, anchor=south, font=\sffamily\scriptsize, text=snarkysteel]
+  at ($(pc.west)!0.5!(vps.west)+(-7mm,0)$) {you control this};
+
+\draw[snarkysteel, line width=0.5pt]
+  ($(provider.north east)+(4mm,1mm)$) -- ($(provider.north east)+(7mm,1mm)$)
+  -- ($(internet.south east)+(7mm,-1mm)$) -- ($(internet.south east)+(4mm,-1mm)$);
+\node[rotate=-90, anchor=south, font=\sffamily\scriptsize, text=snarkysteel]
+  at ($(provider.east)!0.5!(internet.east)+(7mm,0)$) {commercial service};
+
+\node[font=\sffamily\scriptsize, text=snarkymute, align=center]
+  at (0,-11.7) {No Snarkypuss-operated service carries your traffic.};
+
+\end{tikzpicture}

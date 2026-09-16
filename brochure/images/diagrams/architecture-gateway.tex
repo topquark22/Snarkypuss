@@ -1,0 +1,43 @@
+% Under the Hood, right page (13) — network gateway / data plane.
+% Heavy connectors are forwarded Internet traffic; the light connector
+% entering from the left is SnarkyCtl control, which observes the provider
+% connection without carrying packets. Orthogonal connectors only.
+\begin{tikzpicture}[
+  font=\sffamily\small,
+  >=Latex,
+  box/.style={draw=snarkysteel, line width=0.6pt, rounded corners=1mm,
+              align=center, minimum width=50mm, minimum height=9mm,
+              inner sep=1.5mm, fill=white},
+  major/.style={box, font=\sffamily\small\bfseries},
+  traffic/.style={->, line width=1.4pt, draw=snarkycyan},
+  ctrl/.style={->, line width=0.6pt, draw=snarkysteel},
+  note/.style={font=\sffamily\scriptsize, text=snarkymute}
+]
+
+\node[major] (wg)       at (0, 0)    {WireGuard};
+\node[major] (routing)  at (0,-1.95) {Routing / DNS};
+\node[major] (provider) at (0,-3.90) {Provider VPN};
+\node[major] (internet) at (0,-5.85) {Internet};
+
+\draw[traffic] (wg)       -- (routing);
+\draw[traffic] (routing)  -- (provider);
+\draw[traffic] (provider) -- (internet);
+
+\node[note, align=center, anchor=south] at (0,0.8)
+  {traffic arriving through the private tunnel};
+\draw[traffic] (0,0.75) -- (wg.north);
+
+% Control connector entering from the side, orthogonally.
+\coordinate (cin)  at (-5.0,-3.90);
+\draw[ctrl] (cin) -- node[note, above, pos=0.45] {controls / observes}
+                     (provider.west);
+\node[note, anchor=east, align=right, text width=22mm] at (-5.1,-3.90)
+  {from SnarkyCtl};
+
+% Legend
+\draw[line width=1.4pt, draw=snarkycyan, ->] (-4.6,-7.1) -- (-3.6,-7.1);
+\node[note, anchor=west] at (-3.45,-7.1) {Internet traffic};
+\draw[line width=0.6pt, draw=snarkysteel, ->] (0.6,-7.1) -- (1.6,-7.1);
+\node[note, anchor=west] at (1.75,-7.1) {control};
+
+\end{tikzpicture}

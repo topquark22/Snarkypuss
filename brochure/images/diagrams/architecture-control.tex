@@ -1,0 +1,59 @@
+% Under the Hood, left page (12) — SnarkyCtl control plane.
+% Light connectors are control flow. The privilege boundary is explicit.
+% Orthogonal connectors only.
+\begin{tikzpicture}[
+  font=\sffamily\small,
+  >=Latex,
+  box/.style={draw=snarkysteel, line width=0.6pt, rounded corners=1mm,
+              align=center, minimum width=54mm, minimum height=9mm,
+              inner sep=1.5mm, fill=white},
+  major/.style={box, font=\sffamily\small\bfseries},
+  side/.style={box, minimum width=30mm, minimum height=8mm,
+               font=\sffamily\scriptsize, fill=snarkypale!25},
+  ctrl/.style={->, line width=0.6pt, draw=snarkysteel},
+  note/.style={font=\sffamily\scriptsize, text=snarkymute}
+]
+
+\node[major] (browser)  at (0, 0)     {Browser};
+\node[major] (dash)     at (0,-1.75)  {SnarkyCtl dashboard};
+\node[major] (app)      at (0,-3.35)  {Application Server};
+\node[major] (logic)    at (0,-4.95)  {SnarkyCtl control logic};
+\node[side]  (db)       at (4.6,-4.95){Targets\\Database};
+
+\draw[ctrl] (browser) -- node[note, right=0.5mm] {through WireGuard} (dash);
+\draw[ctrl] (dash)  -- (app);
+\draw[ctrl] (app)   -- (logic);
+\draw[<->, line width=0.6pt, draw=snarkysteel] (logic.east) -- (db.west);
+
+% Privilege boundary
+\draw[dashed, draw=snarkysteel, line width=0.5pt] (-3.4,-6.0) -- (6.2,-6.0);
+\node[note, fill=white, inner xsep=1.5mm, text=snarkydeep]
+  at (1.4,-6.0) {privilege boundary};
+
+\node[major] (priv)    at (0,-7.05) {Privileged control service};
+\node[major] (adapter) at (0,-8.75) {Provider adapter\\[-0.6mm]
+                                     \scriptsize extensible interface};
+\node[box, minimum width=24mm, font=\sffamily\scriptsize]
+      (nord)  at (-1.55,-10.6) {NordVPN};
+\node[box, minimum width=24mm, font=\sffamily\scriptsize]
+      (other) at ( 1.55,-10.6) {Other providers};
+
+\draw[ctrl] (logic) -- (priv);
+\draw[ctrl] (priv)  -- (adapter);
+
+\coordinate (split) at (0,-9.85);
+\draw[line width=0.6pt, draw=snarkysteel] (adapter.south) -- (split);
+\draw[line width=0.6pt, draw=snarkysteel] (-1.55,-9.85) -- (1.55,-9.85);
+\draw[ctrl] (-1.55,-9.85) -- (nord.north);
+\draw[ctrl] ( 1.55,-9.85) -- (other.north);
+
+% Stub toward the gutter: the control connector continues onto page 13,
+% where it terminates at Provider VPN. Orthogonal, light weight.
+\draw[ctrl] (adapter.east) -- (6.2,-8.75);
+\node[note, anchor=south east, align=right] at (6.2,-8.6)
+  {controls / observes\\the Provider VPN};
+
+\node[note, align=center] at (1.4,-11.8)
+  {The dashboard can request only defined, validated operations.};
+
+\end{tikzpicture}

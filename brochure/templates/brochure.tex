@@ -1,0 +1,302 @@
+% Snarkypuss brochure — A5 design system.
+%
+% This template owns typography, colour, geometry, page furniture and the
+% reusable page layouts. Generated page content is emitted by tools/build.py
+% into the content placeholder as a sequence of snarkypage environments, one per
+% page. The template, not the page sources, decides how each layout looks.
+
+\documentclass[11pt]{article}
+
+% Page geometry is substituted by the build tool. The screen edition is the
+% A5 trim size. The press edition adds 8 mm on every edge (3 mm bleed plus a
+% 5 mm zone for crop marks) and shifts the text block outward by the same
+% amount, so the type sits identically relative to the trim in both.
+\usepackage[
+  paperwidth=%%PAPERW%%,
+  paperheight=%%PAPERH%%,
+  top=%%TOP%%, bottom=%%BOTTOM%%, inner=%%INNER%%, outer=%%OUTER%%,
+  twoside
+]{geometry}
+
+\usepackage{fontspec}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{adjustbox}
+\usepackage{enumitem}
+\usepackage{ragged2e}
+\usepackage{tikz}
+\usepackage[hidelinks]{hyperref}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+
+% ---------------------------------------------------------------------------
+% Palette — sampled from the cover artwork
+% ---------------------------------------------------------------------------
+
+\definecolor{snarkyink}{HTML}{12202D}
+\definecolor{snarkydeep}{HTML}{0B2033}
+\definecolor{snarkysteel}{HTML}{1A5174}
+\definecolor{snarkycyan}{HTML}{11B9DB}
+\definecolor{snarkypale}{HTML}{A3EAF3}
+\definecolor{snarkymute}{HTML}{5C6B78}
+
+% ---------------------------------------------------------------------------
+% Typography
+% ---------------------------------------------------------------------------
+
+\setmainfont{Libertinus Serif}
+\setsansfont{Libertinus Sans}
+
+% Body size is set by the build tool so that type scale can be tuned against
+% the per-page fit report. Every other size in the document derives from it.
+\newlength{\bodysize}      \setlength{\bodysize}{%%BODYSIZE%%}
+\newlength{\bodyleading}   \setlength{\bodyleading}{1.3333\bodysize}
+\newlength{\bodyparskip}   \setlength{\bodyparskip}{0.43\bodysize}
+\newlength{\chaptersize}   \setlength{\chaptersize}{1.810\bodysize}
+\newlength{\chapterlead}   \setlength{\chapterlead}{2.095\bodysize}
+\newlength{\sectionsize}   \setlength{\sectionsize}{1.286\bodysize}
+\newlength{\sectionlead}   \setlength{\sectionlead}{1.524\bodysize}
+\newlength{\notesize}      \setlength{\notesize}{0.800\bodysize}
+\newlength{\notelead}      \setlength{\notelead}{1.048\bodysize}
+\newlength{\keysize}       \setlength{\keysize}{1.048\bodysize}
+\newlength{\keylead}       \setlength{\keylead}{1.429\bodysize}
+\newlength{\foliosize}     \setlength{\foliosize}{0.762\bodysize}
+
+\AtBeginDocument{%
+  \fontsize{\bodysize}{\bodyleading}\selectfont
+  \color{snarkyink}%
+  \RaggedRight
+}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{\bodyparskip}
+\pagestyle{empty}
+
+% ---------------------------------------------------------------------------
+% Headings
+% ---------------------------------------------------------------------------
+
+\newcommand{\chapterheading}[1]{%
+  \par
+  {\sffamily\bfseries\fontsize{\chaptersize}{\chapterlead}\selectfont\color{snarkydeep} #1}\par
+  \vspace{1.2mm}%
+  {\color{snarkycyan}\rule{22mm}{1.1pt}}\par
+  \vspace{4mm}%
+}
+
+\newcommand{\sectionheading}[1]{%
+  \par\vspace{5mm}%
+  {\sffamily\bfseries\fontsize{\sectionsize}{\sectionlead}\selectfont\color{snarkysteel} #1}\par
+  \vspace{1.8mm}%
+}
+
+\newcommand{\smallnote}[1]{%
+  \par\vspace{1.5mm}%
+  {\sffamily\fontsize{\notesize}{\notelead}\selectfont\color{snarkymute} #1}\par
+  \vspace{1.5mm}%
+}
+
+\newcommand{\keyline}[1]{%
+  \par\vspace{2.5mm}%
+  \noindent\colorbox{snarkypale!30}{%
+    \parbox{\dimexpr\textwidth-2\fboxsep}{%
+      \sffamily\bfseries\fontsize{\keysize}{\keylead}\selectfont\color{snarkydeep}\centering #1}}%
+  \par\vspace{2.5mm}%
+}
+
+\setlist[itemize]{leftmargin=5mm,itemsep=1.2mm,topsep=1.5mm,parsep=0pt,%
+  label=\textcolor{snarkycyan}{\textbullet}}
+
+% ---------------------------------------------------------------------------
+% Figures and diagrams
+% ---------------------------------------------------------------------------
+
+\newcommand{\brochurefigure}[3]{%
+  \par\vspace{3mm}%
+  \noindent\begin{minipage}{#2\linewidth}%
+    \centering
+    \IfFileExists{images/diagrams/#1.pdf}{%
+      \includegraphics[width=\linewidth,height=#3mm,keepaspectratio]{images/diagrams/#1.pdf}%
+    }{%
+      \begin{tikzpicture}
+        \draw[snarkypale,fill=snarkypale!18,rounded corners=1mm]
+          (0,0) rectangle (\linewidth,#3mm);
+        \node[font=\sffamily\small,text=snarkysteel]
+          at (0.5\linewidth,0.5*#3mm) {#1};
+      \end{tikzpicture}%
+    }%
+  \end{minipage}%
+  \par\vspace{3mm}%
+}
+
+% \diagraminput[maxheight-mm]{name} — scales the TikZ fragment to fit inside
+% both the text width and the given height, so a tall diagram cannot push a
+% page over. Centred, because a height-capped diagram is narrower than the
+% measure.
+\newcommand{\diagraminput}[2][95]{%
+  \par\vspace{2mm}%
+  \IfFileExists{images/diagrams/#2.tex}{%
+    \noindent\makebox[\textwidth][c]{%
+      \adjustbox{max width=\textwidth,max totalheight=#1mm}{%
+        \input{images/diagrams/#2.tex}}}%
+  }{%
+    \brochurefigure{#2}{1.0}{#1}%
+  }%
+  \par\vspace{2mm}%
+}
+
+% ---------------------------------------------------------------------------
+% Full-bleed artwork pages
+% ---------------------------------------------------------------------------
+%
+% Cover art is supplied at 154 x 216 mm (A5 + 3 mm bleed). The page box is
+% 148 x 210 mm, so the artwork is centred and overhangs 3 mm on each edge.
+
+\newcommand{\bleedimage}[1]{%
+  \begin{tikzpicture}[remember picture,overlay]
+    \node[anchor=center,inner sep=0pt] at (current page.center) {%
+      \includegraphics[width=154mm,height=216mm]{#1}%
+    };%
+  \end{tikzpicture}%
+  \mbox{}%
+}
+
+% Back cover: photographic plate with no lettering baked in, and every piece
+% of type set live over it. The address and QR can therefore be changed
+% without regenerating artwork -- which is why the plate exists.
+
+\definecolor{coverwhite}{HTML}{EAF7FB}
+\definecolor{covercyan}{HTML}{6FDCF0}
+\definecolor{covermute}{HTML}{9FB6C2}
+
+\newcommand{\coverrule}[1]{{\color{covercyan}\rule{#1}{0.5pt}}}
+
+\newcommand{\backcoverpage}[1]{%
+  \thispagestyle{empty}%
+  \IfFileExists{#1}{\bleedimage{#1}}{%
+    \null\vfill\begin{center}\sffamily\color{snarkymute} missing plate: #1\end{center}\vfill\null}%
+  \begin{tikzpicture}[remember picture,overlay,
+      every node/.style={inner sep=0pt,outer sep=0pt}]
+    \coordinate (tl) at (current page.north west);
+
+    \node[anchor=north, text=coverwhite, align=center,
+          font=\sffamily\bfseries\fontsize{12.6pt}{15pt}\selectfont]
+      at ($(tl)+(74mm,-9mm)$) {Your connection. Your server. Your choice.};
+    \node[anchor=north] at ($(tl)+(74mm,-20mm)$) {\coverrule{26mm}};
+
+    \node[anchor=north] at ($(tl)+(74mm,-141mm)$) {\coverrule{46mm}};
+    \node[anchor=north, text=coverwhite,
+          font=\sffamily\bfseries\fontsize{27pt}{30pt}\selectfont]
+      at ($(tl)+(74mm,-145mm)$) {SNARKYPUSS};
+    \node[anchor=north, text=covercyan,
+          font=\sffamily\bfseries\fontsize{8.2pt}{10pt}\selectfont]
+      at ($(tl)+(74mm,-157.5mm)$)
+      {\addfontfeature{LetterSpace=22}PRIVATELY HOSTED \textperiodcentered\ OPEN SOURCE \textperiodcentered\ NON-COMMERCIAL};
+
+    \node[anchor=north] at ($(tl)+(74mm,-164mm)$)
+      {\resizebox{20mm}{!}{\input{images/diagrams/qr-site.tex}}};
+
+    \node[anchor=north, text=coverwhite,
+          font=\sffamily\fontsize{12pt}{14pt}\selectfont]
+      at ($(tl)+(74mm,-186mm)$) {snarkypuss.ca};
+    \node[anchor=north] at ($(tl)+(74mm,-193mm)$) {\coverrule{112mm}};
+    \node[anchor=north, text=covermute, align=center,
+          font=\sffamily\fontsize{6.6pt}{9pt}\selectfont]
+      at ($(tl)+(74mm,-196mm)$)
+      {Snarkypuss is privately hosted open-source software intended for lawful use.\\
+       It is not a VPN service and is not affiliated with any commercial VPN provider.};
+  \end{tikzpicture}%
+  \cropmarks
+  \clearpage
+}
+
+\newcommand{\coverpage}[1]{%
+  \thispagestyle{empty}%
+  \cropmarks
+  \IfFileExists{#1}{\bleedimage{#1}}{%
+    \null\vfill\begin{center}\sffamily\color{snarkymute} missing cover art: #1\end{center}\vfill\null}%
+  \clearpage
+}
+
+% ---------------------------------------------------------------------------
+% Page furniture
+% ---------------------------------------------------------------------------
+
+\newlength{\folioheight}
+\setlength{\folioheight}{8mm}
+
+\newcommand{\pagefolio}[1]{%
+  \par\vspace{2mm}%
+  \noindent{\color{snarkypale}\rule{\textwidth}{0.4pt}}\par
+  \vspace{1mm}%
+  \noindent\makebox[\textwidth]{%
+    \sffamily\fontsize{\foliosize}{\foliosize}\selectfont\color{snarkymute}%
+    \ifodd#1\hfill #1\else #1\hfill\fi}%
+}
+
+% ---------------------------------------------------------------------------
+% The page model
+% ---------------------------------------------------------------------------
+%
+% Every physical text page is one snarkypage environment. Content is captured
+% into a box first, and its natural height reported to the log, so the build
+% tool can tell the author which pages overflow or run short. Fit is a build
+% diagnostic, not something discovered by eye.
+
+\newsavebox{\snarkypagebox}
+\newsavebox{\snarkynatbox}
+
+\newenvironment{snarkypage}[2]{%
+  \def\snarkypagenum{#1}%
+  \def\snarkypagelayout{#2}%
+  \begin{lrbox}{\snarkynatbox}%
+  \begin{minipage}[t]{\textwidth}%
+  % minipage applies \@parboxrestore, which zeroes \parskip. Restore the
+  % document's paragraph separation inside the page box.
+  \setlength{\parskip}{\bodyparskip}%
+  \setlength{\parindent}{0pt}%
+}{%
+  \end{minipage}%
+  \end{lrbox}%
+  \typeout{PAGEFIT page=\snarkypagenum\space layout=\snarkypagelayout\space natural=\the\ht\snarkynatbox\space depth=\the\dp\snarkynatbox\space avail=\the\dimexpr\textheight-\folioheight\relax}%
+  \cropmarks
+  \noindent\begin{minipage}[t][\dimexpr\textheight-\topskip\relax][s]{\textwidth}%
+    \usebox{\snarkynatbox}%
+    \vfill
+    \pagefolio{\snarkypagenum}%
+  \end{minipage}%
+  \clearpage
+}
+
+% ---------------------------------------------------------------------------
+% Press furniture
+% ---------------------------------------------------------------------------
+%
+% \cropmarks is a no-op in the screen edition. In the press edition the build
+% redefines it to draw trim marks in the 5 mm zone outside the bleed, and sets
+% the PDF TrimBox and BleedBox so a prepress RIP knows where to cut.
+
+% Edition metadata, substituted by the build tool. The snapshot line states
+% when the legal content was verified; the edition line states which revision
+% this is and when the PDF was produced. They are deliberately separate.
+\newcommand{\brochureversion}{%%VERSION%%}
+\newcommand{\brochuresnapshot}{%%SNAPSHOT%%}
+\newcommand{\brochurebuilt}{%%BUILT%%}
+
+\newcommand{\snapshotline}{%
+  \smallnote{Legislative context researched and verified as of \brochuresnapshot.}%
+}
+\newcommand{\editionline}{%
+  \par\vspace{2mm}%
+  \noindent{\color{snarkypale}\rule{\textwidth}{0.4pt}}\par
+  \vspace{1.5mm}%
+  {\sffamily\fontsize{\notesize}{\notelead}\selectfont\color{snarkymute}%
+   Brochure edition \brochureversion\ \textperiodcentered\ built \brochurebuilt.
+   Legal and policy content on pages 2--4 reflects the \brochuresnapshot\ snapshot
+   and is not updated by rebuilding.}\par
+}
+
+\newcommand{\cropmarks}{}
+%%PRESSSETUP%%
+
+\begin{document}
+%%CONTENT%%
+\end{document}

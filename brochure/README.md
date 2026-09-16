@@ -1,0 +1,296 @@
+# Snarkypuss brochure
+
+A5 portrait, 16 pages, full colour, designed for saddle-stitch booklet
+printing on four folded A4 sheets.
+
+`PLAN.md` is the editorial plan — audience, tone, the non-partisan standard,
+project positioning, and what belongs on each page. This file is everything
+needed to rebuild the PDF from a clean machine.
+
+## Build
+
+```bash
+cd brochure
+python3 tools/build.py
+```
+
+Output is `build/snarkypuss.pdf`, the screen edition: 148 × 210 mm, the A5
+trim size, for reading and for distributing as a download. The build fails
+rather than warns if the result is not exactly 16 pages at the expected size.
+
+For the printer:
+
+```bash
+python3 tools/build.py --press
+```
+
+Output is `build/snarkypuss-press.pdf`.
+
+### The two editions
+
+Both come from the same sources and the same artwork. Only the page geometry
+differs.
+
+| | Screen | Press |
+|---|---|---|
+| Page (MediaBox) | 148 × 210 mm | 164 × 226 mm |
+| TrimBox | — | 148 × 210 mm, inset 8 mm |
+| BleedBox | — | 154 × 216 mm, inset 5 mm |
+| Trim marks | no | yes, in the 5 mm zone outside the bleed |
+| Cover artwork | overhang clipped at the page edge | overhang visible, 3 mm on each edge |
+
+The text block sits identically relative to the trim in both, because the
+press edition shifts the margins outward by the same 8 mm it adds to the
+paper. The fill report is therefore the same for both, and a page that fits
+one fits the other.
+
+There is only one set of cover images. The press artwork already contains the
+trim composition in its centre, so the screen edition centres the same file
+on a smaller page and lets the 3 mm overhang fall outside the page box. Do
+not keep a separate trim-sized copy of the covers — two versions of the same
+image will drift, and the only thing that distinguishes them is discarded at
+the guillotine anyway.
+
+### Options
+
+| Flag | Effect |
+|---|---|
+| `--press` | Press edition: adds 3 mm bleed, trim marks, and PDF TrimBox/BleedBox. Writes `build/snarkypuss-press.pdf`. |
+| `--body-size PT` | Body text size. The entire type scale derives from it. Default 11.0. |
+| `--fit` | Exit non-zero if any page overflows its text block. Use in CI. |
+| `--tex-only` | Write `build/snarkypuss.tex` without running LuaLaTeX. |
+| `--verbose` | Show LaTeX output. |
+| `--clean` | Remove build artifacts. |
+
+Every build prints a per-page fill report. A page over 100% overprints its
+box; it does not repaginate, because each page is a fixed-height box. That is
+deliberate — the page count cannot drift, so overflow is a build diagnostic
+rather than something you discover by flipping through the PDF.
+
+## Toolchain
+
+Debian/Ubuntu:
+
+```bash
+sudo apt install \
+  texlive-luatex texlive-latex-base texlive-latex-recommended \
+  texlive-latex-extra texlive-pictures texlive-fonts-extra \
+  poppler-utils python3
+```
+
+| Requirement | Provided by | Used for |
+|---|---|---|
+| `lualatex` | texlive-luatex | typesetting engine |
+| `pdfinfo` | poppler-utils | page count and page size validation |
+| Python 3 (no third-party packages) | python3 | `tools/build.py` |
+| geometry | texlive-latex-base | A5 page geometry |
+| fontspec, graphicx, xcolor, ragged2e | texlive-latex-recommended | fonts, images, colour, ragged setting |
+| adjustbox, enumitem, hyperref | texlive-latex-extra | diagram fitting, lists, links |
+| tikz / pgf | texlive-pictures | all four diagrams |
+| Libertinus Serif, Libertinus Sans | texlive-fonts-extra | body and display faces |
+
+The Libertinus faces are loaded by name through fontspec and resolved from the
+TeX tree, so they do not need to be installed as system fonts. If the build
+fails on `\setmainfont`, `texlive-fonts-extra` is missing.
+
+## Source files
+
+Everything below is authored input and belongs in version control.
+
+```
+content/          the prose, four thematic files with page markers
+templates/        brochure.tex — the whole design system
+tools/            build.py — the only entry point
+images/           cover art and diagrams
+references/       sources.md — provenance for the dated claims
+edition.conf      version, legislative snapshot, staleness threshold
+PLAN.md           editorial plan
+README.md         this file
+```
+
+`build/` is generated and is ignored by `.gitignore`. That includes
+`build/pages/`, the per-page split the build writes for inspection. Those
+files are derived — never edit them, and never commit them.
+
+### Page markers
+
+`content/` holds the prose and is the single source of truth. Pagination is
+recorded inline with page markers, because where a page begins is an
+editorial decision, not a typesetting side effect:
+
+```markdown
+<!-- page: 6 layout=spread-left -->
+```
+
+Everything after a marker belongs to that page, until the next marker.
+`layout` is one of `cover`, `standard`, `spread-left`, `spread-right`,
+`backcover`, and defaults to `standard`. Cover layouts also take `art=`, a
+repository-relative path:
+
+```markdown
+<!-- page: 1 layout=cover art=images/cover-bleed.png -->
+```
+
+Content files are read in filename order and each owns a contiguous range of
+pages. Currently: `01-why.md` covers 1–4, `02-what.md` 5–9,
+`03-engineering.md` 10–14, `04-project.md` 15–16.
+
+To move a paragraph from one page to the next, move the page marker — not the
+paragraph. To repaginate a whole section, move several markers. The build
+validates that pages run 1–16 with no gaps, and that a
+`spread-left` falls on an even page with `spread-right` on the page after it.
+In a saddle-stitched booklet page 1 is a right-hand page, so facing pairs are
+2–3, 4–5, 6–7, 8–9, 10–11, 12–13 and 14–15. A spread beginning on an odd page
+would be split by a page turn, so the build refuses it.
+
+### Markdown vocabulary
+
+Deliberately small. Anything the template cannot express through these is a
+template change, not a page-source change.
+
+| Syntax | Result |
+|---|---|
+| `# Heading` | Page-opening heading with accent rule. One per page at most. |
+| `## Heading` | Section heading. May begin mid-page by design. |
+| `**bold**`, `` `code` `` | Inline emphasis and monospace |
+| `- item` | Bulleted list |
+| `<!-- note: text -->` | Small grey line, used for dating lines |
+| `<!-- keyline: text -->` | Tinted emphasis panel |
+| `<!-- diagram: name height=108mm -->` | TikZ fragment from `images/diagrams/name.tex`, scaled to fit within the text width and the given height. Height defaults to 95 mm. |
+| `<!-- figure: name width=100% height=45mm -->` | Raster or PDF figure from `images/diagrams/name.pdf` |
+| `<!-- snapshot -->` | The legislative dating line, from `edition.conf` |
+| `<!-- edition -->` | The publication line: edition, build date, snapshot |
+
+Content files must not contain raw LaTeX or manual spacing adjustments. The
+template owns typography, colour, geometry and spacing. Page markers are the
+one exception, and they carry structure rather than formatting.
+
+## Artwork
+
+Covers are supplied at **1819 × 2551 px**, which is 154 × 216 mm at 300 dpi:
+A5 trim plus 3 mm bleed on every edge. The template centres them on the
+148 × 210 mm page so the artwork overhangs by 3 mm, and the printer trims into
+the overhang.
+
+`images/cover-bleed.png` and `images/back-cover-bleed.png` are the only cover
+masters, used by both editions. If cover art is regenerated, match those
+dimensions exactly or the bleed will be wrong.
+
+Keep the type at least 5 mm inside the trim. The current front cover title
+clears it by roughly a millimetre, which is legal but tighter than ideal for
+a saddle-stitched job.
+
+The **front** cover still has its lettering baked into the raster, so changing
+its wording means regenerating the artwork.
+
+The **back** cover does not. `images/back-cover-plate.png` is the photographic
+plate with all lettering painted out, and the template sets the headline,
+wordmark, taglines, address, rule work and disclaimer as live type over it.
+The address can therefore be changed without touching artwork. The plate was
+derived from `images/back-cover-bleed.png`, which is kept only as the source
+for regenerating it.
+
+The QR is vector, not an image. `images/diagrams/qr-site.tex` is generated:
+
+```bash
+python3 tools/make_qr.py https://snarkypuss.ca
+```
+
+Error-correction level H, so it still scans through a scuff or a fold. Verify
+any regenerated code actually decodes before printing — the QR in the
+original artwork was an image model's imitation of one and resolved to
+nothing.
+
+Diagrams are TikZ fragments, not standalone documents. They use the colour
+names defined in `templates/brochure.tex` (`snarkycyan`, `snarkysteel`,
+`snarkydeep`, `snarkypale`, `snarkymute`, `snarkyink`), so they cannot be
+compiled on their own without that preamble.
+
+## Changing the content
+
+1. Edit the relevant file in `content/`.
+2. Rebuild and read the fill report.
+3. If a page overflows, move a paragraph to an adjacent page or cut it. Do
+   not shrink the type to fit one page — the size is global.
+4. If pages 2–4 change, update `references/sources.md` in the same commit.
+
+The type size is the largest that fits the current copy. Raising it means
+finding new headroom first; the report tells you which page binds.
+
+## Edition and dating
+
+`edition.conf` carries three things:
+
+```
+version = 1.0
+legislative_snapshot = 2026-09
+snapshot_warn_months = 6
+```
+
+`version` is the brochure edition. Bump it when you publish a revision.
+
+`legislative_snapshot` is the month against which pages 2–4 were researched
+and verified. **Set it by hand, and only after re-checking the claims against
+`references/sources.md`.** It is deliberately not derived from the build
+date, because rebuilding a PDF is not the same as re-reading the law. If the
+two were linked, a rebuild in 2028 would silently claim the legislation
+section was current.
+
+The build date is today's date, or `SOURCE_DATE_EPOCH` when set, so a
+published edition can be reproduced exactly:
+
+```bash
+SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) python3 tools/build.py --press
+```
+
+Every build reports both dates and the gap between them. Once the snapshot is
+older than `snapshot_warn_months`, the build warns on stderr. It does not
+fail — a stale brochure still has to be printable — but the warning is there
+so a stale one is never published by accident.
+
+Both dates reach the page through directives rather than typed literals:
+`<!-- snapshot -->` on page 2 and `<!-- edition -->` on page 15. Never type
+either date into `content/`.
+
+## Time-sensitive content
+
+Pages 2–4 describe Canadian legislation as of a stated date. `sources.md`
+records what each claim rests on and lists, in order, what to re-check when
+the snapshot is superseded. The dating line on page 2 and the edition line on
+page 15 are separate and both need updating.
+
+## Design decisions worth keeping
+
+**Why LuaLaTeX.** The brochure is a modern, full-colour designed document.
+LuaLaTeX gives native Unicode, straightforward OpenType font selection, and
+strong graphics support, while remaining compatible with the ordinary LaTeX
+package ecosystem. `pdflatex` would mean fighting the font handling.
+
+**Why Markdown is the authoring format.** LaTeX is a generated publishing
+format, not the primary source. Keeping the prose in Markdown makes it easy
+to write, review and diff, and — more importantly — reusable. A PowerPoint
+presentation built from the same material is a different presentation format,
+not an automatic conversion of the PDF. It will use far less text and may
+reorganize the narrative into slide-sized ideas, but it can reuse the
+researched facts and their provenance, the section headings and narrative
+structure, the character artwork, the architecture and state diagrams, and
+the terminology. That reuse is the main reason the content stays independent
+of the generated LaTeX.
+
+**Graphics.** Simple geometric and technical diagrams are TikZ, which keeps
+them versioned as text, diffable, and consistent with the document's fonts
+and palette. Illustrative material involving the Snarkypuss character should
+be prepared as external image assets rather than forced into TikZ. Raster
+graphics need sufficient resolution for their printed size; vector is
+preferred for diagrams and line art.
+
+**Provenance.** The brochure itself is not an academic paper and carries no
+footnotes, but the repository must preserve enough provenance to verify every
+factual claim and to update time-sensitive material later. Political and
+legislative material is presented neutrally: government descriptions of
+legislative purpose are identified as such, and privacy concerns, industry
+positions and contested interpretations are attributed to their sources
+rather than presented as undisputed conclusions.
+
+**Releases.** The finished PDF is not committed. A release process may attach
+it to a GitHub release instead.

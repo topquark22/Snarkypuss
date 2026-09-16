@@ -1,0 +1,46 @@
+% Privacy Includes Failure — page 10. The four effective gateway states.
+% Colour carries meaning: protected, safe-stopped, deliberate exception,
+% unverified. Each panel shows whether traffic leaves and by which path.
+\begin{tikzpicture}[
+  font=\sffamily\small,
+  >=Latex,
+  panel/.style={draw=snarkysteel, line width=0.6pt, rounded corners=1.5mm,
+                minimum width=56mm, minimum height=30mm, anchor=north west},
+  bar/.style={rounded corners=1.5mm, minimum width=56mm, minimum height=8mm,
+              anchor=north west, text=white, font=\sffamily\bfseries},
+  body/.style={align=left, anchor=north west, text width=50mm,
+               font=\sffamily\scriptsize, text=snarkyink}
+]
+
+\definecolor{stprot}{HTML}{11879B}
+\definecolor{stlock}{HTML}{1A5174}
+\definecolor{stdirect}{HTML}{B5762A}
+\definecolor{stunknown}{HTML}{6C7A86}
+
+\newcommand{\statepanel}[5]{%
+  \node[panel] at (#1) {};
+  \node[bar, fill=#3] at (#1) {\hspace{2mm}#4};
+  \node[body] at ($(#1)+(3mm,-11mm)$) {#5};
+}
+
+\statepanel{0,0}{}{stprot}{Protected VPN}
+  {Traffic from WireGuard is forwarded through the commercial VPN.
+   Snarkypuss can verify the expected protected route.\\[1mm]
+   \textbf{Traffic leaves:} through the provider.}
+
+\statepanel{60mm,0}{}{stlock}{Locked}
+  {Public forwarding is blocked. The private SnarkyCtl interface stays
+   reachable through WireGuard.\\[1mm]
+   \textbf{Traffic leaves:} it does not.}
+
+\statepanel{0,-34mm}{}{stdirect}{Direct VPS}
+  {A deliberate exceptional mode for administration or troubleshooting.
+   Never an automatic fallback.\\[1mm]
+   \textbf{Traffic leaves:} through the VPS, unprotected.}
+
+\statepanel{60mm,-34mm}{}{stunknown}{Unknown}
+  {Snarkypuss cannot establish the effective state with confidence, and
+   does not claim protection it cannot verify.\\[1mm]
+   \textbf{Traffic leaves:} not asserted.}
+
+\end{tikzpicture}
