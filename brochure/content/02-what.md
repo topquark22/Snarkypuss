@@ -47,7 +47,7 @@ So the VPS is primarily the private bridge. The commercial VPN remains the outwa
 
 Snarkypuss can also enter a deliberate **Direct VPS** mode in which traffic exits through the VPS without the commercial VPN, but that is an explicit exceptional state rather than a silent fallback.
 
-## Meet Snarkypuss
+## Meet SnarkyCtl
 
 For normal use, you do not administer the gateway by typing Linux or VPN commands. SnarkyCtl, the management component of Snarkypuss, provides a private web dashboard reached through the WireGuard tunnel.
 
