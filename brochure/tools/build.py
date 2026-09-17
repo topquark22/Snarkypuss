@@ -154,13 +154,22 @@ def read_edition():
         if key not in conf:
             raise BuildError(f"edition.conf: missing {key}")
 
+    # YYYY-MM-DD when the day is meaningful, YYYY-MM when only the month is.
+    raw = conf["legislative_snapshot"]
+    parts = raw.split("-")
     try:
-        year, month = (int(x) for x in conf["legislative_snapshot"].split("-"))
-        snapshot = datetime.date(year, month, 1)
+        if len(parts) == 3:
+            snapshot = datetime.date(*(int(x) for x in parts))
+            day_known = True
+        elif len(parts) == 2:
+            snapshot = datetime.date(int(parts[0]), int(parts[1]), 1)
+            day_known = False
+        else:
+            raise ValueError(raw)
     except (ValueError, TypeError):
         raise BuildError(
-            "edition.conf: legislative_snapshot must be YYYY-MM, "
-            f"got {conf['legislative_snapshot']!r}")
+            "edition.conf: legislative_snapshot must be YYYY-MM-DD or YYYY-MM, "
+            f"got {raw!r}")
 
     stamp = os.environ.get("SOURCE_DATE_EPOCH")
     if stamp:
@@ -169,12 +178,16 @@ def read_edition():
         built = datetime.date.today()
 
     months_old = (built.year - snapshot.year) * 12 + (built.month - snapshot.month)
+    if day_known and built.day < snapshot.day:
+        months_old -= 1
     site_url = conf["site_url"].rstrip("/")
     return {
         "version": conf["version"],
         "site_url": site_url,
         "site_display": re.sub(r"^https?://", "", site_url),
-        "snapshot_text": f"{MONTHS[snapshot.month - 1]} {snapshot.year}",
+        "snapshot_text": (
+            f"{snapshot.day} {MONTHS[snapshot.month - 1]} {snapshot.year}"
+            if day_known else f"{MONTHS[snapshot.month - 1]} {snapshot.year}"),
         "built_text": f"{built.day} {MONTHS[built.month - 1]} {built.year}",
         "months_old": months_old,
         "warn_after": int(conf.get("snapshot_warn_months", 6)),
