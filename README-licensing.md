@@ -24,9 +24,7 @@ open source and not covered by the AGPL:
 | `webdev` | the brochure, its diagrams, and the cover artwork |
 | `gh-pages` | the published site, the promotional song and video |
 
-Each carries its own `LICENSE`. The brochure build system under
-`brochure/tools/` and `brochure/templates/` is part of the software and stays
-AGPL licensed wherever it appears.
+Each carries its own `LICENSE`.
 
 Two things are permitted without asking: redistributing the brochure PDF
 complete and unmodified for non-commercial purposes, and linking to or
