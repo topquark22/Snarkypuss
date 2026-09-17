@@ -1,12 +1,12 @@
 Copyright (c) 2026 Geoffrey T. Falk. All rights reserved.
 
 This branch holds the Snarkypuss brochure and the artwork behind it. Its
-contents are NOT licensed under the AGPL v3 License that covers the Snarkypuss
+contents are NOT licensed under the AGPL-v3 License that covers the Snarkypuss
 software on the `main` branch, and are not released under any open-source or
 Creative Commons licence.
 
 EXCEPTION: the brochure build system — brochure/tools/ and
-brochure/templates/ — is part of the Snarkypuss software and is MIT licensed.
+brochure/templates/ — is part of the Snarkypuss software and is AGPL-v3 licensed.
 This notice applies to everything else here: the brochure text, the diagrams,
 the cover artwork, the Snarkypuss character, and the generated PDFs.
 
