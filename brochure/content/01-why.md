@@ -40,6 +40,6 @@ For a VPN provider built around encryption and a no-logs design, a requirement t
 
 NordVPN said on May 15, 2026 that it was reviewing Bill C-22, and that if it became subject to mandatory obligations it would not compromise its no-logs architecture or encryption protections. It would instead consider all viable options, including limiting or removing its presence from Canadian jurisdiction. That was a conditional warning, not an announced departure.
 
-Windscribe, which is headquartered in Canada, was blunter. It said the previous day that it would leave the country if the bill passes, noting that a company based elsewhere can simply switch off its Canadian servers while its own head office is here. The encrypted messaging service Signal had said earlier that week that it would rather withdraw from the Canadian market than comply.
+Windscribe, which is headquartered in Canada, was more blunt. It said the previous day that it would leave the country if the bill passes, noting that a company based elsewhere can simply switch off its Canadian servers while its own head office is here. The encrypted messaging service Signal had said earlier that week that it would rather withdraw from the Canadian market than comply.
 
 These are stated positions, not outcomes. The project does not predict what Parliament, regulators or VPN providers will ultimately do. It provides a privately hosted architecture in which the user's own connection to **Your VPS** remains separate from the commercial VPN provider running beyond it.
