@@ -15,7 +15,7 @@ to do with the software's.
 |---|---|
 | `main` | the Snarkypuss software — MIT licensed |
 | `webdev` | this branch: brochure, sources, artwork |
-| `gh-pages` | the published site at [snarkypuss.ca](https://snarkypuss.ca) |
+| `gh-pages` | the published site at snarkypuss.ca |
 
 A `git clone` fetches every branch's objects regardless, so the separation is
 about keeping the trees and histories apart, not about download size.
