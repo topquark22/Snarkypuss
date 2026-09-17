@@ -3,8 +3,7 @@
 This repository is licensed in two parts.
 
 **The software is MIT licensed.** That covers the Snarkypuss gateway software,
-SnarkyCtl, the installation and configuration tooling, and the brochure build
-system under `webdev:brochure/tools/` and `webdev:brochure/templates/`. Use it, modify it,
+SnarkyCtl, the installation and configuration tooling. Use it, modify it,
 redistribute it, build on it commercially — the usual MIT terms, in `LICENSE`.
 
 **The artwork, song, video and brochure are all rights reserved.** They are not
