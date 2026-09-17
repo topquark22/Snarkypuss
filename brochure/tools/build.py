@@ -132,25 +132,38 @@ MONTHS = ("January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December")
 
 
-def check_qr(site_url):
-    """The committed QR must encode the address the brochure prints.
-
-    qr-site.tex records its URL in a header comment. If the two disagree,
-    somebody changed the address without reissuing the code, and the printed
-    brochure would send readers somewhere else.
-    """
+def qr_encodes(site_url):
+    """Whether the committed QR already encodes this address."""
     if not QR_TEX.exists():
-        raise BuildError(
-            f"missing {QR_TEX.name}; run: python3 tools/make_qr.py")
+        return False
     head = QR_TEX.read_text(encoding="utf-8").splitlines()[0]
     m = re.search(r"QR code for (\S+)", head)
-    if not m:
-        raise BuildError(f"{QR_TEX.name}: no URL header; regenerate with tools/make_qr.py")
-    encoded = m.group(1).rstrip("/")
-    if encoded != site_url:
+    return bool(m) and m.group(1).rstrip("/") == site_url
+
+
+def ensure_qr(site_url):
+    """Keep images/diagrams/qr-site.tex in step with site_url.
+
+    When it already matches, nothing happens -- no import, no dependency. It
+    is only when the address has changed, or the file is missing, that the
+    generator runs, and only then is the qrcode package needed. So the common
+    build needs nothing beyond the standard library, while the QR can never
+    silently disagree with the printed address: it is either reissued here or
+    the build stops.
+    """
+    if qr_encodes(site_url):
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import make_qr
+    except ImportError as exc:
         raise BuildError(
-            f"QR mismatch: {QR_TEX.name} encodes {encoded}, but edition.conf "
-            f"says {site_url}.\n            Reissue it: python3 tools/make_qr.py")
+            f"the QR code does not match site_url ({site_url}) and cannot be "
+            f"reissued: {exc}\n"
+            "            Install the generator's dependency: pip install qrcode\n"
+            "            (build.py imports the qrcode module; it does not need "
+            "the 'qr' console script on PATH)")
+    make_qr.main(site_url)
 
 
 def read_edition():
@@ -605,7 +618,7 @@ def main():
         return
 
     edition = read_edition()
-    check_qr(edition["site_url"])
+    ensure_qr(edition["site_url"])
     generate_tex(args.verbose, args.body_size, args.press)
     if args.tex_only:
         return

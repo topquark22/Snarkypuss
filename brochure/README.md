@@ -75,7 +75,7 @@ the guillotine anyway.
 
 | Flag | Effect |
 |---|---|
-| `--press` | Press edition: adds 3 mm bleed, trim marks, and PDF TrimBox/BleedBox. Writes `build/snarkypuss-press.pdf`. |
+| `--press` | Press edition: adds 3 mm bleed, trim marks, and PDF TrimBox/BleedBox. |
 | `--body-size PT` | Body text size. The entire type scale derives from it. Default 11.0. |
 | `--fit` | Exit non-zero if any page overflows its text block. Use in CI. |
 | `--tex-only` | Write `build/snarkypuss.tex` without running LuaLaTeX. |
@@ -289,12 +289,29 @@ snapshot_warn_months = 6
 
 `site_url` is the project's public address, and the only place it is written.
 It reaches the back cover through the template, page 15 through the `{{site}}`
-token in `content/`, and the QR through `tools/make_qr.py`. Change it in one
-place and reissue the code:
+token in `content/`, and the QR through `tools/make_qr.py`. Change it in one place and rebuild. The QR keeps itself in step: when
+`qr-site.tex` already encodes the current address nothing happens, and when it
+does not — because you changed `site_url`, or the file is missing — the build
+reissues it before continuing.
 
-```bash
-python3 tools/make_qr.py          # regenerates images/diagrams/qr-site.tex
+This needs the `qrcode` package, but only on the build where the address
+actually changed. An ordinary build imports nothing outside the standard
+library, which is why `qr-site.tex` is committed rather than generated every
+time. If the address has changed and the package is not installed, the build
+stops rather than printing a brochure whose QR points somewhere else:
+
 ```
+build failed: the QR code does not match site_url (https://snarkypuss.org)
+and cannot be reissued: No module named 'qrcode'
+            Install the generator's dependency: pip install qrcode
+```
+
+Note that it is the *module* that must be importable by the Python running
+the build. The `qr` console script that `pip` also installs is irrelevant, so
+a Scripts directory that is not on PATH does not matter here.
+
+`tools/make_qr.py` still reissues the code on its own if you want it outside
+a build.
 
 If you forget, the build stops rather than producing a brochure whose printed
 address and QR disagree:
