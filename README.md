@@ -1,34 +1,67 @@
+# Snarkypuss — webdev
+
+This is an orphan branch. It shares no history with `main` and holds the
+project's published material rather than its software: the brochure and its
+sources, and the artwork behind them.
+
+It is kept separate because it has nothing to do with building or running
+Snarkypuss. Someone cloning the project to install it has no use for a LaTeX
+toolchain or a 10 MB cover plate, and the brochure's release cycle has nothing
+to do with the software's.
+
+## Branches
+
+| Branch | Holds |
+|---|---|
+| `main` | the Snarkypuss software — MIT licensed |
+| `webdev` | this branch: brochure, sources, artwork |
+| `gh-pages` | the published site at snarkypuss.ca |
+
+A `git clone` fetches every branch's objects regardless, so the separation is
+about keeping the trees and histories apart, not about download size.
+
+## Contents
+
+```
+brochure/          the 16-page A5 brochure — see brochure/README.md
+```
+
+[`brochure/README.md`](brochure/README.md) is the operative document: toolchain, build commands, the
+page-marker model, edition and dating, and the artwork dimensions. Start there.
+
+## Building the brochure
+
+```bash
+cd brochure
+python3 tools/build.py            # screen edition
+python3 tools/build.py --press    # with bleed and trim marks
+```
+
+Output lands in `brochure/build/`, named for the legislative snapshot it is
+current to. The build refuses to produce anything other than 16 A5 pages, and
+reports how full each page is.
+
+Requires LuaLaTeX and poppler. Full package lists, including the Windows and
+container routes, are in `brochure/README.md`.
+
+## Before publishing a new edition
+
+1. Re-check pages 2–4 against `brochure/references/sources.md`. The legal and
+   policy content is a dated snapshot, and rebuilding does not refresh it.
+2. Update `legislative_snapshot` and `version` in `brochure/edition.conf`.
+   Which component to bump is set out in `brochure/README.md`.
+3. Build both editions.
+4. Copy the screen PDF to `gh-pages/brochure/` and update the two `href`s in
+   `gh-pages/index.html`, which name the file explicitly.
+
 ## Licensing
 
-This repository is licensed in two parts.
+The brochure, the cover artwork and the Snarkypuss character are **all rights
+reserved** — see `LICENSE` in this branch. They are not covered by the MIT
+License that applies to the software on `main`.
 
-**The software is MIT licensed.** That covers the Snarkypuss gateway software,
-SnarkyCtl, the installation and configuration tooling, and the brochure build
-system under `brochure/tools/` and `brochure/templates/`. Use it, modify it,
-redistribute it, build on it commercially — the usual MIT terms, in `LICENSE`.
+Redistributing the brochure PDF complete and unmodified for non-commercial
+purposes is permitted. Reusing the character in new artwork is not.
 
-**The artwork, song, video and brochure are all rights reserved.** They are not
-open source, not Creative Commons, and not covered by the MIT grant:
-
-| | |
-|---|---|
-| `webdev/` | Snarkypuss character artwork, cover illustrations, promotional images |
-| `media/` | the song, its lyrics and recording, the promotional video |
-| `brochure/images/` | cover artwork and character illustrations |
-| the brochure PDF | in any edition or format |
-
-See `webdev/LICENSE` and `media/LICENSE` for the terms.
-
-Two things are permitted without asking: redistributing the brochure PDF
-complete and unmodified for non-commercial purposes, and linking to or
-embedding the published video. Anything else — reusing the character in new
-artwork, remixing the song, altering the brochure — needs written permission.
-
-The character is reserved deliberately rather than by oversight. Snarkypuss is
-a privacy tool, and artwork bearing the character should continue to indicate
-*this* project rather than something else wearing the same face. The software
-carries no such constraint: fork it, rename it, ship your own.
-
-> GitHub's licence detector reads the root `LICENSE` file and will report this
-> repository as MIT. It does not understand the carve-outs above. This section
-> and the per-directory notices are the authoritative statement.
+The build system itself — `brochure/tools/` and `brochure/templates/` — is MIT
+licensed along with the rest of the software.

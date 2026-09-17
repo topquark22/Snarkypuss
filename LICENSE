@@ -1,23 +1,26 @@
 Copyright (c) 2026 Geoffrey T. Falk. All rights reserved.
 
-The contents of this directory — including the Snarkypuss character artwork,
-cover illustrations, promotional images, and any derivative or intermediate
-versions of them — are NOT licensed under the MIT License that covers the
-Snarkypuss software, and are not released under any open-source or Creative
-Commons licence.
+This branch holds the Snarkypuss brochure and the artwork behind it. Its
+contents are NOT licensed under the MIT License that covers the Snarkypuss
+software on the `main` branch, and are not released under any open-source or
+Creative Commons licence.
+
+EXCEPTION: the brochure build system — brochure/tools/ and
+brochure/templates/ — is part of the Snarkypuss software and is MIT licensed.
+This notice applies to everything else here: the brochure text, the diagrams,
+the cover artwork, the Snarkypuss character, and the generated PDFs.
 
 No permission is granted to copy, reproduce, distribute, publicly display,
-modify, or create derivative works from these files, whether or not for
+modify, or create derivative works from those files, whether or not for
 commercial purposes, except as follows.
 
 PERMITTED WITHOUT FURTHER PERMISSION
 
-  1. Reproducing the Snarkypuss brochure in unmodified form, complete and
-     without alteration, for non-commercial distribution.
+  1. Reproducing the brochure complete and unmodified, for non-commercial
+     distribution.
 
-  2. Quoting or reproducing individual images for the purpose of news
-     reporting, review, commentary, or other uses that would constitute fair
-     dealing or fair use under applicable law.
+  2. Quotation for the purpose of news reporting, review, commentary, or other
+     uses that would constitute fair dealing or fair use under applicable law.
 
 Any other use, including use of the Snarkypuss character in new artwork,
 requires written permission. Requests: https://snarkypuss.ca
