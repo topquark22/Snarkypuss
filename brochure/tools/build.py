@@ -22,9 +22,31 @@ DERIVED = ROOT / "build" / "pages"
 TEMPLATE = ROOT / "templates" / "brochure.tex"
 BUILD = ROOT / "build"
 def artifacts(press=False):
-    """Each edition owns its own filenames, so one never overwrites the other."""
+    """Working filenames for the compile.
+
+    Kept plain and stable: they become the TeX jobname, and a jobname
+    containing dots or a date is asking for trouble. The finished PDF is
+    renamed to its published name afterwards -- see published_name.
+    """
     stem = "snarkypuss-press" if press else "snarkypuss"
     return BUILD / f"{stem}.tex", BUILD / f"{stem}.pdf"
+
+
+def published_name(edition, press=False):
+    """The delivered filename: snarkypuss[-press]_<snapshot>[_<patch>].pdf
+
+    The date is the legislative snapshot, at whatever precision edition.conf
+    gives it, so the filename says what the content is current to rather than
+    when the file happened to be built. The trailing number is the patch
+    component of `version`, present only when version carries a third part:
+    1.0 gives no suffix, 1.0.2 gives _2.
+    """
+    stem = "snarkypuss-press" if press else "snarkypuss"
+    parts = [stem, edition["snapshot_raw"]]
+    patch = edition.get("patch")
+    if patch is not None:
+        parts.append(patch)
+    return BUILD / ("_".join(parts) + ".pdf")
 
 TRIM_MM = (148.0, 210.0)      # A5
 BLEED_MM = 3.0                # artwork overhang the printer trims into
@@ -181,8 +203,11 @@ def read_edition():
     if day_known and built.day < snapshot.day:
         months_old -= 1
     site_url = conf["site_url"].rstrip("/")
+    version_parts = conf["version"].split(".")
     return {
         "version": conf["version"],
+        "patch": version_parts[2] if len(version_parts) >= 3 else None,
+        "snapshot_raw": raw,
         "site_url": site_url,
         "site_display": re.sub(r"^https?://", "", site_url),
         "snapshot_text": (
@@ -587,8 +612,9 @@ def main():
 
     log = compile_pdf(args.verbose, args.press)
     count = validate_pdf(args.press, log)
+    target = published_name(edition, args.press)
+    artifacts(args.press)[1].replace(target)
     rows = fit_report(log)
-    target = artifacts(args.press)[1]
     geometry = "press, trim + 3mm bleed + marks" if args.press else "screen, A5 trim"
     print(f"built {target} ({count} pages, {geometry}) at {args.body_size}pt body")
     print_fit(rows)

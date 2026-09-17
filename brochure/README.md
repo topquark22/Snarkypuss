@@ -14,8 +14,28 @@ cd brochure
 python3 tools/build.py
 ```
 
-Output is `build/snarkypuss.pdf`, the screen edition: 148 × 210 mm, the A5
-trim size, for reading and for distributing as a download. The build fails
+Output is the screen edition: 148 × 210 mm, the A5 trim size, for reading and
+for distributing as a download. It is named for its content rather than its
+build:
+
+```
+snarkypuss[-press]_<legislative_snapshot>[_<patch>].pdf
+```
+
+The date comes from `legislative_snapshot`, at whatever precision
+`edition.conf` gives it, so a downloaded copy states on its face what it is
+current to. The trailing number is the third component of `version`, present
+only if there is one — `1.0` yields no suffix, `1.0.2` yields `_2`. Examples:
+
+| edition.conf | screen | press |
+|---|---|---|
+| `1.0` / `2026-09-17` | `snarkypuss_2026-09-17.pdf` | `snarkypuss-press_2026-09-17.pdf` |
+| `1.0.2` / `2026-09-17` | `snarkypuss_2026-09-17_2.pdf` | `snarkypuss-press_2026-09-17_2.pdf` |
+| `1.0` / `2026-09` | `snarkypuss_2026-09.pdf` | `snarkypuss-press_2026-09.pdf` |
+
+The compile itself still runs under the plain stem `snarkypuss`, because that
+becomes the TeX jobname and a jobname full of dots and dates causes more
+trouble than it is worth. The finished PDF is renamed afterwards. The build fails
 rather than warns if the result is not exactly 16 pages at the expected size.
 
 For the printer:
@@ -24,7 +44,7 @@ For the printer:
 python3 tools/build.py --press
 ```
 
-Output is `build/snarkypuss-press.pdf`.
+Output follows the same naming, with `-press` after the stem.
 
 ### The two editions
 
@@ -261,7 +281,7 @@ finding new headroom first; the report tells you which page binds.
 
 ```
 version = 1.0
-legislative_snapshot = 2026-09
+legislative_snapshot = 2026-09-17
 snapshot_warn_months = 6
 ```
 
@@ -290,12 +310,60 @@ edition.conf says https://snarkypuss.org.
 standard library -- which makes the generated file a build *input*, like the
 diagrams.
 
-`legislative_snapshot` is the month against which pages 2–4 were researched
-and verified. **Set it by hand, and only after re-checking the claims against
+`legislative_snapshot` is the date against which pages 2–4 were researched and
+verified. Give it as `YYYY-MM-DD`, or as `YYYY-MM` when only the month is
+meaningful; the brochure prints whichever precision you supply. **Set it by hand, and only after re-checking the claims against
 `references/sources.md`.** It is deliberately not derived from the build
 date, because rebuilding a PDF is not the same as re-reading the law. If the
 two were linked, a rebuild in 2028 would silently claim the legislation
 section was current.
+
+### What each version component means
+
+`version` is `MAJOR.MINOR[.PATCH]`:
+
+| Component | Bump it when |
+|---|---|
+| **MAJOR** | The law changed. Pages 2–4 are re-researched and `legislative_snapshot` moves with it. |
+| **MINOR** | The wording of the content changed — corrections, rewrites, anything editorial that leaves the legal position as it was. |
+| **PATCH** | Anything else that reaches the printed page: build system, template, typography, artwork, diagrams. |
+
+PATCH is optional. `version = 1.0` is valid and is the normal state of a fresh
+MAJOR or MINOR release — there is no need to write `1.0.0`. Add the third
+component only once there is a patch revision to record, and the filename
+picks it up from that point on:
+
+```
+version = 1.0      ->  snarkypuss_2026-09-17.pdf
+version = 1.0.1    ->  snarkypuss_2026-09-17_1.pdf
+```
+
+MAJOR and MINOR are not optional.
+
+The distinction between MAJOR and the rest is the one that matters most,
+because only MAJOR implies the facts were re-verified. `legislative_snapshot`
+and MAJOR move together; if you find yourself moving one without the other,
+something is wrong.
+
+### A filename caveat
+
+The published filename carries the snapshot date and the PATCH component, not
+MAJOR or MINOR. The date is what a reader of a dated document needs, so this
+is right for the common case — but it does mean a MINOR bump alone is
+invisible in the filename.
+
+`1.0` and `1.1` against the same snapshot both produce
+`snarkypuss_2026-09-17.pdf`, and the second overwrites the first. Resetting
+PATCH does not help: `1.0.0` and `1.1.0` both yield `_0`.
+
+If that matters — two editions in circulation that cannot be told apart by
+filename — there are two ways out: put the full version in the filename
+instead of just PATCH, or let PATCH keep counting across MINOR bumps
+(`1.0.3` then `1.1.4`) so it never repeats. Neither is implemented; the
+current behaviour is to overwrite.
+
+The build does not enforce any of this, and will write over an existing file
+of the same name without comment.
 
 The build date is today's date, or `SOURCE_DATE_EPOCH` when set, so a
 published edition can be reproduced exactly:
