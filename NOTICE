@@ -1,0 +1,27 @@
+Snarkypuss
+Copyright (c) 2026 Geoffrey T. Falk
+
+The GNU Affero General Public License v3.0 in LICENSE applies to the
+Snarkypuss software: the gateway software, SnarkyCtl, the installation and
+configuration tooling, and the brochure build system under brochure/tools/
+and brochure/templates/.
+
+The AGPL permits use, modification, redistribution and sale. What it requires
+in return is reciprocity: anyone distributing a modified version, or running
+one as a network service that others use, must make their source available
+under the same licence. Snarkypuss cannot be taken proprietary.
+
+The AGPL does not apply to the artwork, song, video or brochure. Those live on
+separate branches and are all rights reserved:
+
+  webdev      the brochure, its diagrams, and the cover artwork
+  gh-pages    the published site, the promotional song and video
+
+Each of those branches carries its own LICENSE file stating its terms. Note
+that GitHub displays only the LICENSE from the default branch, so the licence
+shown for this repository describes the software alone.
+
+The brochure build system under brochure/tools/ and brochure/templates/ is
+part of the Snarkypuss software and is AGPL licensed wherever it appears.
+
+See the Licensing section of README.md for a summary.
