@@ -16,7 +16,7 @@ Snarkypuss itself is free software. You separately pay for a low-cost VPS, appro
 
 **snarkypuss.ca** — documentation, and the source at **github.com/topquark22/Snarkypuss**
 
-The current release is **Snarkypuss 2.0.0**.
+The current release is **Snarkypuss 2.0.1**.
 
 <!-- edition -->
 
