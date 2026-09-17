@@ -11,7 +11,7 @@ open source, not Creative Commons, and not covered by the MIT grant:
 
 | | |
 |---|---|
-| branch  `webdev` | Snarkypuss character artwork, cover illustrations |
+| branch  `webdev` | The brochure content, Snarkypuss character artwork, cover illustrations |
 | branch `gh-pages` | the website, including the song, its lyrics and recording, the promotional video, and promotional images |
 | the brochure PDF | in any edition or format |
 
