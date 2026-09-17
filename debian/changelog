@@ -1,3 +1,7 @@
+snarkyctl (2.0.1-1) unstable; urgency=medium
+
+  * Add AGPL-3.0 license
+
 snarkyctl (2.0.0-1) unstable; urgency=medium
 
   * Add provider-neutral VPN target discovery models and capability metadata.
