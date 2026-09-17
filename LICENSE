@@ -1,9 +1,10 @@
 Copyright (c) 2026 Geoffrey T. Falk. All rights reserved.
 
-The contents of this directory — including the Snarkypuss song, its lyrics,
-its recording, the promotional video, and the artwork accompanying them — are
-NOT licensed under the MIT License that covers the Snarkypuss software, and
-are not released under any open-source or Creative Commons licence.
+This branch holds the published Snarkypuss website, including the brochure,
+the promotional song and video, and the Snarkypuss artwork. Its contents are
+NOT licensed under the MIT License that covers the Snarkypuss software on the
+`main` branch, and are not released under any open-source or Creative Commons
+licence.
 
 No permission is granted to copy, reproduce, distribute, publicly perform,
 publicly display, modify, synchronise with other material, or create
@@ -12,8 +13,12 @@ except as follows.
 
 PERMITTED WITHOUT FURTHER PERMISSION
 
-  1. Linking to the song or video as published at https://snarkypuss.ca
-  2. Embedding the published video by link, unmodified and with attribution.
+  1. Reproducing the brochure complete and unmodified, for non-commercial
+     distribution.
+
+  2. Linking to the song or video as published at https://snarkypuss.ca, and
+     embedding the published video by link, unmodified and with attribution.
+
   3. Quotation for the purpose of news reporting, review, commentary, or other
      uses that would constitute fair dealing or fair use under applicable law.
 
