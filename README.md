@@ -29,31 +29,6 @@ brochure/          the 16-page A5 brochure — see brochure/README.md
 [`brochure/README.md`](brochure/README.md) is the operative document: toolchain, build commands, the
 page-marker model, edition and dating, and the artwork dimensions. Start there.
 
-## Building the brochure
-
-```bash
-cd brochure
-python3 tools/build.py            # screen edition
-python3 tools/build.py --press    # with bleed and trim marks
-```
-
-Output lands in `brochure/build/`, named for the legislative snapshot it is
-current to. The build refuses to produce anything other than 16 A5 pages, and
-reports how full each page is.
-
-Requires LuaLaTeX and poppler. Full package lists, including the Windows and
-container routes, are in `brochure/README.md`.
-
-## Before publishing a new edition
-
-1. Re-check pages 2–4 against `brochure/references/sources.md`. The legal and
-   policy content is a dated snapshot, and rebuilding does not refresh it.
-2. Update `legislative_snapshot` and `version` in `brochure/edition.conf`.
-   Which component to bump is set out in `brochure/README.md`.
-3. Build both editions.
-4. Copy the screen PDF to `gh-pages/brochure/` and update the two `href`s in
-   `gh-pages/index.html`, which name the file explicitly.
-
 ## Licensing
 
 The brochure, the cover artwork and the Snarkypuss character are **all rights
