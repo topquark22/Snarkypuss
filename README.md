@@ -26,8 +26,8 @@ about keeping the trees and histories apart, not about download size.
 brochure/          the 16-page A5 brochure — see brochure/README.md
 ```
 
-[`brochure/README.md`](brochure/README.md) is the operative document: toolchain, build commands, the
-page-marker model, edition and dating, and the artwork dimensions. Start there.
+[`brochure/README.md`](brochure/README.md) is the operative document: toolchain,
+build commands, the page-marker model, edition and dating, and the artwork dimensions.
 
 ## Licensing
 
