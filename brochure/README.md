@@ -104,6 +104,13 @@ python tools\build.py
 
 TeX Live for Windows works equally well if you already have it.
 
+MiKTeX does not ship the Libertinus fonts by default. Either let it fetch
+them on demand, or install them up front:
+
+```
+miktex packages install libertinus-fonts
+```
+
 `pdfinfo` is a poppler tool and is not part of either distribution. The build
 does not require it: without it, the page count is taken from the engine's own
 report instead, and it says so. Page size then goes unverified, which only
@@ -114,9 +121,14 @@ Do not run the build under Cygwin against a native Windows TeX. Cygwin gives
 POSIX paths that a Windows binary cannot resolve, and the failure is obscure.
 Use Cygwin's own TeX Live, WSL2, or native Windows throughout -- not a mixture.
 
-The Libertinus faces are loaded by name through fontspec and resolved from the
-TeX tree, so they do not need to be installed as system fonts. If the build
-fails on `\setmainfont`, `texlive-fonts-extra` is missing.
+The Libertinus faces are loaded by **filename** through fontspec and resolved
+by kpathsea from the TeX tree, so they do not need to be installed as system
+fonts. Do not change the template to load them by family name -- that goes
+through the operating system's font database and breaks on any machine where
+the fonts live only in the TeX tree, which is most of them.
+
+If the fonts are missing the build says so before invoking LaTeX, and names
+the package to install for your distribution.
 
 ## Source files
 

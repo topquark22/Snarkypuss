@@ -416,10 +416,35 @@ def generate_tex(verbose=False, body_size=DEFAULT_BODY_SIZE, press=False):
     return pages
 
 
+FONT_FILES = ("LibertinusSerif-Regular.otf", "LibertinusSans-Regular.otf")
+
+
+def check_fonts():
+    """Fail with a useful message rather than a wall of fontspec output.
+
+    kpsewhich is part of every TeX distribution. If it cannot find the
+    Libertinus faces, the font package is missing -- which produces an error
+    that does not name the package you actually need.
+    """
+    kpsewhich = shutil.which("kpsewhich")
+    if not kpsewhich:
+        return
+    missing = [f for f in FONT_FILES
+               if not subprocess.run([kpsewhich, f], text=True,
+                                     capture_output=True).stdout.strip()]
+    if missing:
+        raise BuildError(
+            "the Libertinus fonts are not installed: " + ", ".join(missing) +
+            "\n            Debian/Ubuntu: sudo apt install texlive-fonts-extra"
+            "\n            MiKTeX:        miktex packages install libertinus-fonts"
+            "\n            TeX Live:      tlmgr install libertinus-fonts")
+
+
 def compile_pdf(verbose=False, press=False):
     engine = shutil.which("lualatex")
     if not engine:
         raise BuildError("lualatex was not found in PATH")
+    check_fonts()
     # TeX treats a backslash as an escape, so hand it forward-slash paths even
     # on Windows. Both MiKTeX and TeX Live accept them.
     command = [engine, "-interaction=nonstopmode", "-halt-on-error",
