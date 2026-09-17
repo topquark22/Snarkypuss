@@ -196,3 +196,5 @@ version output, and the Debian upstream version. The corresponding Debian packag
 The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
 version it contains without making the two release schemes identical. Repository-only changes
 can advance the date/sequence while retaining the same SnarkyCtl suffix.
+
+## [License Terms](README-licensing.md)
