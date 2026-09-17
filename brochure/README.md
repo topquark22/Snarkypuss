@@ -248,13 +248,9 @@ The address can therefore be changed without touching artwork. The plate was
 derived from `images/back-cover-bleed.png`, which is kept only as the source
 for regenerating it.
 
-The QR is vector, not an image. `images/diagrams/qr-site.tex` is generated:
-
-```bash
-python3 tools/make_qr.py https://snarkypuss.ca
-```
-
-Error-correction level H, so it still scans through a scuff or a fold. Verify
+The QR is vector, not an image, generated into
+`images/diagrams/qr-site.tex` from `site_url` in `edition.conf` — see
+*Edition and dating* below. Error-correction level H, so it still scans through a scuff or a fold. Verify
 any regenerated code actually decodes before printing — the QR in the
 original artwork was an image model's imitation of one and resolved to
 nothing.
@@ -277,28 +273,32 @@ finding new headroom first; the report tells you which page binds.
 
 ## Edition and dating
 
-`edition.conf` carries three things:
+`edition.conf` carries four settings:
 
 ```
 version = 1.0
 legislative_snapshot = 2026-09-17
 snapshot_warn_months = 6
+site_url = https://snarkypuss.ca
 ```
 
 `version` is the brochure edition. Bump it when you publish a revision.
 
 `site_url` is the project's public address, and the only place it is written.
-It reaches the back cover through the template, page 15 through the `{{site}}`
-token in `content/`, and the QR through `tools/make_qr.py`. Change it in one place and rebuild. The QR keeps itself in step: when
-`qr-site.tex` already encodes the current address nothing happens, and when it
-does not — because you changed `site_url`, or the file is missing — the build
-reissues it before continuing.
+It reaches three destinations: the printed address on the back cover, via the
+template; page 15, via the `{{site}}` token in `content/`; and the QR code, via
+`tools/make_qr.py`. Change it here and rebuild — nothing else needs editing.
 
-This needs the `qrcode` package, but only on the build where the address
-actually changed. An ordinary build imports nothing outside the standard
-library, which is why `qr-site.tex` is committed rather than generated every
-time. If the address has changed and the package is not installed, the build
-stops rather than printing a brochure whose QR points somewhere else:
+The QR keeps itself in step. When `images/diagrams/qr-site.tex` already encodes
+the current address, nothing happens. When it does not — because you changed
+`site_url`, or the file is missing — the build reissues it before continuing.
+
+That reissue needs the `qrcode` package (`pip install qrcode`), but only on the
+build where the address actually changed. An ordinary build imports nothing
+outside the standard library, which is why `qr-site.tex` is committed rather
+than generated every time: it is a build *input*, like the diagrams. If the
+address has changed and the package is missing, the build stops rather than
+printing a brochure whose QR points somewhere else:
 
 ```
 build failed: the QR code does not match site_url (https://snarkypuss.org)
@@ -306,26 +306,12 @@ and cannot be reissued: No module named 'qrcode'
             Install the generator's dependency: pip install qrcode
 ```
 
-Note that it is the *module* that must be importable by the Python running
-the build. The `qr` console script that `pip` also installs is irrelevant, so
-a Scripts directory that is not on PATH does not matter here.
+It is the *module* that must be importable by the Python running the build. The
+`qr` console script that pip also installs is irrelevant, so a Scripts directory
+missing from PATH does not matter here.
 
-`tools/make_qr.py` still reissues the code on its own if you want it outside
-a build.
-
-If you forget, the build stops rather than producing a brochure whose printed
-address and QR disagree:
-
-```
-build failed: QR mismatch: qr-site.tex encodes https://snarkypuss.ca, but
-edition.conf says https://snarkypuss.org.
-            Reissue it: python3 tools/make_qr.py
-```
-
-`qr-site.tex` is committed, not ignored. The build does not run `make_qr.py`
--- deliberately, so that a clone builds with nothing beyond the Python
-standard library -- which makes the generated file a build *input*, like the
-diagrams.
+`tools/make_qr.py` reissues the code on its own if you want it outside a build.
+With no argument it reads `site_url` from `edition.conf`; pass a URL to override.
 
 `legislative_snapshot` is the date against which pages 2–4 were researched and
 verified. Give it as `YYYY-MM-DD`, or as `YYYY-MM` when only the month is
