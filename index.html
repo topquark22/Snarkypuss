@@ -1,1 +1,173 @@
-<html><head>Hello World</head><body>Hello world!</body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snarkypuss — A Private Bridge to Your VPN</title>
+<meta name="description" content="Snarkypuss is privately hosted, open-source software for building and controlling your own bridge to a commercial VPN service.">
+<style>
+  :root {
+    --ink:      #EAF7FB;
+    --mute:     #9FB6C2;
+    --bg:       #060E17;
+    --panel:    #0E1C2A;
+    --line:     #1A3547;
+    --cyan:     #11B9DB;
+    --cyan-dim: #6FDCF0;
+    --measure:  46rem;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: var(--measure); margin: 0 auto; padding: 0 1.25rem; }
+  a { color: var(--cyan-dim); }
+  a:hover { color: var(--cyan); }
+
+  header { padding: 3.5rem 0 2rem; }
+  h1 {
+    margin: 0;
+    font-size: clamp(2.2rem, 8vw, 3.4rem);
+    letter-spacing: 0.02em;
+    font-weight: 800;
+    line-height: 1.05;
+  }
+  .tagline { margin: 0.6rem 0 0; font-size: 1.15rem; color: var(--cyan-dim); }
+  .rule { width: 3.5rem; height: 2px; background: var(--cyan); margin: 1.4rem 0 0; }
+
+  h2 {
+    font-size: 1.15rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--cyan-dim);
+    margin: 3rem 0 0.9rem;
+  }
+  p { margin: 0 0 1rem; }
+  .lead { font-size: 1.08rem; }
+  .mute { color: var(--mute); }
+  .small { font-size: 0.875rem; }
+
+  .cards { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+  @media (min-width: 40rem) { .cards { grid-template-columns: 1fr 1fr; } }
+  .card {
+    display: block;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 1.1rem 1.2rem;
+    text-decoration: none;
+    color: inherit;
+  }
+  .card:hover { border-color: var(--cyan); }
+  .card strong { display: block; color: var(--cyan-dim); margin-bottom: 0.25rem; }
+
+  video, img { max-width: 100%; height: auto; display: block; border-radius: 6px; }
+  audio { width: 100%; margin-top: 0.75rem; }
+
+  footer {
+    margin-top: 4rem;
+    border-top: 1px solid var(--line);
+    padding: 1.5rem 0 3rem;
+    color: var(--mute);
+    font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <h1>SNARKYPUSS</h1>
+    <p class="tagline">A private bridge to your VPN.</p>
+    <div class="rule"></div>
+  </header>
+
+  <p class="lead">
+    Snarkypuss is privately hosted, open-source software for building and
+    controlling your own bridge to a commercial VPN service. Your computer
+    connects through a private WireGuard tunnel to a small hosted server you
+    control, and the commercial VPN runs there instead of on your machine.
+  </p>
+
+  <p class="mute">
+    There is no Snarkypuss company, subscription, or central network carrying
+    anyone's traffic. Each installation belongs to its user.
+  </p>
+
+  <h2>Read the brochure</h2>
+
+  <p>
+    A 16-page introduction: what Snarkypuss is, why it exists, what it does
+    not claim to do, and how it is put together. Written for readers deciding
+    whether it is worth doing, rather than for whoever will install it.
+  </p>
+
+  <div class="cards">
+    <a class="card" href="brochure/snarkypuss_2026-09-17_1.pdf">
+      <strong>Brochure (PDF)</strong>
+      <span class="small mute">A5, 16 pages · for reading on screen or printing at home</span>
+    </a>
+    <a class="card" href="brochure/snarkypuss-press_2026-09-17_1.pdf">
+      <strong>Print edition (PDF)</strong>
+      <span class="small mute">With 3&nbsp;mm bleed and trim marks · for a commercial printer</span>
+    </a>
+  </div>
+
+  <p class="small mute" style="margin-top:0.9rem">
+    The legal and policy sections reflect Canadian legislation as of
+    17&nbsp;September&nbsp;2026. Later editions will carry a later date in the
+    filename.
+  </p>
+
+  <h2>Install it</h2>
+
+  <p>
+    Setting Snarkypuss up takes some technical knowledge: a hosted virtual
+    server of your own, and an account with a supported commercial VPN
+    provider. The source, documentation and installation instructions are on
+    GitHub.
+  </p>
+
+  <p>
+    <a href="https://github.com/topquark22/Snarkypuss">github.com/topquark22/Snarkypuss</a>
+  </p>
+
+  <h2>Promotional video</h2>
+
+  <p class="mute small">
+    A song and video made for the project. Lighter in tone than the brochure.
+  </p>
+
+  <video controls preload="metadata" poster="media/snarkypuss%2B.png">
+    <source src="media/Promotional_song_and_video_1/Snarkypuss.mp4" type="video/mp4">
+    Your browser cannot play this video.
+    <a href="media/Promotional_song_and_video_1/Snarkypuss.mp4">Download it instead.</a>
+  </video>
+
+  <audio controls preload="none">
+    <source src="media/Promotional_song_and_video_1/Snarkypuss.mp3" type="audio/mpeg">
+    Your browser cannot play this audio.
+  </audio>
+
+  <p class="small mute" style="margin-top:0.75rem">
+    <a href="media/Promotional_song_and_video_1/Snarkypuss.mp3">Audio only (MP3)</a> ·
+    <a href="media/Promotional_song_and_video_1/lyrics.txt">Lyrics</a>
+  </p>
+
+  <footer>
+    <p>
+      Snarkypuss is privately hosted open-source software intended for lawful
+      use. It is not a VPN service and is not affiliated with any commercial
+      VPN provider.
+    </p>
+  </footer>
+
+</div>
+
+</body>
+</html>
