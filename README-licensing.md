@@ -13,7 +13,7 @@ same licence. That second clause is the reason for AGPL rather than GPL —
 Snarkypuss is server software, and someone could otherwise run a modified
 version as a hosted service without ever distributing anything.
 
-In short: build on it, fork it, charge for it if you like. You cannot close it.
+In short: build on it, fork it, charge for it if you like.
 
 **The artwork, song, video and brochure are all rights reserved.** They are not
 open source and not covered by the AGPL:
