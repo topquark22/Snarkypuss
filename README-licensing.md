@@ -3,8 +3,7 @@
 This project is licensed in two parts.
 
 **The software is AGPL-3.0.** That covers the Snarkypuss gateway software,
-SnarkyCtl, the installation and configuration tooling, and the brochure build
-system under `brochure/tools/` and `brochure/templates/`. The full text is in
+SnarkyCtl, and the installation and configuration tooling, The full text is in
 `LICENSE`.
 
 The AGPL permits use, modification, redistribution and sale. What it asks in
