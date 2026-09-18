@@ -1,6 +1,6 @@
 # Snarkypuss
 
-**Snarkypuss** is a self-hosted private VPN gateway for routing a trusted client's Internet
+**Snarkypuss** is a self-hosted private VPN tunnel for routing a trusted client's Internet
 traffic through a Linux VPS and, optionally, through an upstream VPN provider.
 
 It combines two parts:
