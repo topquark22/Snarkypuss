@@ -1,6 +1,10 @@
+snarkyctl (2.0.1-2) unstable; urgency=medium
+
+  * Add AGPL-3.0 license to deb package
+
 snarkyctl (2.0.1-1) unstable; urgency=medium
 
-  * Add AGPL-3.0 license
+  * Add AGPL-3.0 license to source
 
 snarkyctl (2.0.0-1) unstable; urgency=medium
 
