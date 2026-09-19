@@ -191,7 +191,7 @@ SnarkyCtl source, and Debian packaging as one source-tree snapshot.
 SnarkyCtl retains its own application/package version independently. The currently published
 application version is `2.0.1`, represented by `pyproject.toml`, wheel metadata, command
 version output, and the Debian upstream version. The corresponding Debian package version is
-`2.0.1-1`.
+`2.0.1-2`.
 
 The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
 version it contains without making the two release schemes identical. Repository-only changes
