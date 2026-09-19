@@ -5,11 +5,11 @@ set -eu
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_root"
 
-for command in dpkg-buildpackage dh dh_virtualenv; do
+for command in dpkg-buildpackage dh dh_virtualenv lintian; do
     if ! command -v "$command" >/dev/null 2>&1; then
         printf '%s\n' "Missing Debian build command: $command" >&2
         printf '%s\n' \
-            "Install debhelper, dh-virtualenv, python3-dev, python3-pip, and python3-venv." >&2
+            "Install debhelper, dh-virtualenv, lintian, python3-dev, python3-pip, and python3-venv." >&2
         exit 2
     fi
 done
@@ -46,4 +46,11 @@ if [ "$debian_revision" -lt 1 ]; then
     exit 2
 fi
 
+if ! cmp -s LICENSE debian/copyright; then
+    printf '%s\n' \
+        "License mismatch: LICENSE and debian/copyright must contain identical license text." >&2
+    exit 2
+fi
+
 dpkg-buildpackage --build=binary --no-sign
+lintian "../snarkyctl_${debian_version}_amd64.changes"
