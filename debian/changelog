@@ -2,9 +2,13 @@ snarkyctl (2.0.1-2) unstable; urgency=medium
 
   * Add AGPL-3.0 license to deb package
 
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Sat, 19 Sep 2026 08:15:57 -0400
+
 snarkyctl (2.0.1-1) unstable; urgency=medium
 
   * Add AGPL-3.0 license to source
+
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Thu, 17 Sep 2026 07:15:57 -0400
 
 snarkyctl (2.0.0-1) unstable; urgency=medium
 
