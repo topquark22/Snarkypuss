@@ -1,7 +1,7 @@
 Source: snarkyctl
 Section: net
 Priority: optional
-Maintainer: Gary Falk <topquark22@users.noreply.github.com>
+Maintainer: Geoffrey Trueman Falk <topquark22@users.noreply.github.com>
 Build-Depends:
  debhelper-compat (= 13),
  dh-virtualenv,
@@ -11,7 +11,7 @@ Build-Depends:
  python3-venv,
 Rules-Requires-Root: no
 Standards-Version: 4.7.0
-Homepage: https://github.com/topquark22/snarkyctl
+Homepage: https://github.com/topquark22/Snarkypuss
 
 Package: snarkyctl
 Architecture: amd64
