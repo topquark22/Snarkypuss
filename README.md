@@ -37,6 +37,3 @@ License that applies to the software on `main`.
 
 Redistributing the brochure PDF complete and unmodified for non-commercial
 purposes is permitted. Reusing the character in new artwork is not.
-
-The build system itself — `brochure/tools/` and `brochure/templates/` — is MIT
-licensed along with the rest of the software.
