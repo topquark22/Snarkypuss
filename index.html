@@ -33,7 +33,25 @@
   a { color: var(--cyan-dim); }
   a:hover { color: var(--cyan); }
 
-  header { padding: 3.5rem 0 2rem; }
+  header {
+    padding: 3.5rem 0 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+  }
+  /* The mascot is square. width/height on the <img> give the browser the
+     intrinsic ratio so it reserves the right space before the file arrives;
+     the rendered size is set here, and scales down on narrow screens. */
+  .mascot {
+    width: 180px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    border-radius: 8px;
+  }
+  @media (max-width: 34rem) {
+    header { flex-direction: column; align-items: flex-start; gap: 1.1rem; }
+    .mascot { width: 128px; }
+  }
   h1 {
     margin: 0;
     font-size: clamp(2.2rem, 8vw, 3.4rem);
@@ -97,9 +115,13 @@
 <div class="wrap">
 
   <header>
-    <h1>SNARKYPUSS</h1>
-    <p class="tagline">A private bridge to your VPN.</p>
-    <div class="rule"></div>
+    <div>
+      <h1>SNARKYPUSS</h1>
+      <p class="tagline">A private bridge to your VPN.</p>
+      <div class="rule"></div>
+    </div>
+    <img class="mascot" src="media/mascot.jpg" width="1254" height="1254"
+         alt="The Snarkypuss mascot: a tuxedo cat in a black hoodie with a red maple leaf.">
   </header>
 
   <p class="lead">
