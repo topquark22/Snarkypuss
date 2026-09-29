@@ -20,11 +20,11 @@ Canada's rules for communications security and lawful access are changing. Two m
 
 <!-- page: 3 layout=standard -->
 
-The telecommunications amendments took effect on assent; the operator obligations are being phased in by order of the Governor in Council. The government says these measures are intended to protect essential services from increasingly sophisticated cyber threats.
+The telecommunications amendments took effect on assent. The Critical Cyber Systems Protection Act itself comes into force in stages by order of the Governor in Council; as of this snapshot no such order has been made. The government says these measures are intended to protect essential services from increasingly sophisticated cyber threats.
 
 Privacy Commissioner Philippe Dufresne supported the bill's cybersecurity objectives while urging that the new powers carry limits so they do not have unintended effects on privacy. He recommended a uniform necessity-and-proportionality standard for collecting personal information, notification of his office when an incident involves a material privacy breach, and safeguards on information shared outside Canada. At the Senate stage in May 2026 he acknowledged significant improvements Parliament had already made.
 
-**Bill C-22 — the Lawful Access Act, 2026** remains proposed legislation. Introduced on March 12, 2026, it passed the House of Commons on June 18 after the government invoked time allocation to limit debate. As of this brochure's September 2026 snapshot it is before the Senate, which resumes on September 21 and has not yet begun its study.
+**Bill C-22 — the Lawful Access Act, 2026** remains proposed legislation. Introduced on March 12, 2026, it passed the House of Commons on June 18 after the government invoked time allocation to limit debate. It received first reading in the Senate the same day. The Senate returned from its summer adjournment on September 21; as of this brochure's snapshot, debate at second reading has not yet begun.
 
 The government describes lawful access as the ability of law enforcement or the Canadian Security Intelligence Service to obtain information or intercept communications when legally authorized. Part 2 of Bill C-22 would enact the Supporting Authorized Access to Information Act, requiring electronic service providers to maintain the technical capabilities needed to give effect to those authorities.
 
@@ -38,8 +38,10 @@ Commissioner Dufresne told the House committee in May 2026 that privacy concerns
 
 For a VPN provider built around encryption and a no-logs design, a requirement to create new technical access or data-retention capabilities raises a direct question: can the provider comply without changing the privacy properties it promises its customers?
 
-NordVPN said on May 15, 2026 that it was reviewing Bill C-22, and that if it became subject to mandatory obligations it would not compromise its no-logs architecture or encryption protections. It would instead consider all viable options, including limiting or removing its presence from Canadian jurisdiction. That was a conditional warning, not an announced departure.
+NordVPN said on May 15, 2026 that if Bill C-22 subjected it to mandatory obligations it would not compromise its no-logs architecture or encryption, and would instead consider options including limiting or removing its presence from Canada. That was a conditional warning, not an announced departure.
 
-Windscribe, which is headquartered in Canada, was more blunt. It said the previous day that it would leave the country if the bill passes, noting that a company based elsewhere can simply switch off its Canadian servers while its own head office is here. The encrypted messaging service Signal had said earlier that week that it would rather withdraw from the Canadian market than comply.
+Windscribe, which is headquartered in Canada, was more blunt. It said the previous day that it would leave the country if the bill passes, noting that a company based elsewhere can simply switch off its Canadian servers while its own head office is here.
 
-These are stated positions, not outcomes. The project does not predict what Parliament, regulators or VPN providers will ultimately do. It provides a privately hosted architecture in which the user's own connection to **Your VPS** remains separate from the commercial VPN provider running beyond it.
+On September 24 some twenty technology companies and industry groups, among them NordVPN, Windscribe and ExpressVPN, sought further amendments before the Senate passes the bill. Nord Security said the six-month retention limit did not resolve its concerns.
+
+These are stated positions, not outcomes. The project does not predict what Parliament, regulators or VPN providers will do. It provides a privately hosted architecture in which the user's own connection to **Your VPS** remains separate from the commercial VPN provider beyond it.
