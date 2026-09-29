@@ -13,7 +13,7 @@ to do with the software's.
 
 | Branch | Holds |
 |---|---|
-| `main` | the Snarkypuss software — MIT licensed |
+| `main` | the Snarkypuss software — AGPL-3 licensed |
 | `webdev` | this branch: brochure, sources, artwork |
 | `gh-pages` | the published site at snarkypuss.ca |
 
