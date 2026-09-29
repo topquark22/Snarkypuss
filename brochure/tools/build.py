@@ -124,6 +124,23 @@ class BuildError(Exception):
     pass
 
 
+def check_runtime():
+    """Refuse to run under Cygwin's Python.
+
+    On Windows the build is run from cmd with the native Windows Python, and
+    it drives a native Windows TeX (MiKTeX). Cygwin's Python spells paths as
+    /home/..., which native Windows programs read as C:\\home\\... -- so a
+    Cygwin run writes output to the wrong place instead of failing cleanly.
+    The test is on the Python runtime rather than the shell: native Python
+    started from a Cygwin terminal is fine, and Linux or macOS are unaffected.
+    """
+    if sys.platform == "cygwin":
+        raise BuildError(
+            "this is Cygwin's Python (" + sys.executable + ").\n"
+            "            Run the build from a Windows cmd prompt with the native\n"
+            "            Windows Python, e.g.:  py tools\\build.py")
+
+
 # ---------------------------------------------------------------------------
 # Edition metadata
 # ---------------------------------------------------------------------------
@@ -496,11 +513,15 @@ def compile_pdf(verbose=False, press=False):
     if not engine:
         raise BuildError("lualatex was not found in PATH")
     check_fonts()
-    # TeX treats a backslash as an escape, so hand it forward-slash paths even
-    # on Windows. Both MiKTeX and TeX Live accept them.
+    # Paths are given relative to ROOT, which is the compile's working
+    # directory. An absolute path is spelled differently by each runtime --
+    # under Cygwin Python it is /home/..., which a native Windows TeX such as
+    # MiKTeX reads as C:\home\... -- whereas a relative path means the same
+    # thing to all of them. Forward slashes, because TeX treats a backslash as
+    # an escape; MiKTeX and TeX Live both accept them.
     command = [engine, "-interaction=nonstopmode", "-halt-on-error",
-               "-output-directory", BUILD.as_posix(),
-               artifacts(press)[0].as_posix()]
+               "-output-directory", BUILD.relative_to(ROOT).as_posix(),
+               artifacts(press)[0].relative_to(ROOT).as_posix()]
     log = ""
     for _ in range(2):
         env = dict(os.environ, max_print_line="10000", error_line="254", half_error_line="238")
@@ -574,8 +595,9 @@ def validate_pdf(press=False, log=""):
         print("note: pdfinfo not found; page size not independently verified")
         return count
 
-    info = subprocess.run([pdfinfo, str(pdf)], text=True,
-                          capture_output=True, check=True).stdout
+    info = subprocess.run([pdfinfo, pdf.relative_to(ROOT).as_posix()],
+                          cwd=ROOT, text=True, capture_output=True,
+                          check=True).stdout
     pages = re.search(r"^Pages:\s+(\d+)$", info, re.M)
     if not pages:
         raise BuildError("could not determine PDF page count")
@@ -612,6 +634,7 @@ def main():
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--clean", action="store_true")
     args = parser.parse_args()
+    check_runtime()
 
     if args.clean:
         clean()
