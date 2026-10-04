@@ -1,0 +1,19 @@
+---
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Index of /brochure/</title>
+</head>
+<body>
+  <h1>Index of /brochure/</h1>
+  <ul>
+    {% assign brochure_files = site.static_files | where_exp: "file", "file.path contains '/brochure/'" | sort: "name" %}
+    {% for file in brochure_files %}
+    <li><a href="{{ file.name | escape }}">{{ file.name }}</a></li>
+    {% endfor %}
+  </ul>
+</body>
+</html>
