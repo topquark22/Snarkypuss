@@ -386,7 +386,10 @@ SnarkyCtl does not store this token.
 Configure the reference provider settings:
 
 ```bash
-sudo nordvpn set protocol NordLynx  # NordVPN 6.x; use set technology NordLynx on 5.x
+# Snarkypuss supports NordVPN 6.x and remains backward-compatible with 5.x.
+# Select NordLynx using the command supported by the installed client:
+# NordVPN 6.x: sudo nordvpn set protocol NordLynx
+# NordVPN 5.x: sudo nordvpn set technology NordLynx
 sudo nordvpn set killswitch on
 sudo nordvpn set autoconnect off
 ```
