@@ -222,9 +222,9 @@ def _toggle(value: str | None) -> bool | None:
     return None
 
 
-def verify_settings(output: str) -> None:
+def verify_settings(output: str, protocol_field: str = "technology") -> None:
     fields = _parse_fields(output)
-    technology = fields.get("technology", "").casefold()
+    technology = fields.get(protocol_field, "").casefold()
     if technology != "nordlynx":
         raise NordVpnSetupError(
             f"NordVPN settings did not verify NordLynx technology (reported {technology or 'unknown'})"
@@ -236,9 +236,20 @@ def verify_settings(output: str) -> None:
         raise NordVpnSetupError("NordVPN settings did not verify auto-connect disabled")
 
 
-def plan(policy: GatewayPolicy, exception_command: str) -> tuple[tuple[str, ...], ...]:
+def protocol_field(runner: Runner) -> str:
+    """Determine the compatible NordVPN protocol setting before changing policy."""
+    version = checked(runner, "--version").stdout
+    match = re.search(r"\b([56])\.\d+(?:\.\d+)?\b", version)
+    if match is None:
+        raise NordVpnSetupError("unsupported or unrecognized NordVPN version")
+    return "protocol" if match.group(1) == "6" else "technology"
+
+
+def plan(
+    policy: GatewayPolicy, exception_command: str, protocol_setting: str = "technology"
+) -> tuple[tuple[str, ...], ...]:
     return (
-        ("set", "technology", "NordLynx"),
+        ("set", protocol_setting, "NordLynx"),
         ("set", "autoconnect", "off"),
         *exception_commands(policy, exception_command),
         ("set", "killswitch", "on"),
@@ -254,7 +265,8 @@ def print_plan(commands: Sequence[Sequence[str]], *, exception_command: str) -> 
 
 def apply_policy(policy: GatewayPolicy, runner: Runner = run_command) -> None:
     exception_command = detect_allowlist_command(runner)
-    commands = plan(policy, exception_command)
+    selected_protocol = protocol_field(runner)
+    commands = plan(policy, exception_command, selected_protocol)
     print_plan(commands, exception_command=exception_command)
     for command in commands:
         is_exception = command[0] in {"allowlist", "whitelist"}
@@ -265,7 +277,7 @@ def apply_policy(policy: GatewayPolicy, runner: Runner = run_command) -> None:
             print("APPLIED: nordvpn " + " ".join(command))
 
     settings = checked(runner, "settings")
-    verify_settings(settings.stdout)
+    verify_settings(settings.stdout, selected_protocol)
     print("VERIFIED: NordLynx, Kill Switch on, and auto-connect off")
     print(
         "The management exceptions were accepted. Complete the documented fail-closed test "
@@ -278,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         policy = read_gateway_policy(arguments.config)
         exception_command = detect_allowlist_command(run_command)
-        commands = plan(policy, exception_command)
+        commands = plan(policy, exception_command, protocol_field(run_command))
         if arguments.dry_run:
             print_plan(commands, exception_command=exception_command)
             print("No NordVPN setting was changed.")
