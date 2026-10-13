@@ -386,7 +386,7 @@ SnarkyCtl does not store this token.
 Configure the reference provider settings:
 
 ```bash
-sudo nordvpn set technology NordLynx
+sudo nordvpn set protocol NordLynx  # NordVPN 6.x; use set technology NordLynx on 5.x
 sudo nordvpn set killswitch on
 sudo nordvpn set autoconnect off
 ```
