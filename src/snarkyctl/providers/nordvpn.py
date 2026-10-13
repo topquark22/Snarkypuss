@@ -226,13 +226,15 @@ def parse_status(output: str) -> VpnStatus:
         "city",
         "current_technology",
         "current_protocol",
+        "protocol",
         "post_quantum_vpn",
         "transfer",
         "uptime",
     )
     details = {key: fields[key] for key in detail_keys if key in fields}
     technology = fields.get("current_technology", "").casefold()
-    interface = "nordlynx" if technology == "nordlynx" else None
+    protocol = fields.get("current_protocol", fields.get("protocol", "")).casefold()
+    interface = "nordlynx" if technology == "nordlynx" or protocol == "nordlynx" else None
     return VpnStatus(
         state=state,
         provider="nordvpn",
@@ -259,7 +261,7 @@ def parse_settings(output: str) -> VpnSettings:
     return VpnSettings(
         provider="nordvpn",
         leak_protection_enabled=_parse_toggle(fields.get("kill_switch")),
-        technology=fields.get("technology"),
+        technology=fields.get("technology") or fields.get("protocol"),
         routing_enabled=_parse_toggle(fields.get("routing")),
         firewall_enabled=_parse_toggle(fields.get("firewall")),
         firewall_mark=fields.get("firewall_mark"),
