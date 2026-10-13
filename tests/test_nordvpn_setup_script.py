@@ -68,6 +68,22 @@ def test_detects_legacy_whitelist_command() -> None:
     assert module.detect_allowlist_command(runner) == "whitelist"
 
 
+def test_version_6_uses_protocol_setting(tmp_path: Path) -> None:
+    module = load_module()
+    policy = module.read_gateway_policy(write_config(tmp_path))
+
+    def runner(arguments: tuple[str, ...]) -> Any:
+        assert arguments == ("--version",)
+        return module.CommandResult(0, "NordVPN Version 6.0.0\n", "")
+
+    assert module.protocol_field(runner) == "protocol"
+    assert module.plan(policy, "allowlist", "protocol")[0] == ("set", "protocol", "NordLynx")
+    module.verify_settings(
+        "Protocol: NordLynx\nKill Switch: enabled\nAuto-connect: disabled\n",
+        "protocol",
+    )
+
+
 def test_current_plan_uses_udp_port_and_management_subnet(tmp_path: Path) -> None:
     module = load_module()
     policy = module.read_gateway_policy(write_config(tmp_path))
@@ -88,6 +104,8 @@ def test_apply_orders_exceptions_before_killswitch(tmp_path: Path) -> None:
         events.append(tuple(arguments))
         if arguments == ("help",):
             return module.CommandResult(0, "allowlist\n", "")
+        if arguments == ("--version",):
+            return module.CommandResult(0, "NordVPN Version 5.0.0\n", "")
         if arguments == ("settings",):
             return module.CommandResult(
                 0,
@@ -113,6 +131,8 @@ def test_apply_tolerates_existing_exception(tmp_path: Path) -> None:
     def runner(arguments: tuple[str, ...]) -> Any:
         if arguments == ("help",):
             return module.CommandResult(0, "allowlist\n", "")
+        if arguments == ("--version",):
+            return module.CommandResult(0, "NordVPN Version 5.0.0\n", "")
         if arguments and arguments[0] == "allowlist":
             return module.CommandResult(1, "", "Entry already exists in allowlist")
         if arguments == ("settings",):
