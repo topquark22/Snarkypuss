@@ -54,6 +54,10 @@ Snarkypuss includes:
 scripts/snarkypuss-nordvpn-configure.py
 ```
 
+The helper selects `set technology` for NordVPN 5.x and `set protocol` for 6.x
+using `nordvpn --version`. An unknown version fails before any policy changes.
+Confirm actual 6.x settings and status output in a staging test before upgrading the gateway.
+
 The helper derives the WireGuard listener port and management subnet from
 `/etc/snarkypuss-setup.conf`. It then configures the reference NordVPN policy:
 
@@ -90,7 +94,7 @@ sudo scripts/snarkypuss-nordvpn-configure.py \
 
 The helper verifies the resulting NordVPN settings and fails if it cannot confirm:
 
-- `Technology: NordLynx`,
+- `Technology: NordLynx` on NordVPN 5.x, or `Protocol: NordLynx` on NordVPN 6.x,
 - Kill Switch enabled, and
 - auto-connect disabled.
 
@@ -106,7 +110,7 @@ network path.
 The helper performs operations equivalent to:
 
 ```bash
-sudo nordvpn set technology NordLynx
+sudo nordvpn set protocol NordLynx  # NordVPN 6.x; 5.x uses set technology NordLynx
 sudo nordvpn set autoconnect off
 sudo nordvpn allowlist add port 51820 protocol UDP
 sudo nordvpn allowlist add subnet 10.8.0.0/24
@@ -238,6 +242,9 @@ nordvpn groups
 The dashboard renders those provider-backed choices generically. City is a cascading choice:
 Country must be selected before the City list can be loaded. Labels shown to the user are
 kept separate from the stored machine values.
+
+NordVPN 6.x removes the P2P group. Replace previously stored P2P group selectors
+with a country, city, or recommended selector before upgrading. P2P works on regular servers.
 
 A group is whatever category the installed NordVPN client currently reports. Some groups may
 represent account-specific or specialty services. Selecting a group does not add another IP
