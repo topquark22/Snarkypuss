@@ -11,6 +11,12 @@ override_dh_virtualenv:
 		--python /usr/bin/python3 \
 		--install-suffix venv
 	find debian/snarkyctl/usr/lib/snarkyctl/venv -type d -name __pycache__ -prune -exec rm -rf -- {} +
+	rm -f debian/snarkyctl/usr/lib/snarkyctl/venv/bin/pip \
+		debian/snarkyctl/usr/lib/snarkyctl/venv/bin/pip3 \
+		debian/snarkyctl/usr/lib/snarkyctl/venv/bin/pip3.12
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
 
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start
