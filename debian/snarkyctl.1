@@ -1,0 +1,50 @@
+.TH SNARKYCTL 1 "October 2026" "SnarkyCtl" "User Commands"
+.SH NAME
+snarkyctl \- administer the Snarkypuss private VPN gateway
+.SH SYNOPSIS
+.B snarkyctl
+.RI [ --version ]
+.I command
+.RI [ options ]
+.SH DESCRIPTION
+.B snarkyctl
+provides local administration, configuration validation, preflight checks,
+and status queries for the Snarkypuss VPN gateway.
+Some operations communicate with the privileged SnarkyCtl control daemon.
+.SH COMMANDS
+.TP
+.B status
+Show current gateway and upstream VPN status.
+.TP
+.B preflight
+Perform read-only deployment safety checks.
+.TP
+.B validate-config
+Validate the main configuration.
+.TP
+.B connect
+Connect to a configured provider target alias.
+.TP
+.B disconnect
+Disconnect the upstream VPN through SnarkyCtl's control plane.
+.TP
+.B targets-db
+Administer the provider target catalogue database.
+.SH OPTIONS
+.TP
+.B --version
+Print the installed SnarkyCtl version.
+.TP
+.B --help
+Show supported commands and options.
+.SH FILES
+.TP
+.I /etc/snarkyctl/snarkyctl.yaml
+Main configuration file.
+.TP
+.I /var/lib/snarkyctl/targets.db
+Provider target catalogue database.
+.SH SEE ALSO
+The Snarkypuss administration and deployment documentation at
+.UR https://github.com/topquark22/Snarkypuss
+.UE
