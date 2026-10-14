@@ -1,6 +1,9 @@
 #!/usr/bin/make -f
 
 export DH_VIRTUALENV_INSTALL_ROOT = /usr/lib/snarkyctl
+# Use PyYAML's pure-Python implementation in the packaged virtual environment.
+export PIP_NO_BINARY = PyYAML
+export PYYAML_FORCE_LIBYAML = 0
 
 %:
 	dh $@ --with python-virtualenv
@@ -10,6 +13,10 @@ override_dh_virtualenv:
 		--builtin-venv \
 		--python /usr/bin/python3 \
 		--install-suffix venv
+	@if find debian/snarkyctl/usr/lib/snarkyctl/venv/lib -name '_yaml*.so' -print -quit | grep -q .; then \
+		echo 'ERROR: PyYAML C extension was included in the package' >&2; \
+		exit 1; \
+	fi
 	find debian/snarkyctl/usr/lib/snarkyctl/venv -type d -name __pycache__ -prune -exec rm -rf -- {} +
 	rm -f debian/snarkyctl/usr/lib/snarkyctl/venv/bin/pip \
 		debian/snarkyctl/usr/lib/snarkyctl/venv/bin/pip3 \
