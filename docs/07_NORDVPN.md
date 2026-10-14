@@ -11,6 +11,9 @@ and server selection. Snarkypuss owns the private WireGuard management path, for
 private DNS, and the rule that a provider failure must never silently become Direct VPS
 egress.
 
+*Note: NordVPN released a hotfix on October 12, 2026, regarding some DNS resolver issues.
+Ensure that you install NordVPN 5.4.1 or later.*
+
 ## 1. Install the NordVPN Linux client
 
 Run these commands on the Linode, not on Windows.
