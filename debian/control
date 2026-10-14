@@ -23,6 +23,7 @@ Depends:
  systemd,
  wireguard-tools,
  ${misc:Depends},
+ ${shlibs:Depends},
 Description: private control plane for a VPN gateway
  SnarkyCtl provides a read-only HTTPS dashboard, command-line diagnostics,
  and a narrowly scoped privileged control daemon for a VPN gateway.
