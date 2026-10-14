@@ -61,6 +61,11 @@ Uptime: 1 minute 2 seconds
 """
 
 
+def test_parse_nordvpn_6_protocol_status() -> None:
+    status = parse_status("Status: Connected\nCurrent protocol: NordLynx\n")
+    assert status.interface == "nordlynx"
+
+
 def test_parse_connected_nordvpn_status() -> None:
     status = parse_status(CONNECTED_STATUS)
     assert status.state is VpnState.CONNECTED
@@ -89,6 +94,12 @@ Kill Switch: enabled
     assert settings.firewall_enabled is True
     assert settings.routing_enabled is True
     assert settings.firewall_mark == "0xe1f1"
+
+
+def test_parse_nordvpn_6_settings() -> None:
+    settings = parse_settings("Protocol: NordLynx\nKill Switch: enabled\nFirewall: enabled\n")
+    assert settings.technology == "NordLynx"
+    assert settings.leak_protection_enabled is True
 
 
 def test_parse_disabled_nordvpn_kill_switch() -> None:
