@@ -19,6 +19,10 @@ to do with the software's.
 
 A `git clone` fetches every branch's objects regardless, so the separation is
 about keeping the trees and histories apart, not about download size.
+If you are only interested in building the software, you can use:
+```
+git clone --single-branch --branch main https://github.com/topquark22/Snarkypuss.git
+```
 
 ## Contents
 
