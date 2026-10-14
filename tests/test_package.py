@@ -52,6 +52,18 @@ def test_builtin_venv_does_not_receive_virtualenv_only_options() -> None:
     assert "DH_VERBOSE" not in rules
 
 
+def test_debian_packaging_removes_unused_pip_scripts_and_debug_package() -> None:
+    rules = Path("debian/rules").read_text(encoding="utf-8")
+    build_script = Path("scripts/build-deb.sh").read_text(encoding="utf-8")
+    manpages = Path("debian/snarkyctl.manpages").read_text(encoding="utf-8")
+
+    for executable in ("pip", "pip3", "pip3.12"):
+        assert f"venv/bin/{executable}" in rules
+    assert "dh_strip --no-automatic-dbgsym" in rules
+    assert "lintian --profile debian" in build_script
+    assert "debian/snarkyctl.1" in manpages
+
+
 def test_debian_postinst_has_no_network_or_service_activation() -> None:
     postinst = Path("debian/postinst").read_text(encoding="utf-8")
 
