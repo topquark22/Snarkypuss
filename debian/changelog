@@ -1,3 +1,10 @@
+snarkyctl (2.1.0~dev0-1) unstable; urgency=medium
+
+  * Begin SnarkyCtl 2.1.0 development with NordVPN 6.x CLI compatibility.
+  * Retain NordVPN 5.x backward compatibility pending live NordVPN 6 validation.
+
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Wed, 14 Oct 2026 15:11:00 -0400
+
 snarkyctl (2.0.1-2) unstable; urgency=medium
 
   * Add AGPL-3.0 license to deb package
