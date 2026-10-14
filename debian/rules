@@ -10,6 +10,7 @@ override_dh_virtualenv:
 		--builtin-venv \
 		--python /usr/bin/python3 \
 		--install-suffix venv
+	find debian/snarkyctl/usr/lib/snarkyctl/venv -type d -name __pycache__ -prune -exec rm -rf -- {} +
 
 override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start
