@@ -64,6 +64,14 @@ def test_debian_packaging_removes_unused_pip_scripts_and_debug_package() -> None
     assert "debian/snarkyctl.1" in manpages
 
 
+def test_debian_package_uses_pure_python_pyyaml() -> None:
+    rules = Path("debian/rules").read_text(encoding="utf-8")
+
+    assert "export PIP_NO_BINARY = PyYAML" in rules
+    assert "export PYYAML_FORCE_LIBYAML = 0" in rules
+    assert "-name '_yaml*.so'" in rules
+
+
 def test_debian_postinst_has_no_network_or_service_activation() -> None:
     postinst = Path("debian/postinst").read_text(encoding="utf-8")
 
