@@ -53,4 +53,4 @@ if ! cmp -s LICENSE debian/copyright; then
 fi
 
 dpkg-buildpackage --build=binary --no-sign
-lintian "../snarkyctl_${debian_version}_amd64.changes"
+lintian --profile debian "../snarkyctl_${debian_version}_amd64.changes"
