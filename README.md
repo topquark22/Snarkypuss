@@ -36,7 +36,7 @@ build commands, the page-marker model, edition and dating, and the artwork dimen
 ## Licensing
 
 The brochure, the cover artwork and the Snarkypuss character are **all rights
-reserved** — see `LICENSE` in this branch. They are not covered by the MIT
+reserved** — see `LICENSE` in this branch. They are not covered by the AGPL-3
 License that applies to the software on `main`.
 
 Redistributing the brochure PDF complete and unmodified for non-commercial
