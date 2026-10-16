@@ -24,7 +24,7 @@ The telecommunications amendments took effect on assent. The Critical Cyber Syst
 
 Privacy Commissioner Philippe Dufresne supported the bill's cybersecurity objectives while urging that the new powers carry limits so they do not have unintended effects on privacy. He recommended a uniform necessity-and-proportionality standard for collecting personal information, notification of his office when an incident involves a material privacy breach, and safeguards on information shared outside Canada. At the Senate stage in May 2026 he acknowledged significant improvements Parliament had already made.
 
-**Bill C-22 — the Lawful Access Act, 2026** remains proposed legislation. Introduced on March 12, 2026, it passed the House of Commons on June 18 after the government invoked time allocation to limit debate. It received first reading in the Senate the same day. The Senate returned from its summer adjournment on September 21; as of this brochure's snapshot, debate at second reading has not yet begun.
+**Bill C-22 — the Lawful Access Act, 2026** remains proposed legislation. Introduced on March 12, 2026, it passed the House of Commons on June 18 after the government invoked time allocation to limit debate. It received first reading in the Senate the same day. The Senate began second-reading debate on October 8; as of this snapshot, the bill remains before the Senate.
 
 The government describes lawful access as the ability of law enforcement or the Canadian Security Intelligence Service to obtain information or intercept communications when legally authorized. Part 2 of Bill C-22 would enact the Supporting Authorized Access to Information Act, requiring electronic service providers to maintain the technical capabilities needed to give effect to those authorities.
 
@@ -40,8 +40,8 @@ For a VPN provider built around encryption and a no-logs design, a requirement t
 
 NordVPN said on May 15, 2026 that if Bill C-22 subjected it to mandatory obligations it would not compromise its no-logs architecture or encryption, and would instead consider options including limiting or removing its presence from Canada. That was a conditional warning, not an announced departure.
 
-Windscribe, which is headquartered in Canada, was more blunt. It said the previous day that it would leave the country if the bill passes, noting that a company based elsewhere can simply switch off its Canadian servers while its own head office is here.
+Windscribe, headquartered in Canada, said on May 14 it would leave if the bill passes; closing Canadian servers would not remove its head office from the country. In October, Toronto-based anti-censorship provider Psiphon also said it was prepared to relocate if C-22 passes unchanged.
 
-On September 24 some twenty technology companies and industry groups, among them NordVPN, Windscribe and ExpressVPN, sought further amendments before the Senate passes the bill. Nord Security said the six-month retention limit did not resolve its concerns.
+On September 24, 23 technology companies and industry groups, including NordVPN, Windscribe and ExpressVPN, sought amendments before Senate passage. Nord Security said the six-month retention limit did not resolve its concerns.
 
 These are stated positions, not outcomes. The project does not predict what Parliament, regulators or VPN providers will do. It provides a privately hosted architecture in which the user's own connection to **Your VPS** remains separate from the commercial VPN provider beyond it.
