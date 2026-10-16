@@ -20,7 +20,4 @@ Each of those branches carries its own LICENSE file stating its terms. Note
 that GitHub displays only the LICENSE from the default branch, so the licence
 shown for this repository describes the software alone.
 
-The brochure build system under brochure/tools/ and brochure/templates/ is
-part of the Snarkypuss software and is AGPL licensed wherever it appears.
-
 See the Licensing section of README.md for a summary.
