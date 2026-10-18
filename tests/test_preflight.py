@@ -87,11 +87,29 @@ def test_file_security_accepts_safe_file_and_rejects_unsafe_mode(tmp_path: Path)
     path = tmp_path / "config.yaml"
     path.write_text("data", encoding="utf-8")
     path.chmod(0o600)
-    assert _file_security("file", path).status is CheckStatus.PASS
+    owner_uid = path.stat().st_uid
+    assert _file_security("file", path, expected_uid=owner_uid).status is CheckStatus.PASS
     path.chmod(0o606)
-    result = _file_security("file", path)
+    result = _file_security("file", path, expected_uid=owner_uid)
     assert result.status is CheckStatus.FAIL
     assert "unsafe mode" in result.message
+
+
+@pytest.mark.parametrize("owner_uid", [0, 1000])
+def test_file_security_requires_root_owner_by_default(
+    monkeypatch: pytest.MonkeyPatch, owner_uid: int
+) -> None:
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda _path: SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=owner_uid),
+    )
+    result = _file_security("file", Path("config.yaml"))
+    if owner_uid == 0:
+        assert result.status is CheckStatus.PASS
+    else:
+        assert result.status is CheckStatus.FAIL
+        assert "not owned by uid 0" in result.message
 
 
 def test_file_security_rejects_missing_and_symlink(tmp_path: Path) -> None:
