@@ -83,72 +83,38 @@ provider mutations.
 ## Current Source Layout
 
 ```text
-snarkyctl/
+Snarkypuss/
 ├── pyproject.toml
 ├── README.md
-├── API.md
-├── ARCHITECTURE.md
-├── CONFIGURATION.md
 ├── DEPLOYMENT.md
-├── INSTALL.md
-├── NORDVPN.md
-├── PREFLIGHT.md
-│
-├── src/
-│   └── snarkyctl/
-│       ├── __init__.py
-│       ├── auth.py
-│       ├── cli.py
-│       ├── config.py
-│       ├── main.py
-│       ├── preflight.py
-│       ├── status.py
-│       ├── control/
-│       ├── providers/
-│       ├── targets/
-│       ├── static/
-│       │   ├── dashboard.js
-│       │   └── dashboard.css
-│       └── templates/
-│           └── dashboard.html
-│
+├── LICENSE
+├── docs/                     Numbered setup, configuration, API, and operations guides
+├── development/              Design decisions, plans, and acceptance records
+├── src/snarkyctl/
+│   ├── auth.py
+│   ├── cli.py
+│   ├── config.py
+│   ├── dns_health.py
+│   ├── main.py
+│   ├── preflight.py
+│   ├── status.py
+│   ├── control/
+│   ├── providers/
+│   ├── targets/
+│   ├── static/
+│   └── templates/
 ├── config/
 │   ├── snarkyctl.yaml.example
 │   └── snarkypuss-setup.conf.example
-│
 ├── scripts/
 │   ├── build-deb.sh
-│   ├── legacy/
-│   │   ├── targets_yaml_to_sqlite.py
-│   │   └── test_targets_yaml_to_sqlite.py
-│   ├── snarkypuss-activate.py
-│   ├── snarkypuss-configure.py
-│   ├── snarkypuss-install.sh
-│   ├── snarkypuss-migrate.py
-│   ├── snarkypuss-preflight.sh
-│   ├── snarkypuss-rollback.py
-│   └── snarkypuss-verify.sh
-│
-├── systemd/
-│   ├── snarkyctl-control.socket
-│   ├── snarkyctl-control.service
-│   └── snarkyctl-web.service
-│
-├── tests/
-│   └── test_*.py
-│
-└── debian/
-    ├── changelog
-    ├── control
-    ├── rules
-    ├── postinst
-    ├── snarkyctl.install
-    ├── snarkyctl.links
-    ├── source/
-    │   └── format
-    └── tests/
-        ├── control
-        └── smoke
+│   ├── new-deb-release.sh
+│   ├── reinstall-deb.sh
+│   ├── legacy/               Archived YAML-to-SQLite migration utilities
+│   └── snarkypuss-*          Gateway installation, configuration, and recovery tools
+├── systemd/                  Control socket, control daemon, and web service units
+├── tests/                    Automated Python regression suite
+└── debian/                   Package metadata, rules, lifecycle scripts, and smoke test
 ```
 
 The `src/` layout prevents tests and development commands from accidentally importing Python modules directly from the repository root instead of the built package.
@@ -162,7 +128,7 @@ The `src/` layout prevents tests and development commands from accidentally impo
 The wheel will have a name such as:
 
 ```text
-snarkyctl-0.10.0.dev4-py3-none-any.whl
+snarkyctl-2.1.0.dev0-py3-none-any.whl
 ```
 
 It contains:
@@ -219,10 +185,11 @@ The build must fail if:
 - Dependency resolution produces an uncommitted lock-file change.
 - A dependency cannot be built or retrieved for the target architecture.
 
-No unconstrained `pip install` command is permitted in the stable release pipeline or
-Debian maintainer scripts.
+A reproducible stable release pipeline must install from the hash-verified lock rather
+than resolve dependency ranges. Debian maintainer scripts must never run `pip install`.
 
-The `0.10.0.dev4` package is a development package. Its `dh-virtualenv` build currently
+The current source version is `2.1.0.dev0` (Debian `2.1.0~dev0-1`). No
+`requirements.lock` is currently checked in or enforced by the build helper. The `dh-virtualenv` build currently
 resolves the bounded dependency ranges from `pyproject.toml` while assembling the package.
 This never causes package installation to contact PyPI, but it is not yet a reproducible
 release build. Adding and enforcing the hashed lock file remains a release gate.
@@ -240,7 +207,8 @@ The Debian package contains a virtual environment assembled during the build.
 
 This model provides:
 
-- Exact application dependency versions.
+- A fixed set of dependency versions inside each built artifact (not yet reproducible
+  across separate builds; see dependency locking above).
 - No PyPI access during VPS installation.
 - Isolation from Ubuntu's system Python packages.
 - A single `.deb` containing the executable application runtime.
@@ -248,7 +216,7 @@ This model provides:
 If any dependency includes native code, the resulting Debian package is architecture-specific. The first supported target is Ubuntu 24.04 on `amd64`, so the expected package name is:
 
 ```text
-snarkyctl_0.10.0~dev4-1_amd64.deb
+snarkyctl_2.1.0~dev0-1_amd64.deb
 ```
 
 A future `arm64` package must be built and tested separately.
@@ -268,8 +236,8 @@ A future `arm64` package must be built and tested separately.
 | `/usr/lib/systemd/system/snarkyctl-control.socket` | Privileged daemon socket activation | `root:root` |
 | `/usr/lib/systemd/system/snarkyctl-control.service` | Privileged control daemon | `root:root` |
 | `/usr/lib/systemd/system/snarkyctl-web.service` | Unprivileged HTTPS service | `root:root` |
-| `/run/snarkyctl/` | systemd-created runtime socket directory | `root:snarkyctl` |
-| `/var/lib/snarkyctl/` | Root-only target database directory | `root:root`, `0700` |
+| `/run/snarkyctl/` | systemd-created runtime socket directory; socket access is `root:snarkyctl`, `0660` | Root-owned directory, `0755` |
+| `/var/lib/snarkyctl/` | Target database directory | `root:root`; postinst sets `0700`, control service declares `StateDirectoryMode=0750` |
 | `/usr/share/snarkyctl/examples/` | Configuration examples copied by the administrator | `root:root` |
 | `/usr/share/doc/snarkyctl/` | Debian-generated package metadata and changelog | `root:root` |
 
@@ -321,7 +289,7 @@ If persistent policy state is necessary, it belongs under:
 ```
 
 The SQLite database is application data, not a package-owned conffile. Package installation
-creates or corrects the root-only directory but never initializes, migrates, replaces, or
+creates or corrects the state directory but never initializes, migrates, replaces, or
 deletes `targets.db`. Before an upgrade, create a consistent backup with:
 
 ```bash
@@ -333,6 +301,32 @@ operations with a backup taken first. Direct VPS mode must not be restored autom
 after reboot.
 
 Logs go to the systemd journal rather than an application-owned log directory.
+
+---
+
+## First-Installation Configuration
+
+Follow [docs/03_SETUP_SNARKYCTL.md](docs/03_SETUP_SNARKYCTL.md) for the complete setup after
+WireGuard, gateway DNS, and the upstream VPN provider are configured. On a new installation:
+
+```bash
+sudo install -o root -g snarkyctl -m 0640 \
+    /usr/share/snarkyctl/examples/snarkyctl.yaml.example \
+    /etc/snarkyctl/snarkyctl.yaml
+sudo snarkyctl targets-db initialize
+sudo snarkyctl targets-db check
+```
+
+Do not copy the example over an existing configuration during upgrades. Edit it for the
+actual interfaces, management address, provider, and paths, then run
+`sudo snarkyctl validate-config`. The database is initialized explicitly, not by package
+installation. Manage persisted destinations through the authenticated editor or administrative
+CLI; see [docs/08_CONFIGURATION.md](docs/08_CONFIGURATION.md).
+
+The shipped web systemd unit fixes its listener at `10.8.0.1:8443` and its TLS paths in
+`ExecStart`. Changing YAML alone does not change Uvicorn's listener. If these values differ,
+use a reviewed systemd drop-in that resets and replaces `ExecStart`, then reload systemd;
+keep the listener and TLS paths consistent with the YAML and private-only deployment policy.
 
 ---
 
@@ -381,20 +375,28 @@ Package upgrades leave the TLS directory untouched.
 
 ## Debian Package Metadata
 
-The Debian control data will declare operating-system dependencies that must be supplied by Ubuntu, including the required Python runtime and gateway command-line tools. The preassembled virtual environment carries application-level Python dependencies.
+The Debian control data declares Ubuntu dependencies including Python 3.12 or newer,
+`adduser`, CA certificates, `iproute2`, systemd, and WireGuard tools. The application itself
+requires Python 3.12 (`>=3.12,<3.13`), so use the supported Ubuntu 24.04 runtime. NordVPN
+is installed and configured separately. The preassembled virtual environment carries
+application-level Python dependencies.
 
 The package version has two components:
 
 ```text
-0.10.0~dev4-1
-│          └── Debian packaging revision
-└───────────── PEP 440 development version mapped for Debian ordering
+2.1.0~dev0-1
+│         └── Debian packaging revision
+└──────────── PEP 440 development version mapped for Debian ordering
 ```
 
-PEP 440 spells the current version `0.10.0.dev4`; Debian spells it
-`0.10.0~dev4-1` so it sorts before a future `0.1.0-1`. The build helper checks this
-mapping. The Python package version, command output, wheel metadata, Debian changelog, and
-release tag must otherwise agree.
+PEP 440 spells the current version `2.1.0.dev0`; Debian spells it
+`2.1.0~dev0-1` so it sorts before `2.1.0-1`. The build helper checks this
+mapping. The Python package version, command output, wheel metadata, and Debian upstream
+version must agree; the Debian packaging revision is independent.
+
+Repository release tags use `YYYY.MM.DD-N_<snarkyctl-version>`, as documented in
+[README.md](README.md#versioning-and-release-tags). They identify a complete Snarkypuss
+snapshot rather than simply duplicating the Debian package version.
 
 ---
 
@@ -438,19 +440,28 @@ After installation and local configuration, the administrator runs:
 sudo snarkyctl preflight
 ```
 
-The preflight command verifies at least:
+The current preflight implementation checks:
 
-- `wg0` exists and owns `10.8.0.1`.
-- `nordvpn` and `nordvpnd` are available.
-- Required configuration files parse successfully.
-- The auth file exists, is readable by `snarkyctl`, and is not world-readable.
-- The TLS certificate and private key exist and match.
-- The certificate covers the configured private hostname or IP address.
-- Package-owned code and units are root-owned and not writable by `snarkyctl`.
-- The control socket is owned by `root:snarkyctl` and is not accessible to other users.
-- TCP port `8443` is not already occupied.
-- No configuration requests binding to `0.0.0.0` or the public VPS address.
-- Locked mode can preserve WireGuard management access.
+- Configuration schema and the non-interactive `snarkyctl` service identity.
+- Ownership and permissions of configuration, database, authentication, and TLS files.
+- Configured management and public interfaces, and assignment of the management IPv4 address.
+- Availability of the configured private HTTPS bind address and port.
+- Authentication-file bcrypt syntax.
+- TLS key/certificate matching, certificate expiry, and the management IP address SAN.
+- For NordVPN, an executable `/usr/bin/nordvpn` and read-only settings reporting enabled
+  Kill Switch and firewall protection.
+- Required identity and security directives in the installed systemd units.
+- Ownership and permissions of the live control socket, if it exists.
+
+An inactive control socket is reported as `SKIP`. Exposure-policy observation is also
+`SKIP`: preflight does not prove fail-closed forwarding, management connectivity during
+mode changes, or reboot recovery. It does not comprehensively audit package-code ownership,
+verify hostname SANs, or separately verify `nordvpnd` service health. See
+[docs/09_PREFLIGHT.md](docs/09_PREFLIGHT.md) for the exact checks and limits.
+
+Run preflight before starting the web service; an already running web service occupies the
+port that preflight attempts to bind. Exit status 0 means no `FAIL`, not that every check
+returned `PASS`.
 
 Only after preflight succeeds should the service be activated:
 
@@ -491,14 +502,17 @@ Run installation, upgrade, removal, and smoke tests
 Publish artifacts, checksums, and provenance
 ```
 
-Representative commands will resemble:
+The sequence above is the release target, not an automated pipeline currently enforced
+by the repository. In particular, dependency locking remains outstanding and the Debian
+build helper does not run the Python tests or static checks.
+
+On the supported Ubuntu 24.04 amd64 build host, install prerequisites with:
 
 ```bash
 sudo apt-get install --yes \
     build-essential debhelper devscripts dh-virtualenv lintian \
     python3-dev python3-pip python3-venv
 scripts/build-deb.sh
-lintian ../snarkyctl_*.deb
 ```
 
 The build requires network access while `dh-virtualenv` resolves the development
@@ -509,8 +523,8 @@ release build will instead consume only artifacts verified by `requirements.lock
 
 ## Build and Deployment Helper Scripts
 
-The `scripts/` directory contains two POSIX shell helpers. Run them from a checked-out
-source tree. Both use `set -eu`, so an unset variable or failed command stops the script
+The following three POSIX shell helpers support package build and deployment. Run them from a checked-out
+source tree. All three use `set -eu`, so an unset variable or failed command stops the script
 instead of allowing a partial workflow to continue.
 
 ### `scripts/build-deb.sh`
@@ -526,21 +540,23 @@ automatically changes to the repository root, so it may be invoked from any dire
 
 Before building, it:
 
-1. Verifies that `dpkg-buildpackage`, `dh`, and `dh_virtualenv` are available.
+1. Verifies that `dpkg-buildpackage`, `dh`, `dh_virtualenv`, and `lintian` are available.
 2. Reads the Python version from `pyproject.toml`.
 3. Reads the Debian version from the first entry in `debian/changelog`.
 4. Converts a Python development suffix such as `.dev4` to Debian's `~dev4` form.
 5. Requires the Debian version to have the same upstream version and a positive numeric
    Debian revision.
+6. Requires `LICENSE` and `debian/copyright` to contain identical license text.
 
-For release `0.10.0.dev4`, for example, `pyproject.toml` must contain `0.10.0.dev4` and the
-changelog must begin with a version such as `0.10.0~dev4-1`. A mismatch exits with status 2
+For the current development version `2.1.0.dev0`, for example, `pyproject.toml` must contain `2.1.0.dev0` and the
+changelog must begin with a version such as `2.1.0~dev0-1`. A mismatch exits with status 2
 before `dpkg-buildpackage` runs.
 
-The final command is:
+The build and validation commands are:
 
 ```bash
 dpkg-buildpackage --build=binary --no-sign
+lintian --profile debian "../snarkyctl_${debian_version}_amd64.changes"
 ```
 
 Debian build tools place the resulting package **in the parent directory of the source
@@ -548,15 +564,30 @@ checkout**, not in `dist/`. From a checkout named `snarkyctl`, the expected rele
 artifact is therefore:
 
 ```text
-../snarkyctl_0.10.0~dev4-1_amd64.deb
+../snarkyctl_2.1.0~dev0-1_amd64.deb
 ```
 
-The exact architecture is determined by the build environment. Intermediate files may also
+The package currently declares `Architecture: amd64`, and the helper checks the amd64
+`.changes` file; build it on the supported amd64 host. Intermediate files may also
 be created in the source tree and its parent directory.
 
-The helper validates version consistency and builds the package. It does **not** run the
-Python test suite, type checker, `lintian`, package installation tests, artifact signing, or
-publication. Those remain explicit release-pipeline steps.
+The helper validates version and license consistency, builds the package, and runs
+`lintian` against its `.changes` file. It does **not** run the Python test suite, type
+checker, package installation tests, artifact signing, or publication. Those remain explicit release-pipeline steps.
+
+### `scripts/new-deb-release.sh`
+
+To increment only the Debian packaging revision while retaining the Python version:
+
+```bash
+sh scripts/new-deb-release.sh 'Describe the packaging change'
+```
+
+The helper requires `dch` (from `devscripts`), `dpkg-parsechangelog`, Python, and `sed`.
+It verifies the current Python/Debian version mapping, increments the positive Debian
+revision, and writes a new `unstable` entry in `debian/changelog`. Review that tracked
+change before building. It does not bump the Python version, create a Git tag, build,
+commit, or publish a release.
 
 ### `scripts/reinstall-deb.sh`
 
@@ -564,7 +595,7 @@ This helper replaces an already deployed SnarkyCtl package and restarts all thre
 units:
 
 ```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_0.10.0~dev4-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0~dev0-1_amd64.deb
 ```
 
 It must run as root and accepts exactly one argument: the path to a regular `.deb` file.
@@ -599,14 +630,17 @@ Because there is no automatic rollback, retain the previously working `.deb`.
 From the repository root:
 
 ```bash
-python3 -m pytest
-python3 -m mypy src
+python3.12 -m venv .venv
+.venv/bin/python -m pip install --editable '.[dev]'
+.venv/bin/pytest
+MYPYPATH=src .venv/bin/mypy
+.venv/bin/ruff check src tests
+.venv/bin/python -m build
 scripts/build-deb.sh
-lintian ../snarkyctl_0.10.0~dev4-1_amd64.deb
-sudo scripts/reinstall-deb.sh ../snarkyctl_0.10.0~dev4-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0~dev0-1_amd64.deb
 ```
 
-Use the project's virtual-environment executables instead of `python3 -m` where applicable.
+The Python suite runs as an ordinary user; it does not require root or live VPN credentials.
 Perform the reinstall first on a disposable Ubuntu 24.04 system; the live gateway should not
 be the first package-installation test.
 
@@ -649,9 +683,9 @@ The live `snarkypuss` gateway should not be the first machine on which a newly b
 A formal release may contain:
 
 ```text
-snarkyctl_0.10.0~dev4-1_amd64.deb
-snarkyctl-0.10.0.dev4.tar.gz
-snarkyctl-0.10.0.dev4-py3-none-any.whl
+snarkyctl_2.1.0~dev0-1_amd64.deb
+snarkyctl-2.1.0.dev0.tar.gz
+snarkyctl-2.1.0.dev0-py3-none-any.whl
 SHA256SUMS
 SHA256SUMS.asc
 SBOM.spdx.json
@@ -668,14 +702,14 @@ Checksums should be generated from final, immutable release artifacts. If releas
 Install a locally obtained release with:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.10.0~dev4-1_amd64.deb
+sudo apt-get install ./snarkyctl_2.1.0~dev0-1_amd64.deb
 ```
 
 When replacing an installed development build from a source checkout, the guarded helper
 performs the stop, reinstall, daemon reload, restart, and status sequence:
 
 ```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_0.10.0~dev4-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0~dev0-1_amd64.deb
 ```
 
 After configuration and successful preflight:
@@ -685,17 +719,20 @@ sudo systemctl enable --now snarkyctl-control.socket
 sudo systemctl enable --now snarkyctl-web.service
 ```
 
-Upgrade with:
+For upgrades, install the reviewed newer artifact or use `reinstall-deb.sh` for the
+explicit stop/restart sequence above. The helper is for an already configured host, not
+first-time provisioning.
+
+For rollback, retain the actual previously working artifact and install it explicitly:
 
 ```bash
-sudo apt-get install ./snarkyctl_0.9.1-1_amd64.deb
+sudo apt-get install --allow-downgrades ./snarkyctl_PREVIOUS_VERSION_amd64.deb
 ```
 
-Rollback using a retained earlier artifact:
-
-```bash
-sudo apt-get install ./snarkyctl_0.10.0~dev4-1_amd64.deb
-```
+Replace `PREVIOUS_VERSION` with the retained version. Stop the SnarkyCtl units before
+replacement and restart them after validation; package installation alone does not provide
+the helper's explicit restart sequence. Confirm that the retained code supports the current
+configuration and database schema. Code rollback does not roll back database contents.
 
 Application code and package-managed integration files are replaced. Local configuration, authentication, certificates, and permitted persistent state are retained.
 
@@ -721,16 +758,25 @@ Removal and purge must never modify the gateway's independent WireGuard, NordVPN
 
 ---
 
-## Initial Packaging Milestones
+## Current Status and Remaining Release Gates
 
-1. ~~Add `pyproject.toml` and the `src/snarkyctl` package skeleton.~~
-2. Add a reproducible, hash-verified dependency-locking process.
-3. ~~Build and test the Python wheel.~~
-4. ~~Add the socket, privileged daemon, and web systemd units.~~
-5. ~~Add Debian metadata, lifecycle handling, smoke test, and build rules.~~
-6. Produce and inspect a `.deb` containing the assembled virtual environment.
-7. Test install, upgrade, rollback, remove, and purge in a clean Ubuntu environment.
-8. Test the package on a disposable VPN gateway.
-9. Run preflight and deploy the tested artifact to `snarkypuss`.
+The repository includes Python wheel packaging, Debian build rules, conservative lifecycle
+handling, systemd integration, an installed-package smoke test, and build/reinstall helpers.
+[development/UAT10.md](development/UAT10.md) records acceptance of the earlier SQLite
+catalogue transition; it does not certify every subsequent release.
 
-The packaging work begins before the dashboard is complete because filesystem ownership, configuration boundaries, command entry points, and service activation rules shape the implementation itself.
+Before declaring a new release ready:
+
+1. Add and enforce hash-verified dependency locking for reproducible stable builds.
+2. Run the Python suite, static checks, and wheel build for the exact release source.
+3. Build the `.deb`, run `lintian`, and inspect its contents and dependency requirements.
+4. Run the packaged `debian/tests/smoke` check (or the `autopkgtest` smoke test) on an
+   installed package; it checks imports, CLI execution, unit files, and the SQLite example,
+   not live gateway behavior.
+5. Verify installation, upgrade, rollback, removal, and purge on a clean Ubuntu 24.04 host.
+6. Validate private access, provider operations, fail-closed forwarding, and reboot recovery
+   on a disposable gateway before deploying to the live `snarkypuss` VPS.
+
+The current development changelog explicitly leaves live NordVPN 6 validation outstanding;
+NordVPN 5 compatibility is retained. A package build alone does not establish provider
+compatibility on a live host.
