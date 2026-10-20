@@ -407,3 +407,8 @@ The public site is maintained separately on `gh-pages`. Publish finished brochur
 PDFs manually. The build does not publish authoring files, research notes, or
 working documents from this branch. Preserve existing published PDFs when
 preparing a release.
+
+The source record in `references/sources.md` remains available on the website at
+`/references/sources.html`, with a Markdown download. Page 15 links to the
+references index. Maintain the published source record manually on `gh-pages`;
+no `webdev` tool copies or publishes it. Working legal analysis is excluded.
