@@ -96,13 +96,14 @@ Debian/Ubuntu:
 sudo apt install \
   texlive-luatex texlive-latex-base texlive-latex-recommended \
   texlive-latex-extra texlive-pictures texlive-fonts-extra \
-  poppler-utils python3
+  poppler-utils pandoc python3
 ```
 
 | Requirement | Provided by | Used for |
 |---|---|---|
 | `lualatex` | texlive-luatex | typesetting engine |
 | `pdfinfo` | poppler-utils | page count and page size validation |
+| `pandoc` | pandoc | local sources index and source-record HTML |
 | Python 3 (no third-party packages) | python3 | `tools/build.py` |
 | geometry | texlive-latex-base | A5 page geometry |
 | fontspec, graphicx, xcolor, ragged2e | texlive-latex-recommended | fonts, images, colour, ragged setting |
@@ -120,6 +121,7 @@ collections chosen up front:
 ```
 winget install MiKTeX.MiKTeX
 winget install Python.Python.3.12
+winget install JohnMacFarlane.Pandoc
 python tools\build.py
 ```
 
@@ -157,8 +159,8 @@ Everything below is authored input and belongs in version control.
 
 ```
 content/          the prose, four thematic files with page markers
-templates/        brochure.tex — PDF styling
-tools/            build.py — local PDF builder
+templates/        brochure.tex and references.css — PDF and source-page styling
+tools/            build.py and build_references.py — local artifact builders
 images/           cover art and diagrams
 references/       supporting research and working documents
 edition.conf      version, legislative snapshot, staleness threshold
@@ -411,4 +413,28 @@ preparing a release.
 The source record in `references/sources.md` remains available on the website at
 `/references/sources.html`, with a Markdown download. Page 15 links to the
 references index. Maintain the published source record manually on `gh-pages`;
-no `webdev` tool copies or publishes it. Working legal analysis is excluded.
+no `webdev` tool copies or publishes it.
+
+## Local sources-page generation
+
+A normal screen or press build also generates these local artifacts:
+
+```text
+build/references/index.html
+build/references/sources.html
+build/references/sources.md
+build/references/references.css
+```
+
+Page 15 of the brochure links to `https://snarkypuss.ca/references/`, the intended
+published location of that index. To regenerate the pages without building a PDF:
+
+```bash
+cd brochure
+python3 tools/build_references.py
+```
+
+Pandoc is required. The generator reads only `references/sources.md` and writes
+only beneath `build/references/`. It does not read other research documents,
+edit a website checkout, deploy, commit, or push. Publication of these generated
+artifacts remains a separate manual step. `--tex-only` skips sources generation.

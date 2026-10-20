@@ -636,6 +636,12 @@ def main():
     if args.tex_only:
         return
 
+    from build_references import render
+    try:
+        render(edition)
+    except (RuntimeError, subprocess.CalledProcessError) as exc:
+        raise BuildError(str(exc)) from exc
+
     log = compile_pdf(args.verbose, args.press)
     count = validate_pdf(args.press, log)
     target = pdf_name(edition, args.press)
