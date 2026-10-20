@@ -14,29 +14,8 @@ cd brochure
 python3 tools/build.py
 ```
 
-Output is the screen edition: 148 × 210 mm, the A5 trim size, for reading and
-for distributing as a download. It is named for its content rather than its
-build:
-
-```
-snarkypuss[-press]_<legislative_snapshot>[_<patch>].pdf
-```
-
-The date comes from `legislative_snapshot`, at whatever precision
-`edition.conf` gives it, so a downloaded copy states on its face what it is
-current to. The trailing number is the third component of `version`, present
-only if there is one — `1.0` yields no suffix, `1.0.2` yields `_2`. Examples:
-
-| edition.conf | screen | press |
-|---|---|---|
-| `1.0` / `2026-09-17` | `snarkypuss_2026-09-17.pdf` | `snarkypuss-press_2026-09-17.pdf` |
-| `1.0.2` / `2026-09-17` | `snarkypuss_2026-09-17_2.pdf` | `snarkypuss-press_2026-09-17_2.pdf` |
-| `1.0` / `2026-09` | `snarkypuss_2026-09.pdf` | `snarkypuss-press_2026-09.pdf` |
-
-The compile itself still runs under the plain stem `snarkypuss`, because that
-becomes the TeX jobname and a jobname full of dots and dates causes more
-trouble than it is worth. The finished PDF is renamed afterwards. The build fails
-rather than warns if the result is not exactly 16 pages at the expected size.
+The screen edition is written to `build/snarkypuss.pdf` at 148 × 210 mm
+(A5 trim size), for reading or printing at home.
 
 For the printer:
 
@@ -44,7 +23,16 @@ For the printer:
 python3 tools/build.py --press
 ```
 
-Output follows the same naming, with `-press` after the stem.
+The press edition is written to `build/snarkypuss-press.pdf`.
+
+These local filenames contain no date or version. Rebuilding replaces the local
+output for that edition. Naming, versioning, copying release files, and website
+publication are manual steps. `build.py` does not copy to the website, invoke the
+reference-page builder, commit, or push anything.
+
+The legislative snapshot and edition metadata still appear inside the brochure;
+they do not determine its filename. The build fails if the result is not exactly
+16 pages at the expected size.
 
 ### The two editions
 
@@ -332,42 +320,14 @@ section was current.
 | **MINOR** | The wording of the content changed — corrections, rewrites, anything editorial that leaves the legal position as it was. |
 | **PATCH** | Anything else that reaches the printed page: build system, template, typography, artwork, diagrams. |
 
-PATCH is optional. `version = 1.0` is valid and is the normal state of a fresh
-MAJOR or MINOR release — there is no need to write `1.0.0`. Add the third
-component only once there is a patch revision to record, and the filename
-picks it up from that point on:
+PATCH is optional; MAJOR and MINOR are required for the printed edition label.
+Update this metadata manually when preparing a release. It does not affect local
+PDF filenames, and the build does not increment versions or assign release names.
+Choose release filenames and preserve earlier editions manually before publication.
 
-```
-version = 1.0      ->  snarkypuss_2026-09-17.pdf
-version = 1.0.1    ->  snarkypuss_2026-09-17_1.pdf
-```
-
-MAJOR and MINOR are not optional.
-
-The distinction between MAJOR and the rest is the one that matters most,
-because only MAJOR implies the facts were re-verified. `legislative_snapshot`
-and MAJOR move together; if you find yourself moving one without the other,
-something is wrong.
-
-### A filename caveat
-
-The published filename carries the snapshot date and the PATCH component, not
-MAJOR or MINOR. The date is what a reader of a dated document needs, so this
-is right for the common case — but it does mean a MINOR bump alone is
-invisible in the filename.
-
-`1.0` and `1.1` against the same snapshot both produce
-`snarkypuss_2026-09-17.pdf`, and the second overwrites the first. Resetting
-PATCH does not help: `1.0.0` and `1.1.0` both yield `_0`.
-
-If that matters — two editions in circulation that cannot be told apart by
-filename — there are two ways out: put the full version in the filename
-instead of just PATCH, or let PATCH keep counting across MINOR bumps
-(`1.0.3` then `1.1.4`) so it never repeats. Neither is implemented; the
-current behaviour is to overwrite.
-
-The build does not enforce any of this, and will write over an existing file
-of the same name without comment.
+The distinction between MAJOR and the rest matters because only MAJOR implies
+that the facts were re-verified. `legislative_snapshot` records that verification
+cutoff; a rebuild alone must not advance it.
 
 The build date is today's date, or `SOURCE_DATE_EPOCH` when set, so a
 published edition can be reproduced exactly:
@@ -442,9 +402,10 @@ Install `pandoc` first. The command writes `references/index.html`, readable HTM
 versions of both documents, their original Markdown downloads, and the stylesheet.
 It also adds a Sources and legal analysis section to the existing homepage if absent.
 Existing media and brochure PDFs are preserved. Re-running it refreshes the documents
-without duplicating the homepage section. Review the staged site, copy the updated
-PDF editions into `brochure/`, and commit and push the resulting `gh-pages` changes
-to publish. Commit the authored changes separately on `webdev`.
+without duplicating the homepage section. This separate command only renders local
+files; it does not commit, push, or deploy them. Website publication and any PDF
+release naming, versioning, or copying are manual. Preserve existing published
+PDFs when preparing a release. Commit authored changes separately on `webdev`.
 
 The brochure points readers to `/references/` on page 15. Maintain its source record
 and legal analysis independently: the analysis examines the June 18, 2026 bill text;
