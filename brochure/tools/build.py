@@ -488,7 +488,7 @@ def check_fonts():
     if not kpsewhich:
         return
     missing = [f for f in FONT_FILES
-               if not subprocess.run([kpsewhich, f], text=True,
+               if not subprocess.run([kpsewhich, f],
                                      capture_output=True).stdout.strip()]
     if missing:
         raise BuildError(
@@ -515,7 +515,8 @@ def compile_pdf(verbose=False, press=False):
     log = ""
     for _ in range(2):
         env = dict(os.environ, max_print_line="10000", error_line="254", half_error_line="238")
-        result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, env=env)
+        result = subprocess.run(command, cwd=ROOT, encoding="utf-8", errors="replace",
+                                capture_output=True, env=env)
         log = result.stdout
         if verbose:
             print(log[-4000:])
@@ -586,7 +587,7 @@ def validate_pdf(press=False, log=""):
         return count
 
     info = subprocess.run([pdfinfo, pdf.relative_to(ROOT).as_posix()],
-                          cwd=ROOT, text=True, capture_output=True,
+                          cwd=ROOT, encoding="utf-8", errors="replace", capture_output=True,
                           check=True).stdout
     pages = re.search(r"^Pages:\s+(\d+)$", info, re.M)
     if not pages:

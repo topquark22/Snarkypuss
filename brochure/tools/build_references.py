@@ -16,7 +16,7 @@ def render(edition):
     source = (ROOT / 'references' / 'sources.md').read_text(encoding='utf-8')
     fragment = subprocess.run(
         ['pandoc', '--from=markdown+autolink_bare_uris', '--to=html5', '--wrap=none'],
-        input=source, text=True, capture_output=True, check=True).stdout
+        input=source, encoding='utf-8', capture_output=True, check=True).stdout
     fragment = fragment.replace(
         '<table>', '<div class="table-scroll" role="region" aria-label="Source table" tabindex="0"><table>'
     ).replace('</table>', '</table></div>')
