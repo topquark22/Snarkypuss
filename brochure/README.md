@@ -156,10 +156,10 @@ Everything below is authored input and belongs in version control.
 
 ```
 content/          the prose, four thematic files with page markers
-templates/        brochure.tex — the whole design system
-tools/            build.py — the only entry point
+templates/        brochure.tex and references.css — PDF and website styling
+tools/            build.py and build_references.py — PDF and website builders
 images/           cover art and diagrams
-references/       sources.md — provenance for the dated claims
+references/       sources.md and legal-analysis.md — public reference documents
 edition.conf      version, legislative snapshot, staleness threshold
 PLAN.md           editorial plan
 README.md         this file
@@ -210,6 +210,7 @@ template change, not a page-source change.
 | `# Heading` | Page-opening heading with accent rule. One per page at most. |
 | `## Heading` | Section heading. May begin mid-page by design. |
 | `**bold**`, `` `code` `` | Inline emphasis and monospace |
+| `[label](https://example.com)` | Clickable HTTP(S) link with a printed label. |
 | `- item` | Bulleted list |
 | `<!-- note: text -->` | Small grey line, used for dating lines |
 | `<!-- keyline: text -->` | Tinted emphasis panel |
@@ -426,3 +427,26 @@ rather than presented as undisputed conclusions.
 
 **Releases.** The finished PDF is not committed. A release process may attach
 it to a GitHub release instead.
+
+## Publishing references on the website
+
+The authored reference documents live in `references/`. They are not automatically
+published by the brochure PDF build. The public site is on the separate `gh-pages`
+branch. Use a staged copy of that branch, outside this checkout, to render the pages:
+
+```bash
+python3 brochure/tools/build_references.py --site-root /path/to/staged-gh-pages
+```
+
+Install `pandoc` first. The command writes `references/index.html`, readable HTML
+versions of both documents, their original Markdown downloads, and the stylesheet.
+It also adds a Sources and legal analysis section to the existing homepage if absent.
+Existing media and brochure PDFs are preserved. Re-running it refreshes the documents
+without duplicating the homepage section. Review the staged site, copy the updated
+PDF editions into `brochure/`, and commit and push the resulting `gh-pages` changes
+to publish. Commit the authored changes separately on `webdev`.
+
+The brochure points readers to `/references/` on page 15. Maintain its source record
+and legal analysis independently: the analysis examines the June 18, 2026 bill text;
+the brochure’s legislative snapshot is set by `edition.conf`. Publishing or rendering
+these documents does not re-verify their claims or advance either cutoff date.

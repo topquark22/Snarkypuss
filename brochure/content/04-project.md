@@ -10,11 +10,13 @@ That is useful, but it is not the same thing as anonymity. Snarkypuss does not p
 
 Snarkypuss is an open-source, non-commercial software project. There is no Snarkypuss company, hosted VPN service, central relay network or subscription.
 
-NordVPN is the currently supported and tested commercial VPN provider. Provider-specific commands are isolated behind an adapter so that other providers can be added without redesigning the application.
+NordVPN is currently supported and tested; provider adapters allow other VPNs to be added without redesigning the application.
 
-Snarkypuss itself is free software. You separately pay for a low-cost VPS, approximately US$5 per month, and whatever commercial VPN subscription you choose.
+Snarkypuss is free software. You pay separately for a VPS (about US$5 per month) and a commercial VPN subscription.
 
 **snarkypuss.ca** — documentation, and the source at **github.com/topquark22/Snarkypuss**
+
+<!-- note: Sources and Bill C-22 analysis: [{{site}}/references/](https://{{site}}/references/) -->
 
 The current release is **Snarkypuss 2.0.1**.
 

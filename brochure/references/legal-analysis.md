@@ -93,3 +93,30 @@ Section 13 separately requires reasonable assistance with assessment or testing 
 Section 2(4) restricts compelled decryption of user-encrypted information unless the provider supplied the encryption and possesses the information needed to decrypt it.
 
 For Snarkypuss, terminating a WireGuard tunnel is different from decrypting the HTTPS connections carried inside it. The gateway's ability to handle the tunnel does not ordinarily give it HTTPS session keys. Whether a particular demand falls within the statutory exception would depend on the encryption layer and the operator's actual capabilities.
+
+Sections 5(5), 7(5), and 24(2.1) protect against compelled systemic vulnerabilities. The statutory definition has a qualification concerning risks confined to information relating to persons subject to lawful access authorities; it is not an absolute prohibition on every targeted access mechanism.
+
+## Could an ISP be required to block the individual's access?
+
+**No express provision in the supplied bill requires ISPs to block Snarkypuss, private VPN users, WireGuard, or VPN traffic generally.** The text does not identify use of a private encrypted tunnel as a contravention.
+
+Section 24 allows compliance orders requiring a provider to stop a contravention or take necessary compliance or mitigation measures. This is broad language tied to an underlying statutory obligation. It is not an express, free-standing power to order an ISP to block a third party's VPN. Such an interpretation would require an additional legal basis and argument; it is not established merely by the wording reviewed here.
+
+The bill preserves existing access authorities under other legislation. This finding therefore does not establish that blocking could never be authorized under another law or a different legal process.
+
+## Summary
+
+| Question | Exclusive personal use | Service offered to other Canadian users |
+|---|---|---|
+| Is the VPS itself the legal provider? | Ordinarily no; examine the operator. | Ordinarily no; examine the operator or operating entity. |
+| Could the operator be an electronic service provider? | Unresolved: the definition does not clearly address self-provision. | Substantially stronger basis for coverage. |
+| Is unpaid or private use expressly exempt? | No express personal-use exemption. | No express free-service, friends-and-family, or small-service exemption. |
+| Does the bill automatically require all traffic to be logged? | No. | No; distinguish possible coverage from specific obligations. |
+| Could non-core providers receive individual orders? | Potentially, if they meet the provider definition. | Yes, section 7 expressly reaches non-core providers. |
+| Does the supplied text expressly require ISP VPN blocking? | No. | No. |
+
+**The central unresolved issue for an individual using Snarkypuss only for themselves is the meaning of “provides the service to persons in Canada.” Offering access to others makes the coverage argument considerably stronger. Neither scenario, by itself, establishes a duty to log all traffic or an ISP power to block VPN access.**
+
+## Source
+
+User-supplied `C-22_E.xml`, identified as the June 18, 2026 version of Bill C-22. Principal references: Part 2, clause 41, enacting the Supporting Authorized Access to Information Act, especially sections 2, 5, 7–13, 24, and 48, and its Core Providers schedule.

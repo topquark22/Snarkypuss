@@ -1,8 +1,9 @@
 # Source record — legislative and industry claims
 
-Provenance for the factual claims on brochure pages 2–4. The brochure text
-does not carry footnotes; this file exists so that every dated claim can be
-verified and refreshed when the snapshot is superseded.
+Provenance for the factual claims on brochure pages 2–4. The brochure links to
+this public source record so that every dated claim can be verified and refreshed when the snapshot is superseded. The separate
+[Bill C-22 analysis](legal-analysis.md) examines the June 18, 2026 bill text; it
+is not an update to the brochure’s October 16 legislative snapshot.
 
 Access date: 2026-09-16 for entries 1–20; 2026-09-29 for entries 21–25;
 2026-10-16 for entries 26–30 (edition 1.2.0, snapshot 2026-10-16).
@@ -15,9 +16,7 @@ Access date: 2026-09-16 for entries 1–20; 2026-09-29 for entries 21–25;
 | 2 | Submission to the Standing Senate Committee on National Security, Defence and Veterans Affairs on Bill C-8 | Office of the Privacy Commissioner of Canada — https://www.priv.gc.ca/en/opc-actions-and-decisions/advice-to-parliament/2026/parl_sub_260522_c8/ | 2026-05-22 | Commissioner acknowledged significant improvements Parliament made to the bill, including a proportionality requirement on information-sharing |
 | 3 | Letter to the Standing Committee on Public Safety and National Security (SECU) on Bill C-8 | Office of the Privacy Commissioner of Canada — https://www.priv.gc.ca/en/opc-actions-and-decisions/advice-to-parliament/2025/parl_sub_251114/ | 2025-11-14 | Recommendation for a uniform necessity-and-proportionality standard; notification of the OPC on incidents involving a material privacy breach; safeguards on information shared outside Canada |
 | 4 | Canada's OPC urges stronger privacy protections for Bill C-8 | IAPP — https://iapp.org/news/a/canadas-opc-urges-stronger-privacy-protections-for-bill-c-8 | 2026-05 | Dufresne supports the bill's cybersecurity objectives while seeking limits so new powers do not have unintended privacy impact |
-
 | 25 | Critical Cyber Systems Protection Act (S.C. 2026, c. 9, s. 11), consolidation; and Carahsoft Canada policy brief on Bill C-8 | Justice Laws — https://laws-lois.justice.gc.ca/eng/acts/C-47.4 ; Carahsoft — https://static.carahsoft.com/concrete/files/9717/8957/0151/Policy_Critical_Cyber_Systems_Bill_C-8_1.pdf | consolidation current to 2026-06-17; brief states status as of 2026-09 | CCSPA enacted but **not in force**; no coming-into-force order made, no operator classes designated. Supports the page 3 correction (1.1.0) replacing "the operator obligations are being phased in". Re-check the Canada Gazette Part II for a coming-into-force order at each snapshot. |
-
 | 30 | Bill C-8 coming-into-force provision, S.C. 2026, c. 9, s. 16 | Justice Laws — https://www.laws.justice.gc.ca/eng/AnnualStatutes/2026_9/page-4.html | checked 2026-10-16 | Official text continues to state that Part 2 (Critical Cyber Systems Protection Act) is not in force; supports the unchanged page 3 statement. |
 
 **Note on the Royal Assent date.** Several secondary sources give June 16,
@@ -36,9 +35,7 @@ Access date: 2026-09-16 for entries 1–20; 2026-09-29 for entries 21–25;
 | 11 | Parliament has amended Bill C-22, but has it addressed the biggest privacy concerns? | Robert Diab — https://www.robertdiab.ca/posts/c22-amendments/ | 2026-06 | Retention maximum reduced to six months; Minister must be satisfied the category is essential; encryption provision more broadly worded |
 | 12 | Committee studying lawful access bill urged to protect encryption, balance privacy with police needs | CBC News — https://www.cbc.ca/news/politics/lawful-access-c-22-committee-9.7211701 | 2026-05 | As introduced, retention of up to one year; Dufresne's eight recommendations; CSE position that the bill does not create backdoors |
 | 13 | What to know about Bill C-22, Canada's proposed lawful-access legislation | The Globe and Mail — https://www.theglobeandmail.com/canada/article-bill-c-22-canada-lawful-access-regime/ | 2026 | Scope limited to internet access and telecom companies; demands barred where they would disclose medical or solicitor-client information |
-
 | 21 | C-22 (45-1) bill record | LEGISinfo, Parliament of Canada — https://www.parl.ca/legisinfo/en/bill/45-1/c-22 | retrieved 2026-09-29 | Current status "At second reading in the Senate"; latest activity Senate first reading **June 18, 2026**; no second-reading activity recorded. Supports the page 3 status sentence (1.1.0). |
-
 | 26 | Senate Debates, Issue 92 | Senate of Canada — https://sencanada.ca/en/content/sen/chamber/451/debates/092db_2026-10-08-e | 2026-10-08 | Second-reading debate began; Senator Dhillon defended the bill, and Senator Batters reported preliminary, uncertain government-official estimates of 18–24 months for initial regulations and possibly several years for full implementation. |
 | 29 | Years of Uncertainty: Bill C-22's Missing Regulations and Secret Ministerial Orders | Michael Geist — https://www.michaelgeist.ca/2026/10/years-of-uncertainty-bill-c-22s-missing-regulations-and-secret-ministerial-orders/ | 2026-10-14 | Analysis: Part 2 commencement awaits a Cabinet order; technical requirements remain to be set by regulation; section 7 may permit confidential individual ministerial orders once Part 2 is in force. Interpretive commentary, not enacted requirements. |
 
@@ -66,11 +63,9 @@ stated as fact.
 | 18 | Major VPN provider says it could leave Canada over lawful access bill | The Canadian Press — https://www.bnnbloomberg.ca/business/2026/05/15/major-vpn-provider-says-it-could-leave-canada-over-lawful-access-bill/ | 2026-05-15 | **NordVPN**, in a post on X, said it was reviewing the bill; if subjected to mandatory obligations it would not compromise its no-logs architecture or encryption, and would consider all viable options including limiting or removing its presence from Canadian jurisdiction. Conditional, not an announced departure. |
 | 19 | Lawful access bill could lead to exit from Canada, major VPN provider says | Global News — https://globalnews.ca/news/11851363/lawful-access-nordvpn-canada/ | 2026-05-15 | **Windscribe** said on Thursday May 14 that it would leave the country if the bill passes, noting that unlike Signal its headquarters is in Canada |
 | 20 | Windscribe joins Signal in threatening Canada exit over controversial surveillance bill | TechRadar — https://www.techradar.com/vpn/vpn-privacy-security/windscribe-joins-signal-in-threatening-canada-exit-over-controversial-surveillance-bill | 2026-05 | Windscribe threatened to relocate its Canadian headquarters; **Signal** (Udbhav Tiwari) said it would rather withdraw from Canada than comply |
-
 | 22 | VPN Companies Warn Bill C-22 Could Push Tech Firms Out of Canada | iPhone in Canada — https://www.iphoneincanada.ca/2026/09/24/vpn-companies-bill-c22-tech-firms-canada/ | 2026-09-24 | **20 tech companies and industry groups** wrote to Ministers Anandasangaree (Public Safety) and Joly (Industry) seeking further amendments; **Nord Security** said the six-month limit does not resolve its cybersecurity and encryption concerns; Windscribe CEO Yegor Sak (via the Globe) called the bill untenable for most tech companies; Tailscale (~40% of staff in Canada) may restructure |
 | 23 | Canada's Bill C-22: VPN and tech firms urge the government to 'fix' the bill before it becomes law | TechRadar — https://www.techradar.com/vpn/vpn-privacy-security/canadas-bill-c-22-vpn-and-tech-firms-urge-the-government-to-fix-the-bill-before-it-becomes-law | 2026-09-25 | Open letter organized by the **Chamber of Progress**; signatories include **NordVPN, Windscribe and ExpressVPN**; Windscribe posted it on X on September 24 |
 | 24 | Tech, VPN companies call for changes to lawful access bill | The Globe and Mail — https://www.theglobeandmail.com/politics/article-tech-vpn-companies-call-for-changes-to-lawful-access-bill/ | 2026-09 | Primary report behind source 22. **Not retrieved** (automated access refused); the original industry letter is now directly verified via source 27. |
-
 | 27 | Joint Letter: Tech Industry Concerns with Bill C-22 | Chamber of Progress — https://progresschamber.org/resources/coalition-letter-canada-amend-bill-c-22/ | 2026-09-24, retrieved 2026-10-16 | Original letter and list of **23** signatories, including Nord Security, Windscribe and Kape Technologies (ExpressVPN and Private Internet Access). Supports updated page 4 count. |
 | 28 | Toronto-Based VPN Provider Plans to Quit Canada Over Lawful-Access Bill | Citizen Lab — https://citizenlab.ca/toronto-based-vpn-provider-plans-to-quit-canada-over-lawful-access-bill/ | 2026-10-06 | Psiphon, a Toronto-founded censorship-circumvention provider, says it is prepared to relocate if C-22 passes in its present form. Conditional intention; no completed move. |
 

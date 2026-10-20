@@ -258,10 +258,14 @@ def escape(text):
 
 
 def inline(text):
-    parts = re.split(r"(`[^`]+`|\*\*[^*]+\*\*)", text)
+    parts = re.split(r"(\[[^\]\n]+\]\(https?://[^\s)]+\)|`[^`]+`|\*\*[^*]+\*\*)", text)
     out = []
     for part in parts:
-        if part.startswith("`") and part.endswith("`"):
+        link = re.fullmatch(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", part)
+        if link:
+            label, url = link.groups()
+            out.append(r"\href{" + escape(url) + "}{" + escape(label) + "}")
+        elif part.startswith("`") and part.endswith("`"):
             out.append(r"\texttt{" + escape(part[1:-1]) + "}")
         elif part.startswith("**") and part.endswith("**"):
             out.append(r"\textbf{" + escape(part[2:-2]) + "}")
