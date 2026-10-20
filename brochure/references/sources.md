@@ -1,7 +1,8 @@
 # Source record — legislative and industry claims
 
-Provenance for the factual claims on brochure pages 2–4. The brochure links to
-this public source record so that every dated claim can be verified and refreshed when the snapshot is superseded.
+Provenance for the factual claims on brochure pages 2–4, maintained with the
+authoring files so that dated claims can be verified and refreshed when the
+snapshot is superseded.
 
 Access date: 2026-09-16 for entries 1–20; 2026-09-29 for entries 21–25;
 2026-10-16 for entries 26–30 (edition 1.2.0, snapshot 2026-10-16).

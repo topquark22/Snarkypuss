@@ -16,8 +16,6 @@ Snarkypuss is free software. You pay separately for a VPS (about US$5 per month)
 
 **snarkypuss.ca** — documentation, and the source at **github.com/topquark22/Snarkypuss**
 
-<!-- note: Brochure sources: [{{site}}/references/](https://{{site}}/references/) -->
-
 The current release is **Snarkypuss 2.0.1**.
 
 <!-- edition -->

@@ -41,8 +41,8 @@ new filename even when the legislative snapshot stays the same. Rebuilding the
 same snapshot and version replaces that edition's local output.
 
 Both metadata values are maintained manually. The builder constructs filenames;
-it does not increment versions, change the snapshot, copy to the website, invoke
-the reference-page builder, commit, or push anything. Publication remains manual.
+it does not increment versions, change the snapshot, copy to the website, commit,
+or push anything. Publication remains manual.
 
 The legislative snapshot and edition metadata also appear inside the brochure.
 The build fails if the result is not exactly 16 pages at the expected size.
@@ -157,10 +157,10 @@ Everything below is authored input and belongs in version control.
 
 ```
 content/          the prose, four thematic files with page markers
-templates/        brochure.tex and references.css — PDF and website styling
-tools/            build.py and build_references.py — PDF and website builders
+templates/        brochure.tex — PDF styling
+tools/            build.py — local PDF builder
 images/           cover art and diagrams
-references/       sources.md — public sources; legal-analysis.md — unpublished website draft
+references/       supporting research and working documents
 edition.conf      version, legislative snapshot, staleness threshold
 PLAN.md           editorial plan
 README.md         this file
@@ -401,27 +401,9 @@ rather than presented as undisputed conclusions.
 **Releases.** The finished PDF is not committed. A release process may attach
 it to a GitHub release instead.
 
-## Publishing references on the website
+## Website publication
 
-The public source record is `references/sources.md`. The legal-analysis draft is
-retained in `references/legal-analysis.md` but is excluded from website output.
-Retaining it on a public GitHub branch does not make it private.
-
-The public site is on the separate `gh-pages` branch. To render the sources page
-into a staged copy of that branch, outside this checkout:
-
-```bash
-python3 brochure/tools/build_references.py --site-root /path/to/staged-gh-pages
-```
-
-Install `pandoc` first. The command writes `references/index.html`,
-`references/sources.html`, its Markdown download, and the stylesheet. It updates
-the homepage sources section.
-Existing media, PDFs, and other site files are preserved.
-
-The command renders local files only. It does not commit, push, or deploy them.
-Website publication, edition metadata updates, and copying PDF releases remain
-manual. Preserve existing published PDFs when preparing a release.
-
-Page 15 points readers to `/references/` for the source record. Rendering these
-pages does not re-verify claims or change the legislative snapshot in `edition.conf`.
+The public site is maintained separately on `gh-pages`. Publish finished brochure
+PDFs manually. The build does not publish authoring files, research notes, or
+working documents from this branch. Preserve existing published PDFs when
+preparing a release.
