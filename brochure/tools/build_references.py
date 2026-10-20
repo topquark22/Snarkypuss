@@ -26,9 +26,6 @@ def render(site):
     snapshot = read_edition()['snapshot_text']
     output = site / 'references'
     output.mkdir(exist_ok=True)
-    # Remove only the retired generated legal-analysis pages, not other site files.
-    for name in ('legal-analysis.html', 'legal-analysis.md'):
-        (output / name).unlink(missing_ok=True)
     style = (ROOT / 'templates/references.css').read_text(encoding='utf-8')
     (output / 'references.css').write_text(style, encoding='utf-8')
     nav = '<nav aria-label="Reference navigation"><a href="../">Home</a> · <a href="./">References</a> · <a href="sources.html">Sources</a></nav>'

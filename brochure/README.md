@@ -416,8 +416,7 @@ python3 brochure/tools/build_references.py --site-root /path/to/staged-gh-pages
 
 Install `pandoc` first. The command writes `references/index.html`,
 `references/sources.html`, its Markdown download, and the stylesheet. It updates
-the homepage sources section and removes the previously generated
-`references/legal-analysis.html` and `references/legal-analysis.md` if present.
+the homepage sources section.
 Existing media, PDFs, and other site files are preserved.
 
 The command renders local files only. It does not commit, push, or deploy them.
