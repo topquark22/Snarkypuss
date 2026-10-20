@@ -160,7 +160,7 @@ content/          the prose, four thematic files with page markers
 templates/        brochure.tex and references.css — PDF and website styling
 tools/            build.py and build_references.py — PDF and website builders
 images/           cover art and diagrams
-references/       sources.md and legal-analysis.md — public reference documents
+references/       sources.md — public sources; legal-analysis.md — unpublished website draft
 edition.conf      version, legislative snapshot, staleness threshold
 PLAN.md           editorial plan
 README.md         this file
@@ -403,24 +403,26 @@ it to a GitHub release instead.
 
 ## Publishing references on the website
 
-The authored reference documents live in `references/`. They are not automatically
-published by the brochure PDF build. The public site is on the separate `gh-pages`
-branch. Use a staged copy of that branch, outside this checkout, to render the pages:
+The public source record is `references/sources.md`. The legal-analysis draft is
+retained in `references/legal-analysis.md` but is excluded from website output.
+Retaining it on a public GitHub branch does not make it private.
+
+The public site is on the separate `gh-pages` branch. To render the sources page
+into a staged copy of that branch, outside this checkout:
 
 ```bash
 python3 brochure/tools/build_references.py --site-root /path/to/staged-gh-pages
 ```
 
-Install `pandoc` first. The command writes `references/index.html`, readable HTML
-versions of both documents, their original Markdown downloads, and the stylesheet.
-It also adds a Sources and legal analysis section to the existing homepage if absent.
-Existing media and brochure PDFs are preserved. Re-running it refreshes the documents
-without duplicating the homepage section. This separate command only renders local
-files; it does not commit, push, or deploy them. Website publication, edition
-metadata updates, and copying PDF releases are manual. Preserve existing published
-PDFs when preparing a release. Commit authored changes separately on `webdev`.
+Install `pandoc` first. The command writes `references/index.html`,
+`references/sources.html`, its Markdown download, and the stylesheet. It updates
+the homepage sources section and removes the previously generated
+`references/legal-analysis.html` and `references/legal-analysis.md` if present.
+Existing media, PDFs, and other site files are preserved.
 
-The brochure points readers to `/references/` on page 15. Maintain its source record
-and legal analysis independently: the analysis examines the June 18, 2026 bill text;
-the brochure’s legislative snapshot is set by `edition.conf`. Publishing or rendering
-these documents does not re-verify their claims or advance either cutoff date.
+The command renders local files only. It does not commit, push, or deploy them.
+Website publication, edition metadata updates, and copying PDF releases remain
+manual. Preserve existing published PDFs when preparing a release.
+
+Page 15 points readers to `/references/` for the source record. Rendering these
+pages does not re-verify claims or change the legislative snapshot in `edition.conf`.
