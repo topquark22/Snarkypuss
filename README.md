@@ -33,6 +33,13 @@ brochure/          the 16-page A5 brochure — see brochure/README.md
 [`brochure/README.md`](brochure/README.md) is the operative document: toolchain,
 build commands, the page-marker model, edition and dating, and the artwork dimensions.
 
+## Tooling boundary
+
+All tooling on `webdev` is for local authoring and builds only. It must never
+publish or deploy to the website, modify a website checkout, or commit or push
+website changes. Website publication is a separate, manual operation outside
+this branch's tooling.
+
 ## Licensing
 
 The brochure, the cover artwork and the Snarkypuss character are **all rights
