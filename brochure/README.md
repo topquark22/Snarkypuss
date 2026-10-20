@@ -14,8 +14,13 @@ cd brochure
 python3 tools/build.py
 ```
 
-The screen edition is written to `build/snarkypuss.pdf` at 148 × 210 mm
-(A5 trim size), for reading or printing at home.
+The screen edition is written at 148 × 210 mm (A5 trim size), for reading or
+printing at home. Its filename includes the legislative snapshot and full version
+from `edition.conf`, for example:
+
+```text
+build/snarkypuss_2026-10-16_v1.3.0.pdf
+```
 
 For the printer:
 
@@ -23,16 +28,24 @@ For the printer:
 python3 tools/build.py --press
 ```
 
-The press edition is written to `build/snarkypuss-press.pdf`.
+The press edition uses the same metadata, with `-press` after the stem:
 
-These local filenames contain no date or version. Rebuilding replaces the local
-output for that edition. Naming, versioning, copying release files, and website
-publication are manual steps. `build.py` does not copy to the website, invoke the
-reference-page builder, commit, or push anything.
+```text
+build/snarkypuss-press_2026-10-16_v1.3.0.pdf
+```
 
-The legislative snapshot and edition metadata still appear inside the brochure;
-they do not determine its filename. The build fails if the result is not exactly
-16 pages at the expected size.
+The general pattern is `snarkypuss[-press]_<legislative_snapshot>_v<version>.pdf`.
+The snapshot retains its configured precision (`YYYY-MM-DD` or `YYYY-MM`), and
+all version components are included. A minor-version change therefore produces a
+new filename even when the legislative snapshot stays the same. Rebuilding the
+same snapshot and version replaces that edition's local output.
+
+Both metadata values are maintained manually. The builder constructs filenames;
+it does not increment versions, change the snapshot, copy to the website, invoke
+the reference-page builder, commit, or push anything. Publication remains manual.
+
+The legislative snapshot and edition metadata also appear inside the brochure.
+The build fails if the result is not exactly 16 pages at the expected size.
 
 ### The two editions
 
@@ -321,9 +334,9 @@ section was current.
 | **PATCH** | Anything else that reaches the printed page: build system, template, typography, artwork, diagrams. |
 
 PATCH is optional; MAJOR and MINOR are required for the printed edition label.
-Update this metadata manually when preparing a release. It does not affect local
-PDF filenames, and the build does not increment versions or assign release names.
-Choose release filenames and preserve earlier editions manually before publication.
+Update this metadata manually when preparing a release. The full version and
+legislative snapshot determine the local PDF filename. The build does not increment
+versions or choose a new snapshot. Preserve earlier editions when publishing.
 
 The distinction between MAJOR and the rest matters because only MAJOR implies
 that the facts were re-verified. `legislative_snapshot` records that verification
@@ -403,8 +416,8 @@ versions of both documents, their original Markdown downloads, and the styleshee
 It also adds a Sources and legal analysis section to the existing homepage if absent.
 Existing media and brochure PDFs are preserved. Re-running it refreshes the documents
 without duplicating the homepage section. This separate command only renders local
-files; it does not commit, push, or deploy them. Website publication and any PDF
-release naming, versioning, or copying are manual. Preserve existing published
+files; it does not commit, push, or deploy them. Website publication, edition
+metadata updates, and copying PDF releases are manual. Preserve existing published
 PDFs when preparing a release. Commit authored changes separately on `webdev`.
 
 The brochure points readers to `/references/` on page 15. Maintain its source record

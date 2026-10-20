@@ -22,9 +22,15 @@ DERIVED = ROOT / "build" / "pages"
 TEMPLATE = ROOT / "templates" / "brochure.tex"
 BUILD = ROOT / "build"
 def artifacts(press=False):
-    """Local build filenames; release naming and publication are manual."""
+    """Stable working filenames for the TeX job; not the delivered PDF names."""
     stem = "snarkypuss-press" if press else "snarkypuss"
     return BUILD / f"{stem}.tex", BUILD / f"{stem}.pdf"
+
+
+def pdf_name(edition, press=False):
+    """Name the local PDF using the manually maintained snapshot and full version."""
+    stem = "snarkypuss-press" if press else "snarkypuss"
+    return BUILD / f"{stem}_{edition['snapshot_raw']}_v{edition['version']}.pdf"
 
 
 TRIM_MM = (148.0, 210.0)      # A5
@@ -184,6 +190,9 @@ def read_edition():
     for key in ("version", "legislative_snapshot", "site_url"):
         if key not in conf:
             raise BuildError(f"edition.conf: missing {key}")
+
+    if not re.fullmatch(r"[0-9]+\.[0-9]+(?:\.[0-9]+)?", conf["version"]):
+        raise BuildError("edition.conf: version must be MAJOR.MINOR or MAJOR.MINOR.PATCH")
 
     # YYYY-MM-DD when the day is meaningful, YYYY-MM when only the month is.
     raw = conf["legislative_snapshot"]
@@ -629,7 +638,8 @@ def main():
 
     log = compile_pdf(args.verbose, args.press)
     count = validate_pdf(args.press, log)
-    target = artifacts(args.press)[1]
+    target = pdf_name(edition, args.press)
+    artifacts(args.press)[1].replace(target)
     rows = fit_report(log)
     geometry = "press, trim + 3mm bleed + marks" if args.press else "screen, A5 trim"
     print(f"built {target} ({count} pages, {geometry}) at {args.body_size}pt body")
