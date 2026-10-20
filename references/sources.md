@@ -1,9 +1,7 @@
 # Source record — legislative and industry claims
 
 Provenance for the factual claims on brochure pages 2–4. The brochure links to
-this public source record so that every dated claim can be verified and refreshed when the snapshot is superseded. The separate
-[Bill C-22 analysis](legal-analysis.md) examines the June 18, 2026 bill text; it
-is not an update to the brochure’s October 16 legislative snapshot.
+this public source record so that every dated claim can be verified and refreshed when the snapshot is superseded.
 
 Access date: 2026-09-16 for entries 1–20; 2026-09-29 for entries 21–25;
 2026-10-16 for entries 26–30 (edition 1.2.0, snapshot 2026-10-16).
