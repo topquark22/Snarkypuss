@@ -111,7 +111,7 @@ Windows shows no recent handshake for the `snarkypuss` tunnel.
 
 ### Check the Windows configuration
 
-In the WireGuard application, y that the tunnel has:
+In the WireGuard application, verify that the tunnel has:
 
 ```ini
 [Interface]
@@ -124,7 +124,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 ```
 
-Also y that:
+Also verify that:
 
 - the Windows private key is still the one generated for this tunnel,
 - the peer `PublicKey` is the Linode's WireGuard **public** key,
