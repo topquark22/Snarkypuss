@@ -111,7 +111,7 @@ Windows shows no recent handshake for the `snarkypuss` tunnel.
 
 ### Check the Windows configuration
 
-In the WireGuard application, verify that the tunnel has:
+In the WireGuard application, y that the tunnel has:
 
 ```ini
 [Interface]
@@ -124,7 +124,7 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 ```
 
-Also verify that:
+Also y that:
 
 - the Windows private key is still the one generated for this tunnel,
 - the peer `PublicKey` is the Linode's WireGuard **public** key,
@@ -484,10 +484,9 @@ control operation to finish before submitting another one.
 
 ### An old P2P destination fails after upgrading to NordVPN 6
 
-NordVPN 6 removed the P2P server group; regular servers support P2P traffic. Both
+NordVPN 6 removed the P2P server group; regular servers now support P2P traffic. Both
 saved P2P group selectors and legacy provider values of `P2P` need replacement or
-removal. A legacy P2P connection failure was reproduced on the NordVPN 6 test server.
-Select a country, city, or the built-in **Fastest available server** instead.
+removal. Select a country, city, or the built-in **Fastest available server** instead.
 
 This is an obsolete destination, not evidence that P2P traffic requires Direct VPS
 mode or disabling the Kill Switch. Back up the catalogue and follow the
