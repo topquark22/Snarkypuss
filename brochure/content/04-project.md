@@ -18,7 +18,7 @@ Snarkypuss is free software. You pay separately for a VPS (about US$5 per month)
 
 <!-- note: Brochure sources: [{{site}}/references/](https://{{site}}/references/) -->
 
-The current release is **Snarkypuss 2.0.1**.
+The current release is **Snarkypuss 2.1.0**.
 
 <!-- edition -->
 
