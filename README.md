@@ -188,10 +188,14 @@ snapshot.
 A repository release covers the gateway scripts, documentation, tests, build tooling,
 SnarkyCtl source, and Debian packaging as one source-tree snapshot.
 
-SnarkyCtl retains its own application/package version independently. The currently published
-application version is `2.0.1`, represented by `pyproject.toml`, wheel metadata, command
-version output, and the Debian upstream version. The corresponding Debian package version is
-`2.0.1-2`.
+SnarkyCtl retains its own application/package version independently. This source release
+declares application version `2.1.0`, represented by `pyproject.toml`, wheel metadata,
+command version output, and the Debian upstream version. The corresponding Debian package
+version is `2.1.0-1`.
+
+The maintainer tested `2.1.0.dev0` with NordVPN Linux `6.0.1`; this release promotes
+that compatibility work to `2.1.0` while retaining NordVPN 5.x backward compatibility.
+NordLynx remains the reference transport.
 
 The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
 version it contains without making the two release schemes identical. Repository-only changes

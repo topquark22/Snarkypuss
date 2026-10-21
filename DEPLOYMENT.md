@@ -128,7 +128,7 @@ The `src/` layout prevents tests and development commands from accidentally impo
 The wheel will have a name such as:
 
 ```text
-snarkyctl-2.1.0.dev0-py3-none-any.whl
+snarkyctl-2.1.0-py3-none-any.whl
 ```
 
 It contains:
@@ -188,7 +188,7 @@ The build must fail if:
 A reproducible stable release pipeline must install from the hash-verified lock rather
 than resolve dependency ranges. Debian maintainer scripts must never run `pip install`.
 
-The current source version is `2.1.0.dev0` (Debian `2.1.0~dev0-1`). No
+The current source version is `2.1.0` (Debian `2.1.0-1`). No
 `requirements.lock` is currently checked in or enforced by the build helper. The `dh-virtualenv` build currently
 resolves the bounded dependency ranges from `pyproject.toml` while assembling the package.
 This never causes package installation to contact PyPI, but it is not yet a reproducible
@@ -216,7 +216,7 @@ This model provides:
 If any dependency includes native code, the resulting Debian package is architecture-specific. The first supported target is Ubuntu 24.04 on `amd64`, so the expected package name is:
 
 ```text
-snarkyctl_2.1.0~dev0-1_amd64.deb
+snarkyctl_2.1.0-1_amd64.deb
 ```
 
 A future `arm64` package must be built and tested separately.
@@ -384,13 +384,14 @@ application-level Python dependencies.
 The package version has two components:
 
 ```text
-2.1.0~dev0-1
-│         └── Debian packaging revision
-└──────────── PEP 440 development version mapped for Debian ordering
+2.1.0-1
+│     └── Debian packaging revision
+└──────── Python upstream version
 ```
 
-PEP 440 spells the current version `2.1.0.dev0`; Debian spells it
-`2.1.0~dev0-1` so it sorts before `2.1.0-1`. The build helper checks this
+The Python version is `2.1.0`; Debian appends packaging revision `-1` to produce
+`2.1.0-1`. Development suffixes map from Python `.devN` to Debian `~devN`,
+which sorts before the corresponding stable version. The build helper checks this
 mapping. The Python package version, command output, wheel metadata, and Debian upstream
 version must agree; the Debian packaging revision is independent.
 
@@ -548,8 +549,8 @@ Before building, it:
    Debian revision.
 6. Requires `LICENSE` and `debian/copyright` to contain identical license text.
 
-For the current development version `2.1.0.dev0`, for example, `pyproject.toml` must contain `2.1.0.dev0` and the
-changelog must begin with a version such as `2.1.0~dev0-1`. A mismatch exits with status 2
+For the current release version `2.1.0`, for example, `pyproject.toml` must contain `2.1.0` and the
+changelog must begin with a version such as `2.1.0-1`. A mismatch exits with status 2
 before `dpkg-buildpackage` runs.
 
 The build and validation commands are:
@@ -564,7 +565,7 @@ checkout**, not in `dist/`. From a checkout named `snarkyctl`, the expected rele
 artifact is therefore:
 
 ```text
-../snarkyctl_2.1.0~dev0-1_amd64.deb
+../snarkyctl_2.1.0-1_amd64.deb
 ```
 
 The package currently declares `Architecture: amd64`, and the helper checks the amd64
@@ -595,7 +596,7 @@ This helper replaces an already deployed SnarkyCtl package and restarts all thre
 units:
 
 ```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0~dev0-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0-1_amd64.deb
 ```
 
 It must run as root and accepts exactly one argument: the path to a regular `.deb` file.
@@ -637,7 +638,7 @@ MYPYPATH=src .venv/bin/mypy
 .venv/bin/ruff check src tests
 .venv/bin/python -m build
 scripts/build-deb.sh
-sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0~dev0-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0-1_amd64.deb
 ```
 
 The Python suite runs as an ordinary user; it does not require root or live VPN credentials.
@@ -683,9 +684,9 @@ The live `snarkypuss` gateway should not be the first machine on which a newly b
 A formal release may contain:
 
 ```text
-snarkyctl_2.1.0~dev0-1_amd64.deb
-snarkyctl-2.1.0.dev0.tar.gz
-snarkyctl-2.1.0.dev0-py3-none-any.whl
+snarkyctl_2.1.0-1_amd64.deb
+snarkyctl-2.1.0.tar.gz
+snarkyctl-2.1.0-py3-none-any.whl
 SHA256SUMS
 SHA256SUMS.asc
 SBOM.spdx.json
@@ -702,14 +703,14 @@ Checksums should be generated from final, immutable release artifacts. If releas
 Install a locally obtained release with:
 
 ```bash
-sudo apt-get install ./snarkyctl_2.1.0~dev0-1_amd64.deb
+sudo apt-get install ./snarkyctl_2.1.0-1_amd64.deb
 ```
 
 When replacing an installed development build from a source checkout, the guarded helper
 performs the stop, reinstall, daemon reload, restart, and status sequence:
 
 ```bash
-sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0~dev0-1_amd64.deb
+sudo scripts/reinstall-deb.sh ../snarkyctl_2.1.0-1_amd64.deb
 ```
 
 After configuration and successful preflight:
@@ -777,6 +778,8 @@ Before declaring a new release ready:
 6. Validate private access, provider operations, fail-closed forwarding, and reboot recovery
    on a disposable gateway before deploying to the live `snarkypuss` VPS.
 
-The current development changelog explicitly leaves live NordVPN 6 validation outstanding;
-NordVPN 5 compatibility is retained. A package build alone does not establish provider
-compatibility on a live host.
+The maintainer reports successful testing of SnarkyCtl `2.1.0.dev0` with NordVPN
+Linux `6.0.1`. Release `2.1.0` promotes that compatibility work while retaining
+NordVPN 5.x backward compatibility and the NordLynx reference transport. This does
+not establish support for additional upstream transports. A package build alone
+does not establish provider compatibility on a live host.

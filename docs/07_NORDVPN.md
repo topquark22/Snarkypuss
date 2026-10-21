@@ -1,5 +1,9 @@
 # Snarkypuss NordVPN Guide
 
+SnarkyCtl `2.1.0` includes NordVPN 6.x CLI compatibility. The maintainer tested
+`2.1.0.dev0` with NordVPN Linux `6.0.1` before preparing this release. NordVPN
+5.x compatibility is retained; NordLynx remains the reference transport.
+
 ## Purpose
 
 This guide covers the NordVPN-specific part of a Snarkypuss deployment. The general VPS,

@@ -1,3 +1,11 @@
+snarkyctl (2.1.0-1) unstable; urgency=medium
+
+  * Release SnarkyCtl 2.1.0 with NordVPN 6.x CLI compatibility.
+  * Record maintainer validation of 2.1.0.dev0 with NordVPN Linux 6.0.1.
+  * Retain NordVPN 5.x backward compatibility and the NordLynx reference transport.
+
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Wed, 21 Oct 2026 13:32:07 -0400
+
 snarkyctl (2.1.0~dev0-1) unstable; urgency=medium
 
   * Begin SnarkyCtl 2.1.0 development with NordVPN 6.x CLI compatibility.
