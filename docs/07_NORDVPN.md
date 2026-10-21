@@ -250,8 +250,37 @@ The dashboard renders those provider-backed choices generically. City is a casca
 Country must be selected before the City list can be loaded. Labels shown to the user are
 kept separate from the stored machine values.
 
-NordVPN 6.x removes the P2P group. Replace previously stored P2P group selectors
-with a country, city, or recommended selector before upgrading. P2P works on regular servers.
+**P2P destinations after upgrading to NordVPN 6.x.** NordVPN removed the P2P server
+group because regular servers now support P2P. This removes a connection selector,
+not P2P traffic support. Choose **Fastest in country**, **Fastest in city**, or the
+built-in **Fastest available server**; no separate P2P group is needed.
+
+An old **Server group** destination selecting `P2P`, or a **Legacy configured target**
+whose provider value is `P2P`, is obsolete on NordVPN 6.x. A legacy P2P destination
+was confirmed to fail to connect on the NordVPN 6 test server. An entry remaining
+visible in SnarkyCtl's catalogue does not mean the installed NordVPN client still
+supports it. Legacy compatibility does not translate removed provider commands.
+
+Before upgrading, or before opening the destination editor after an upgrade:
+
+1. Back up the catalogue with
+   `sudo snarkyctl targets-db backup --output /root/targets-before-nordvpn6.db`.
+2. Replace the obsolete P2P selector with an explicit country or city, preserving
+   the alias if CLI commands or other users depend on it. Update its label if useful.
+   Alternatively, remove the destination if it is redundant and use the built-in
+   **Fastest available server**. Keep at least one valid persisted destination.
+3. Save the catalogue and verify a connection using the replacement destination.
+
+For a catalogue review that preserves aliases before the editor's automatic cleanup,
+use the [administrative export/edit/replace workflow](08_CONFIGURATION.md#13-administrative-target-commands).
+The editor may automatically remove a saved group that disappears from discovery,
+but a legacy free-text `P2P` value is not a discovered group and needs explicit
+replacement or removal. There is no automatic migration to another destination.
+
+Only selectors that actually request the removed P2P group need this change. Do not
+delete country, city, or specific-server destinations merely because their labels
+mention P2P. NordVPN 5.x installations may continue using P2P group selectors while
+their installed client reports and accepts them.
 
 A group is whatever category the installed NordVPN client currently reports. Some groups may
 represent account-specific or specialty services. Selecting a group does not add another IP
@@ -268,9 +297,10 @@ SnarkyCtl does not enumerate exact servers in this release.
 For new destinations, the dashboard proposes a friendly label and a unique alias from the
 selected provider labels. Manual edits to either value are preserved.
 
-`Legacy configured target` exists only so old imported values remain usable. Existing legacy
-entries can be connected, changed to a modern target type, or removed. The dashboard does not
-offer Legacy when adding a new destination.
+`Legacy configured target` preserves older imported values. Existing legacy entries
+can be connected if the installed provider still accepts their values, changed to a
+modern target type, or removed. The dashboard does not offer Legacy when adding a
+new destination. A legacy entry is not a guarantee of continued provider support.
 
 Provider choices can change independently of Snarkypuss. If a saved provider-backed choice
 disappears from current discovery results, the destination manager never silently changes its

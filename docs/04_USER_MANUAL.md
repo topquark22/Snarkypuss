@@ -180,8 +180,16 @@ For the current NordVPN adapter:
   by NordVPN, for example `us9176`. SnarkyCtl does not try to determine whether that server
   currently exists; an invalid value is reported when NordVPN is asked to connect.
 - **Legacy configured target** may appear on older migrated entries. Existing legacy entries
-  remain connectable, editable, and removable, but the dashboard does not offer Legacy as a
-  type for newly added destinations.
+  remain editable and removable, and can connect only if the installed provider still
+  accepts their values. The dashboard does not offer Legacy for newly added destinations.
+
+**NordVPN 6 upgrade:** an old P2P group or legacy `P2P` destination can no longer
+connect. P2P traffic is supported on regular servers; choose **Fastest in country**,
+**Fastest in city**, or **Fastest available server** instead. Replace the obsolete
+selector while preserving its alias where needed, or deliberately remove it. Legacy
+free-text values are not automatically migrated or checked against group discovery.
+See the [NordVPN P2P migration guidance](07_NORDVPN.md#7-nordvpn-destinations-in-snarkyctl) for backup
+and cleanup instructions.
 
 Provider discovery can change over time. If an existing saved provider-backed choice no
 longer appears in the provider's current discovery results, the destination manager never

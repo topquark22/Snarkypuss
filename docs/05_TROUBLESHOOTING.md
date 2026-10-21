@@ -482,6 +482,17 @@ succeed merely by choosing a different alias.
 If the dashboard reports that another operation is already in progress, allow the existing
 control operation to finish before submitting another one.
 
+### An old P2P destination fails after upgrading to NordVPN 6
+
+NordVPN 6 removed the P2P server group; regular servers support P2P traffic. Both
+saved P2P group selectors and legacy provider values of `P2P` need replacement or
+removal. A legacy P2P connection failure was reproduced on the NordVPN 6 test server.
+Select a country, city, or the built-in **Fastest available server** instead.
+
+This is an obsolete destination, not evidence that P2P traffic requires Direct VPS
+mode or disabling the Kill Switch. Back up the catalogue and follow the
+[NordVPN destination migration guidance](07_NORDVPN.md#7-nordvpn-destinations-in-snarkyctl).
+
 ## 11. Locked mode will not return to Protected VPN
 
 1. Select a valid destination in the dashboard.
