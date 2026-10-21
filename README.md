@@ -177,7 +177,7 @@ YYYY.MM.DD-N_<snarkyctl-version>
 For example:
 
 ```text
-2026.09.15-4_2.0.0
+2026.10.21-1_2.1.0
 ```
 
 `YYYY.MM.DD` is the repository release date. `N` is a sequence number beginning at `1` and
@@ -192,10 +192,6 @@ SnarkyCtl retains its own application/package version independently. This source
 declares application version `2.1.0`, represented by `pyproject.toml`, wheel metadata,
 command version output, and the Debian upstream version. The corresponding Debian package
 version is `2.1.0-1`.
-
-The maintainer tested `2.1.0.dev0` with NordVPN Linux `6.0.1`; this release promotes
-that compatibility work to `2.1.0` while retaining NordVPN 5.x backward compatibility.
-NordLynx remains the reference transport.
 
 The repository tag therefore identifies both the complete source snapshot and the SnarkyCtl
 version it contains without making the two release schemes identical. Repository-only changes
