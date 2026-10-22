@@ -364,6 +364,20 @@ A direct query proves that the private resolver is reachable. For normal Windows
 Do not change the Windows tunnel to use an unrelated public DNS server merely to hide a
 broken Snarkypuss DNS configuration. Fix the private DNS path or deliberately redesign it.
 
+### DNS works, but queries leak outside the Windows tunnel
+
+Check **Block untunneled traffic (kill-switch)** in the Windows WireGuard tunnel
+editor. It must be enabled for the reference single-peer, full-tunnel setup.
+`DNS = 10.8.0.1` alone does not suppress Windows queries through other adapters.
+If the editor has substituted two `/1` routes for `0.0.0.0/0`, the routing can
+look correct while the local Kill Switch is disabled.
+
+NordVPN's Kill Switch on the VPS does not fix this client-side bypass. Enable
+the Windows WireGuard protection, reactivate the tunnel if necessary, and repeat
+the [DNS-leak checks](02_SETUP_DNS.md#10-test-dns-from-windows). If a browser test
+reports another resolver, also check browser DNS-over-HTTPS settings and distinguish
+queries inside the VPN from traffic actually leaving the physical adapter untunneled.
+
 ## 8. The SnarkyCtl dashboard will not open
 
 ### Symptom

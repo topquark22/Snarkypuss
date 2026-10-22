@@ -16,7 +16,8 @@ On the Windows PC:
 
 1. Open **WireGuard**.
 2. Select the `snarkypuss` tunnel.
-3. Select **Activate** if the tunnel is not already active.
+3. Confirm **Block untunneled traffic (kill-switch)** is enabled in the tunnel
+   editor, then select **Activate** if the tunnel is not already active.
 4. Open a web browser.
 5. Go to:
 
@@ -131,6 +132,15 @@ For providers that support a parameterless recommended target, SnarkyCtl may als
 built-in destination. With NordVPN this is **Fastest available server**. It is always available
 in the connection selector, is not stored in SQLite, and therefore does not appear as an
 editable destination in **Manage VPN destinations**.
+
+### Windows DNS-leak protection
+
+Keep the Windows WireGuard **Block untunneled traffic (kill-switch)** option
+enabled. Setting the tunnel's DNS server to `10.8.0.1` alone does not prevent
+Windows from querying DNS servers on other adapters. This client-side safeguard
+is separate from NordVPN's Kill Switch and Snarkypuss Locked mode on the VPS.
+It applies while the WireGuard tunnel is active, not after deliberate deactivation.
+See [Windows DNS verification](02_SETUP_DNS.md#10-test-dns-from-windows).
 
 ### Important after Direct VPS mode
 

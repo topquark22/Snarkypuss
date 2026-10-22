@@ -241,6 +241,29 @@ The intended WireGuard client configuration uses:
 DNS = 10.8.0.1
 ```
 
+### Keep the Windows WireGuard Kill Switch enabled
+
+In the Windows WireGuard tunnel editor, enable **Block untunneled traffic
+(kill-switch)**. The reference single-peer tunnel uses `AllowedIPs = 0.0.0.0/0`.
+If that checkbox is disabled, the editor can substitute `0.0.0.0/1` and
+`128.0.0.0/1`: traffic still has full IPv4 routes through WireGuard, but the
+client's restrictive firewall rules are not enabled.
+
+Without those rules, Windows' multihomed DNS behavior can send queries to DNS
+servers associated with other adapters, even when `DNS = 10.8.0.1` is configured.
+That can leak queries through the local Internet connection instead of Snarkypuss.
+WireGuard's local Kill Switch restricts port-53 DNS traffic to the configured DNS
+server and blocks other untunneled traffic, apart from its documented exceptions.
+See the upstream [WireGuard for Windows firewall behavior](https://github.com/WireGuard/wireguard-windows/blob/master/docs/netquirk.md#firewall-considerations-for-0-allowed-ips).
+
+This is a **Windows-side** safeguard. NordVPN's Kill Switch and Snarkypuss Locked
+mode protect traffic at the VPS; neither can prevent a Windows DNS request that
+never enters the WireGuard tunnel. The local protection lasts while the tunnel
+is active, including a loss of tunnel connectivity, not after you deliberately
+deactivate the tunnel. It can also block ordinary access to local LAN devices.
+
+### Verify the resolver and check for bypass traffic
+
 Test the private resolver directly:
 
 ```powershell
@@ -263,6 +286,25 @@ Get-DnsClientServerAddress -AddressFamily IPv4 |
 `10.8.0.1` should appear on the active WireGuard interface before ordinary Windows name
 resolution is considered verified. A direct query to `10.8.0.1` proves only that the server
 is reachable; it does not prove that Windows is using it as its normal resolver.
+
+Then test normal resolution without explicitly choosing a server:
+
+```powershell
+Clear-DnsClientCache
+Resolve-DnsName example.com
+```
+
+Confirm the WireGuard Kill Switch remains enabled. For stronger verification,
+capture traffic on the physical Ethernet/Wi-Fi adapter while issuing fresh DNS
+queries. Ordinary DNS queries must not leave that adapter directly on UDP or TCP
+port 53; the encrypted WireGuard packets sent to the VPS are expected. Repeat
+after reconnecting the tunnel or changing networks. A recent handshake and a
+successful direct resolver query alone do not prove absence of DNS leaks.
+
+Browser DNS-leak tests can provide an additional check, but compare their results
+with the upstream resolver configured for `dnsmasq`, not just the VPN exit IP.
+Application-specific DNS-over-HTTPS can use a different resolver even inside the
+tunnel; that is distinct from a query escaping over the local Internet connection.
 
 ## 11. Verify DNS after a reboot
 

@@ -329,7 +329,22 @@ Replace only the placeholders:
   Section 5.
 - `LINODE_PUBLIC_IPV4_ADDRESS` is the public IPv4 address shown by Akamai Cloud Manager.
 
-Select **Save**. Do not activate the tunnel yet.
+Before saving, keep **Block untunneled traffic (kill-switch)** enabled in the
+Windows WireGuard tunnel editor. For this single-peer configuration,
+`AllowedIPs = 0.0.0.0/0` enables WireGuard's local firewall protection. Disabling
+the checkbox can replace that default route with two `/1` routes, which route
+traffic through the tunnel without the same firewall protection.
+
+`DNS = 10.8.0.1` alone is not a DNS-leak safeguard: Windows may also issue queries
+through DNS servers on other network adapters if untunneled traffic is permitted.
+The local WireGuard Kill Switch is separate from NordVPN's Kill Switch on the
+Linode; the Linode cannot block DNS queries that bypass the tunnel on the PC.
+See [Windows DNS-leak checks](02_SETUP_DNS.md#10-test-dns-from-windows).
+
+Select **Save**. Do not activate the tunnel yet. This protection applies while
+the WireGuard tunnel is active; deliberately deactivating it restores normal
+Windows networking. Blocking untunneled traffic can also block access to local
+LAN devices outside the tunnel.
 
 Only public keys are exchanged between the two systems. The Windows private key stays on
 Windows and the Linode private key stays on the Linode.
