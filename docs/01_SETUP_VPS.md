@@ -299,7 +299,8 @@ made in Section 8 through the activation script with automatic rollback.
 
 ## 6. Finish the WireGuard tunnel on Windows
 
-**This entire section is done on the Windows PC in the WireGuard application.**
+**Finish the tunnel and hostname configuration on Windows. The private SSH server
+configuration below is performed on the Linode through LISH.**
 
 Return to the `snarkypuss` tunnel created in Section 4:
 
@@ -371,6 +372,77 @@ Later, with WireGuard active, Windows will be able to use:
 ssh root@snarkypuss
 https://snarkypuss:8443/
 ```
+
+### Configure private SSH startup on the Linode
+
+For the reference deployment, SSH administration is through WireGuard at
+`10.8.0.1`; public SSH remains blocked by the Akamai Cloud Firewall. Keep LISH
+open while changing SSH configuration or restarting services.
+
+Inspect the effective configuration and activation mode first:
+
+```bash
+sudo /usr/sbin/sshd -T | grep '^listenaddress '
+systemctl is-enabled ssh.service ssh.socket wg-quick@wg0.service
+systemctl status ssh.service ssh.socket wg-quick@wg0.service --no-pager
+systemctl cat ssh.service ssh.socket
+systemctl show ssh.socket -p Listen -p Requires -p After
+sudo ss -ltnp '( sport = :22 )'
+```
+
+Remove obsolete public-IP `ListenAddress` entries from `/etc/ssh/sshd_config` or
+its included configuration files. For private-only daemon binding, retain
+`ListenAddress 10.8.0.1` and remove unintended wildcard or other listeners.
+Installing WireGuard does not configure these OpenSSH settings; neither does
+the Snarkypuss generator's unrelated dnsmasq `listen-address` setting.
+
+**For service-managed SSH**, where `ssh.socket` is neither enabled nor active,
+add a drop-in with `sudo systemctl edit ssh.service`:
+
+```ini
+[Unit]
+Requires=wg-quick@wg0.service
+After=wg-quick@wg0.service
+```
+
+Use the actual WireGuard interface name if different from `wg0`. This starts
+WireGuard as a prerequisite and orders SSH after its successful initialization;
+it does not wait for a client handshake. The private-listener cleanup and this
+service override were confirmed working after reboot on the cloned production
+Linode. The original bind-order diagnosis still depends on the failed-boot logs.
+
+From LISH, validate and apply the service-managed configuration:
+
+```bash
+sudo /usr/sbin/sshd -t
+sudo systemctl daemon-reload
+sudo systemctl enable ssh.service
+sudo systemctl restart ssh.service
+systemctl show ssh.service -p Requires -p After
+sudo ss -ltnp '( sport = :22 )'
+```
+
+**If `ssh.socket` is enabled or active**, do not treat the service-only override
+as sufficient. Ubuntu 24.04 installations can use socket activation: systemd
+binds the listener before the daemon is started. Inspect `ssh.socket` and its
+drop-ins, including any generated configuration. The listener needs the intended
+private `ListenStream` and appropriate WireGuard startup ordering. If setting an
+explicit socket address, clear inherited `ListenStream` entries before adding
+the private address, and re-check the effective configuration after
+`systemctl daemon-reload`. A daemon `ListenAddress` alone does not establish what
+systemd is listening on. Validate the chosen socket setup separately, or deliberately
+switch to service activation; do not enable both paths blindly. See
+[private SSH diagnostics](05_TROUBLESHOOTING.md#13-private-ssh-through-wireguard-fails).
+
+`Requires=` also couples shutdown: stopping WireGuard can stop dependent SSH.
+Starting WireGuard again does not necessarily restart SSH. Use LISH when changing
+that dependency or restarting WireGuard.
+
+After completing gateway activation, perform the controlled reboot checks in
+[SnarkyCtl setup](03_SETUP_SNARKYCTL.md#6-verify-boot-persistence). Verify automatic
+SSH startup, a fresh connection through `10.8.0.1`, no public/wildcard port-22
+listener, and working private DNS and dashboard access. A cloud firewall blocking
+public SSH does not prove that the SSH listener itself is private-only.
 
 ## 7. Install and configure NordVPN
 

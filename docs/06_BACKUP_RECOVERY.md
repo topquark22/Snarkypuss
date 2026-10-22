@@ -74,6 +74,21 @@ If your private certificate-authority key is stored separately from the Linode, 
 CA private key in its own secure backup as well. It should not be copied onto the Linode merely
 for convenience.
 
+### Private SSH configuration
+
+Preserve the administrator's SSH settings and systemd overrides when present:
+
+```text
+/etc/ssh/sshd_config
+/etc/ssh/sshd_config.d/
+/etc/systemd/system/ssh.service.d/
+/etc/systemd/system/ssh.socket.d/
+```
+
+Record whether SSH uses service or socket activation. Generated systemd drop-ins
+under `/run` are runtime output, not a substitute for backing up their persistent
+configuration. After restoring or cloning, review listener addresses before reuse.
+
 ### Useful records that are not files on the Linode
 
 Keep a secure note of:
@@ -263,13 +278,18 @@ After the snapshot restore completes:
 
 1. Open LISH before depending on network access.
 2. Confirm the Linode public IPv4 address. If it changed, update the Windows WireGuard
-   `Endpoint` value and any applicable Linode Firewall rule assumptions.
+   `Endpoint` value and any applicable Linode Firewall rule assumptions. Inspect SSH
+   listener settings for the old public address; the private-only reference setup
+   does not need a public SSH listener. Preserve the
+   [private SSH startup dependency](01_SETUP_VPS.md#configure-private-ssh-startup-on-the-linode)
+   and check `ssh.socket` if socket activation is configured.
 3. Check the base services:
 
    ```bash
    systemctl status wg-quick@wg0.service --no-pager
    systemctl status snarkypuss-dns.service --no-pager
    systemctl status ssh.service --no-pager
+   systemctl status ssh.socket --no-pager
    systemctl status snarkyctl-control.socket --no-pager
    systemctl status snarkyctl-web.service --no-pager
    ```
@@ -285,6 +305,10 @@ After the snapshot restore completes:
 
 Do not assume that a snapshot restore also preserves an external public IP allocation or
 provider-session state exactly as it was when the snapshot was taken.
+
+An absent or inactive `ssh.socket` can be normal for service-managed SSH; for
+socket-managed SSH, an active socket may precede daemon activation. Judge the
+state against the selected activation mode and confirm a fresh private SSH connection.
 
 ## 10. Rebuild a completely lost Linode
 
@@ -367,6 +391,11 @@ systemctl is-active snarkyctl-control.socket snarkyctl-web.service
 Reconnect from Windows and repeat the essential WireGuard, DNS, dashboard, provider-state,
 and public-IP checks.
 
+Also confirm that SSH starts automatically through its configured service/socket
+path and accepts a fresh connection to `10.8.0.1` without a manual service start.
+Check `sudo ss -ltnp '( sport = :22 )'` from LISH: no listener should bind the
+public address or a wildcard address in the private-only setup.
+
 ## 13. Migration to a new Linode
 
 An intentional migration is similar to disaster recovery, except that the old Linode remains
@@ -383,6 +412,12 @@ Before starting:
 Preserve the existing WireGuard server key if you want the Windows peer identity to remain the
 same. The new Linode will normally have a different public IPv4 address, so update the
 `Endpoint` in the Windows WireGuard application even when the WireGuard keys remain the same.
+
+Cloning also copies manual OpenSSH listeners and systemd drop-ins. Remove stale
+public-IP `ListenAddress` entries, check effective socket listeners if applicable,
+and retain the SSH dependency on WireGuard for private-address binding. The
+clone-related service override has passed reboot testing; repeat that validation
+on each replacement Linode rather than relying on a successful manual SSH start.
 
 Do not delete the old Linode until the new one has passed the complete acceptance and reboot
 tests.

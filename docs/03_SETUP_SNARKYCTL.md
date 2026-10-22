@@ -203,6 +203,12 @@ private dashboard and SSH path remain reachable.
 A service working immediately after installation does not prove that it will return after
 reboot.
 
+Confirm that [private SSH startup](01_SETUP_VPS.md#configure-private-ssh-startup-on-the-linode)
+is configured before relying on it for post-reboot access. A listener bound to
+`10.8.0.1` depends on WireGuard initialization. If the host uses `ssh.socket`,
+check that socket's listener and dependencies too; service-only ordering is not
+enough. Keep LISH open, and remove stale public-IP listeners after cloning.
+
 Before rebooting, verify enablement and current state:
 
 ```bash
@@ -215,7 +221,10 @@ systemctl is-active ssh.service \
     snarkyctl-web.service
 ```
 
-The socket and web service should be enabled. The privileged
+The SnarkyCtl control socket and web service should be enabled. SSH enablement
+depends on the selected activation mode: check `ssh.socket` as well on a
+socket-managed installation. An enabled socket with an inactive SSH daemon can
+be normal before a connection arrives. The privileged
 `snarkyctl-control.service` may be inactive until a request arrives; that is normal socket
 activation.
 

@@ -560,10 +560,32 @@ If the private address is unreachable, troubleshoot WireGuard first.
 If `10.8.0.1` is reachable but SSH fails, use LISH and inspect:
 
 ```bash
-systemctl status ssh.service --no-pager
-sudo ss -ltnp | grep ':22'
-journalctl -u ssh.service -b --no-pager
+systemctl status ssh.service ssh.socket wg-quick@wg0.service --no-pager
+systemctl is-enabled ssh.service ssh.socket wg-quick@wg0.service
+systemctl cat ssh.service ssh.socket
+systemctl show ssh.service ssh.socket -p Requires -p After -p TriggeredBy -p Triggers
+sudo /usr/sbin/sshd -t
+sudo /usr/sbin/sshd -T | grep '^listenaddress '
+sudo ss -ltnp '( sport = :22 )'
+sudo journalctl -b -u ssh.service -u ssh.socket -u wg-quick@wg0.service --no-pager
 ```
+
+If SSH fails at boot but a manual start later works, inspect the boot journal for
+address-bind errors and compare their timing with WireGuard startup. A daemon
+configured to bind only to `10.8.0.1` cannot bind that address before `wg0` owns
+it. After cloning, a second listener on the old Linode's public IP may also be
+unavailable. One failed bind is not by itself proof that every SSH listener failed.
+
+The private SSH `Requires=`/`After=` override is documented in
+[VPS setup](01_SETUP_VPS.md#configure-private-ssh-startup-on-the-linode) and has
+passed reboot testing on the cloned production Linode. A successful reboot validates
+that configuration, but does not alone prove the cause of the original failure.
+
+Check activation mode before applying it. `sshd.service` may be an alias of
+`ssh.service`. If `ssh.socket` owns port 22, its listener configuration and
+WireGuard ordering must also be checked; delaying only the daemon is insufficient.
+Inspect generated socket drop-ins after `systemctl daemon-reload`, and verify
+the actual listeners rather than assuming `sshd_config` alone controls them.
 
 Do not change the Linode Firewall first. Traffic to `10.8.0.1` arrives over the private
 WireGuard path; the public Linode Firewall is not a substitute for fixing the private tunnel
