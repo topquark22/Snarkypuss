@@ -424,9 +424,24 @@ sudo ss -ltnp '( sport = :22 )'
 
 **If `ssh.socket` is enabled or active**, do not treat the service-only override
 as sufficient. Ubuntu 24.04 installations can use socket activation: systemd
-binds the listener before the daemon is started. Inspect `ssh.socket` and its
-drop-ins, including any generated configuration. The listener needs the intended
-private `ListenStream` and appropriate WireGuard startup ordering. If setting an
+binds the listener before the daemon is started. Keep the `ssh.service` dependency
+above and add the same dependency to the socket with
+`sudo systemctl edit ssh.socket`:
+
+```ini
+[Unit]
+Requires=wg-quick@wg0.service
+After=wg-quick@wg0.service
+```
+
+Run `sudo systemctl daemon-reload`, then inspect both units:
+
+```bash
+systemctl show ssh.service ssh.socket -p Requires -p After
+```
+
+Inspect `ssh.socket` and its drop-ins, including any generated configuration.
+The listener also needs the intended private `ListenStream`. If setting an
 explicit socket address, clear inherited `ListenStream` entries before adding
 the private address, and re-check the effective configuration after
 `systemctl daemon-reload`. A daemon `ListenAddress` alone does not establish what
