@@ -70,6 +70,7 @@ class ControlConfig(BaseModel):
 
     socket_path: Path
     operation_timeout_seconds: float = Field(gt=0, le=300)
+    recovery_enabled: bool = False
 
     @field_validator("socket_path")
     @classmethod

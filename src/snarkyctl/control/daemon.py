@@ -7,11 +7,12 @@ import os
 import pwd
 import socket
 import struct
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 
 from snarkyctl.config import DEFAULT_CONFIG_PATH, ConfigError, LoadedConfig, load_config
 from snarkyctl.control.protocol import (
@@ -63,6 +64,10 @@ LOGGER = logging.getLogger("snarkyctl.control")
 SYSTEMD_FIRST_SOCKET_FD = 3
 CONTROL_IO_TIMEOUT_SECONDS = 5.0
 CONTROL_WORKER_COUNT = 8
+RECOVERY_CHECK_INTERVAL_SECONDS = 60
+RECOVERY_FAILURE_THRESHOLD = 3
+RECOVERY_COOLDOWN_SECONDS = 15 * 60
+RECOVERY_SECONDARY_URL = "https://ipv4.icanhazip.com"
 BUILTIN_RECOMMENDED_ALIAS = "recommended"
 BUILTIN_RECOMMENDED_LABEL = "Fastest available server"
 _PEER_CREDENTIALS = struct.Struct("3i")
@@ -96,6 +101,11 @@ class ControlService:
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
         self._operation_lock = Lock()
         self._current_target_alias: str | None = None
+        self._recovery_enabled = getattr(
+            getattr(config.settings, "control", None), "recovery_enabled", False
+        )
+        self._recovery_failures = 0
+        self._recovery_retry_after = 0.0
         repository = target_repository
         if repository is None:
             if config.targets is None:
@@ -633,6 +643,147 @@ class ControlService:
         )
 
 
+    def _probe_upstream(self) -> tuple[bool, tuple[str, ...]]:
+        """Try independent verified-HTTPS endpoints without logging URL contents."""
+        failures: list[str] = []
+        for url in dict.fromkeys((self._public_ip_url, RECOVERY_SECONDARY_URL)):
+            try:
+                self._public_ip_collector(url, self._public_ip_timeout_seconds)
+            except StatusCollectionError as exc:
+                failures.append(exc.code)
+            else:
+                return True, tuple(failures)
+        return False, tuple(failures)
+
+    def check_recovery(self) -> None:
+        """Attempt bounded recovery only for an explicitly selected protected VPN."""
+        if not self._recovery_enabled:
+            return
+        alias = self._current_target_alias
+        if alias is None:
+            self._recovery_failures = 0
+            return
+        try:
+            status = self._provider.status()
+            settings = self._provider.settings()
+        except ProviderError as exc:
+            LOGGER.warning("recovery preflight failed: %s", exc.code)
+            self._recovery_failures = 0
+            return
+        if (
+            status.state is not VpnState.CONNECTED
+            or settings.leak_protection_enabled is not True
+            or settings.firewall_enabled is not True
+        ):
+            self._recovery_failures = 0
+            return
+
+        reachable, failures = self._probe_upstream()
+        if reachable or self._current_target_alias != alias:
+            self._recovery_failures = 0
+            return
+        self._recovery_failures = min(
+            RECOVERY_FAILURE_THRESHOLD, self._recovery_failures + 1
+        )
+        LOGGER.warning(
+            "protected VPN upstream check failed (%d/%d): %s",
+            self._recovery_failures,
+            RECOVERY_FAILURE_THRESHOLD,
+            ", ".join(failures),
+        )
+        if (
+            self._recovery_failures < RECOVERY_FAILURE_THRESHOLD
+            or time.monotonic() < self._recovery_retry_after
+            or not self._operation_lock.acquire(blocking=False)
+        ):
+            return
+
+        try:
+            if self._current_target_alias != alias:
+                return
+            target = self._resolve_target(alias)
+            if target is None:
+                LOGGER.error("recovery target no longer exists; manual selection required")
+                self._current_target_alias = None
+                return
+            try:
+                status = self._provider.status()
+                settings = self._provider.settings()
+            except ProviderError as exc:
+                LOGGER.warning("recovery recheck failed: %s", exc.code)
+                return
+            if (
+                status.state is not VpnState.CONNECTED
+                or settings.leak_protection_enabled is not True
+                or settings.firewall_enabled is not True
+            ):
+                return
+            self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
+            LOGGER.warning(
+                "attempting protected VPN recovery; target=%s; mode=VPN", alias
+            )
+            try:
+                disconnected = self._provider.disconnect()
+                locked_settings = self._provider.settings()
+                if (
+                    disconnected.state is not VpnState.DISCONNECTED
+                    or locked_settings.leak_protection_enabled is not True
+                    or locked_settings.firewall_enabled is not True
+                ):
+                    raise ProviderError(
+                        "UNSAFE_RECOVERY",
+                        "provider did not confirm protected Locked mode",
+                    )
+                connected = self._provider.connect_stored(target)
+                connected_settings = self._provider.settings()
+                if (
+                    connected.state is not VpnState.CONNECTED
+                    or connected_settings.leak_protection_enabled is not True
+                    or connected_settings.firewall_enabled is not True
+                ):
+                    raise ProviderError(
+                        "UNSAFE_RECOVERY",
+                        "provider did not confirm protected VPN mode",
+                    )
+            except ProviderError as exc:
+                LOGGER.error("protected VPN recovery failed: %s", exc.code)
+                # Recover only toward LOCKED, never toward DIRECT.
+                try:
+                    protection = self._provider.set_leak_protection(True)
+                    if (
+                        protection.leak_protection_enabled is True
+                        and protection.firewall_enabled is True
+                    ):
+                        self._provider.disconnect()
+                    else:
+                        LOGGER.critical("cannot verify firewall after recovery failure")
+                except ProviderError:
+                    LOGGER.exception("could not confirm Locked mode after recovery failure")
+                self._current_target_alias = None
+                return
+            reachable, failures = self._probe_upstream()
+            if reachable:
+                LOGGER.info("protected VPN upstream connectivity restored; target=%s", alias)
+            else:
+                LOGGER.warning(
+                    "VPN reconnected but upstream probes still fail: %s",
+                    ", ".join(failures),
+                )
+        finally:
+            self._recovery_failures = 0
+            self._operation_lock.release()
+
+
+def _recovery_loop(service: ControlService) -> None:  # pragma: no cover
+    """Run bounded monitoring without changing explicitly chosen modes."""
+    while True:
+        time.sleep(RECOVERY_CHECK_INTERVAL_SECONDS)
+        try:
+            service.check_recovery()
+        except Exception:
+            LOGGER.exception("unexpected automatic recovery monitor failure")
+
+
 def systemd_listener() -> socket.socket:
     """Return the single Unix listener inherited from systemd."""
     try:
@@ -739,6 +890,10 @@ def serve(listener: socket.socket, service: ControlService) -> None:  # pragma: 
     """Serve local requests concurrently while serializing provider mutations."""
     permitted_uids = allowed_uids()
     LOGGER.info("SnarkyCtl control daemon ready")
+    if service._recovery_enabled:
+        Thread(
+            target=_recovery_loop, args=(service,), name="snarkyctl-recovery", daemon=True
+        ).start()
     with ThreadPoolExecutor(
         max_workers=CONTROL_WORKER_COUNT,
         thread_name_prefix="snarkyctl-control",

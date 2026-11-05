@@ -112,12 +112,14 @@ def control_service(
     *,
     public_ip_collector: object | None = None,
     target_repository: TargetRepository | None = None,
+    recovery_enabled: bool = False,
 ) -> daemon.ControlService:
     configured_target = VpnTarget(
         alias="dallas", label="Dallas, United States", provider_target="us9167"
     )
     config = SimpleNamespace(
         settings=SimpleNamespace(
+            control=SimpleNamespace(recovery_enabled=recovery_enabled),
             status=SimpleNamespace(
                 public_ip_url="https://api.ipify.org",
                 public_ip_timeout_seconds=5,
@@ -1116,3 +1118,193 @@ def test_provider_error_is_returned_as_controlled_response() -> None:
     assert response.gateway_status is not None
     assert response.gateway_status.vpn_status is None
     assert response.gateway_status.partial_failures[0].code == "PROVIDER_TIMEOUT"
+
+def test_recovery_requires_three_failed_checks_and_keeps_protection() -> None:
+    calls: list[str] = []
+
+    class RecordingProvider(FakeProvider):
+        def disconnect(self) -> VpnStatus:
+            calls.append("disconnect")
+            return super().disconnect()
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            calls.append("connect")
+            return super().connect(target)
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    provider = RecordingProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    calls.clear()
+
+    service.check_recovery()
+    service.check_recovery()
+    assert calls == []
+    service.check_recovery()
+    assert calls == ["disconnect", "connect"]
+    assert provider.protection_enabled
+    assert provider.connected_target is not None
+    assert service._current_target_alias == "dallas"
+
+    # Failed probes immediately after recovery cannot cause a reconnect storm.
+    for _ in range(4):
+        service.check_recovery()
+    assert calls == ["disconnect", "connect"]
+
+
+def test_recovery_ignores_single_endpoint_failure() -> None:
+    urls: list[str] = []
+
+    def primary_down(url: str, _timeout: float) -> PublicIpStatus:
+        urls.append(url)
+        if url == "https://api.ipify.org":
+            raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "primary unavailable")
+        return PublicIpStatus(
+            address="203.0.113.42",
+            checked_at=datetime.now(UTC),
+        )
+
+    provider = FakeProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=primary_down
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    for _ in range(4):
+        service.check_recovery()
+
+    assert provider.connected_target is not None
+    assert service._recovery_failures == 0
+    assert daemon.RECOVERY_SECONDARY_URL in urls
+
+
+def test_recovery_does_not_override_locked_mode_or_unknown_target() -> None:
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    provider = FakeProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    # A daemon restart does not provide an unambiguous current target.
+    provider.connect(VpnTarget(alias="dallas", label="Dallas", provider_target="us9167"))
+    service.check_recovery()
+    assert provider.connected_target is not None
+    assert service._current_target_alias is None
+
+    assert service.dispatch(
+        LockRequest(
+            version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.LOCK
+        )
+    ).success
+    for _ in range(4):
+        service.check_recovery()
+    assert provider.connected_target is None
+
+
+def test_recovery_does_not_act_without_verified_firewall() -> None:
+    class UnprotectedProvider(FakeProvider):
+        def settings(self) -> VpnSettings:
+            return super().settings().model_copy(update={"firewall_enabled": False})
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    provider = UnprotectedProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    assert service.dispatch(
+        ConnectRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.CONNECT,
+            target="dallas",
+        )
+    ).success
+    for _ in range(4):
+        service.check_recovery()
+    assert provider.connected_target is not None
+    assert service._recovery_failures == 0
+
+
+def test_recovery_failure_returns_to_locked_and_requires_manual_selection() -> None:
+    class FailingReconnectProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.connects = 0
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            self.connects += 1
+            if self.connects > 1:
+                raise ProviderError("PROVIDER_COMMAND_FAILED", "reconnect failed")
+            return super().connect(target)
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    provider = FailingReconnectProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    for _ in range(3):
+        service.check_recovery()
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+    assert service._current_target_alias is None
+    assert provider.connects == 2
+    service.check_recovery()
+    assert provider.connects == 2
+
+
+def test_recovery_does_not_compete_with_manual_operations() -> None:
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    provider = FakeProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    assert service._operation_lock.acquire(blocking=False)
+    try:
+        for _ in range(3):
+            service.check_recovery()
+        assert provider.connected_target is not None
+    finally:
+        service._operation_lock.release()
+    service.check_recovery()
+    assert provider.connected_target is not None
+    assert service._recovery_retry_after > 0

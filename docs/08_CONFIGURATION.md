@@ -601,3 +601,23 @@ schema version 1
 Unsupported versions are rejected explicitly. Schema migration must be an intentional
 administrative operation; SnarkyCtl does not silently reinterpret an unknown configuration
 or database schema.
+
+## Optional automatic VPN recovery
+
+Set `control.recovery_enabled: true` to opt in to the automatic upstream
+connectivity watchdog. It checks every 60 seconds, and attempts one protected
+LOCKED-to-VPN reconnection after three consecutive checks fail against both
+the configured public-IP HTTPS endpoint and an independent HTTPS fallback.
+Attempts are separated by at least 15 minutes; the daemon logs failure codes
+and the outcome before and after each attempt. HTTPS failures by themselves
+do not identify which network component was responsible.
+
+Recovery requires a currently selected target **in the running daemon**, a
+connected VPN, and confirmation that both the provider kill switch and firewall
+are enabled. It never enables Direct mode or overrides manually selected
+Locked or Direct modes. It does not persist any additional state: a daemon
+restart loses its active target selection, so recovery is inactive until an
+operator selects a target again. The existing target catalogue remains in
+its configured storage. If reconnection fails, the daemon attempts to restore
+Locked mode and requires a manual target selection before trying again.
+If firewall protection cannot be verified, it refuses automatic transitions.
