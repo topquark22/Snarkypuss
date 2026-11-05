@@ -157,16 +157,27 @@ event_log:
   retention_hours: 24
 ```
 
-`event_log.retention_hours` is an integer number of hours, defaults to **24** when
-omitted, and must be positive and bounded (proposed range: 1–720 hours). It controls
-the maximum age of in-memory events only; it never enables disk persistence.
-When `mode: off`, the setting is ignored. Reject invalid values and unknown keys.
+`event_log.retention_hours` sets the **maximum age of an event in memory**.
+It defaults to **24** when omitted. The schema must accept only integer values
+from **1 through 720** hours (inclusive); reject zero, negative values, fractions,
+non-numeric values, and out-of-range values. Unknown configuration keys must also
+be rejected. When `mode: off`, the setting does not retain anything.
 
-In `memory` mode, retain at most 100 events within the configured retention
-window; evict expired events and, when full, the oldest events first. Apply
-expiration to both event-list requests and event-derived notifications, even if
-no new events have arrived. Browser refreshes and new authenticated browser
-sessions can retrieve events while the web application process is alive.
+In `memory` mode, at most 100 events may be retained within the configured
+window. An event expires when its server-generated `occurred_at` timestamp is
+at least `retention_hours` old. Discard expired events before serving history
+or deriving notifications, even if no new events have arrived; periodic cleanup
+may additionally reclaim memory. If 100 unexpired events have accumulated,
+evict the oldest first. All UI notifications derived from an expired event must
+expire with it. This is a maximum retention period, **not a guarantee** that an
+event will remain available for that long: capacity eviction, manual clearing,
+and web-service restart may remove it sooner.
+
+Changes to this root-owned YAML setting take effect when the web service reloads
+its configuration (normally upon restart, which also clears the event buffer).
+Expiry never causes event data to be written to disk. Browser refreshes and
+new authenticated browser sessions can retrieve unexpired events while the web
+application process is alive.
 **Restarting the SnarkyCtl web
 service (Uvicorn) clears all recorded events and their derived notifications.**
 There is no restart recovery, disk backup, export file, or replay from system logs.
@@ -368,9 +379,11 @@ including history contents or sensitive identifiers in such diagnostics.
   sanitized event; routine status polling generates none.
 - Notifications reflect severity and do not obscure current exposure warnings.
 - Event history survives browser refresh and is bounded, ordered, and paginated.
-- `event_log.retention_hours` defaults to 24, accepts valid configured values,
-  and expires records and notifications even without incoming events; invalid
-  values are rejected without creating persistent storage.
+- `event_log.retention_hours` defaults to 24 and accepts integers 1–720 only;
+  events expire by `occurred_at` age, and their notifications expire with them,
+  even without incoming events. Invalid values are rejected.
+- Verify a shorter configured window expires events earlier, a longer window
+  does not override the 100-event limit, and restart/clear still erase history.
 - Restarting only the web service erases event history and notifications; browser
   refresh does not. Events while the web process is offline are not replayed.
 - A daemon-only restart need not clear events already held by the web process.
@@ -413,3 +426,28 @@ including history contents or sensitive identifiers in such diagnostics.
 **Out of scope:** Implementing automatic recovery itself, redesigning the VPN
 provider interfaces, general-purpose journal viewing, external notifications,
 retention of client traffic, and changes to VPN-target persistence.
+
+## 13. Component impact
+
+The event-log feature crosses the control-daemon/web-process trust boundary.
+The following is the expected implementation footprint; filenames for new
+modules and the exact IPC mechanism remain design decisions.
+
+| Component | Expected files | Scope |
+|---|---|---|
+| Event schema | New module(s) under `src/snarkyctl/` | Strict allowlisted event types, timestamps, severity, and validation |
+| Privileged producer | `src/snarkyctl/control/daemon.py` | Publish safe control-operation events without changing VPN behavior |
+| Volatile IPC | New local Unix-domain channel; relevant `systemd/` files | Best-effort, bounded daemon-to-web event delivery without a disk queue |
+| Web event buffer and API | `src/snarkyctl/main.py` and new web-side module(s) | Keep up to 100 events in memory, apply `retention_hours`, serve read/status/clear endpoints |
+| Dashboard | `src/snarkyctl/templates/dashboard.html`, `static/dashboard.js`, `static/dashboard.css` | Notifications, collapsible history, confirmation and deletion UX |
+| Configuration | `src/snarkyctl/config.py`, `config/snarkyctl.yaml.example` | Add `event_log.mode` and `event_log.retention_hours`; default to `memory` and 24 hours |
+| Packaging | `systemd/` and `debian/` as required | Secure the IPC endpoint without granting web access to system logs |
+| Tests and operator docs | `tests/`, `docs/08_CONFIGURATION.md`, `docs/10_API.md` | Verify privacy, expiry, restart, deletion, delivery, API and UI behavior |
+
+No changes to WireGuard, NordVPN/NordLynx routing or firewall logic, or the
+SQLite target catalogue should be required. `feature/auto-recovery` remains
+separate and will consume the event framework only after it is merged.
+
+The expiry parameter is defined by Section 5; implementation and user-facing
+configuration documentation must use the **same name, default, range, unit,
+and event-expiration semantics**, rather than introducing inconsistent settings.
