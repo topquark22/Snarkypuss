@@ -19,11 +19,11 @@ or dashboard behavior described here is implemented merely by adding this docume
 - Notify an authenticated operator about significant gateway and control events.
 - Provide a small, comprehensible event history in the existing SnarkyCtl console.
 - Support structured, provider-neutral events emitted by trusted application code.
-- Make persistence an explicit opt-in rather than an incidental consequence of logging.
+- Keep all SnarkyCtl event history exclusively in bounded process memory, never on disk.
 - Provide a **Delete all log history** button that clears every event-history record
   managed by SnarkyCtl, including event-derived notifications.
 - Preserve the private management plane and least-privilege control-daemon boundary.
-- Make retention, deletion semantics, and the limits of SnarkyCtl's control explicit.
+- Make restart loss, deletion semantics, and the limits of SnarkyCtl's control explicit.
 
 ## 3. Privacy invariants
 
@@ -73,9 +73,9 @@ the unprivileged web service journal-reading privileges.
 
 ### 3.3 No telemetry or external notification service
 
-Events remain on the VPS and are requested solely over the authenticated private
-management connection. Do not add analytics, telemetry, email, webhooks, mobile push,
-remote logging, or a browser third-party dependency as part of this feature.
+Events remain in volatile SnarkyCtl web-process memory and are requested solely over the
+authenticated private management connection. Do not add analytics, telemetry, email,
+webhooks, mobile push, remote logging, or a browser third-party dependency.
 
 ## 4. Event schema and producers
 
@@ -134,57 +134,69 @@ Emit one result per attempted operation, avoiding duplicate events during retrie
 
 The shared framework must be usable even when automatic recovery is disabled.
 
-## 5. Retention modes
+## 5. Volatile retention policy
 
-Event history is independently configurable; changing VPN target selection or mode
-does not alter these settings. Use the root-owned SnarkyCtl configuration, not browser
-local storage, to define the authoritative retention policy.
+**No SnarkyCtl event history is ever persisted to disk.** This includes connection
+failures, unexpected disconnections, automatic recovery, and other operational events.
+Do not offer a persistent-retention mode, write an event-history file or database, or
+copy event history into the target SQLite database or system journal.
+
+Use root-owned SnarkyCtl configuration to select the policy; do not store a policy in
+the browser. The only permitted modes are:
 
 | Mode | Behavior |
 |---|---|
-| `off` | No event history retained; live status and current safety warnings still work |
-| `memory` (default) | Bounded ring buffer in the privileged daemon; no history file; lost when daemon exits |
-| `persistent` (opt-in) | Bounded dedicated SnarkyCtl-owned history store on disk; survives daemon restart |
+| `off` | No event history is retained; live status and current safety warnings continue |
+| `memory` (default) | A bounded ring buffer in the SnarkyCtl **web application process** |
 
-Proposed initial defaults, subject to implementation review:
+In `memory` mode, retain at most 100 events for at most 24 hours; evict the oldest
+events first. Browser refreshes and new authenticated browser sessions can retrieve
+events while the web application process is alive. **Restarting the SnarkyCtl web
+service (Uvicorn) clears all recorded events and their derived notifications.**
+There is no restart recovery, disk backup, export file, or replay from system logs.
+A daemon-only restart does not itself erase the web process's current buffer, though
+events may be missed while the producer is unavailable.
 
-- `memory`: maximum 100 records, with a maximum age of 24 hours while the daemon is
-  running; evict the oldest events first. A browser refresh does not clear the buffer.
-- `persistent`: require explicit administrator configuration, maximum-age and
-  maximum-record limits, and a dedicated root-owned path. Do not silently migrate
-  any existing journal entries or historical logs into it.
-- `off`: neither event buffer nor persistent event-history storage may be populated.
+This deliberate tradeoff favors privacy over long-term auditability. Events produced
+while the web service is stopped or unable to receive them are lost, rather than
+stored for later delivery. It is acceptable for a historical disconnection to be
+unavailable after a web restart; current connection and exposure status must still
+be collected independently when the console reconnects.
 
-The configuration model must reject unknown options and invalid combinations.
-Avoid creating an empty persistent file or directory in `off` or `memory` mode.
-The existing SQLite VPN target catalogue remains separate: it is **not** an event
-database, and the selected target must not be copied into event-history storage.
+The configuration must reject unknown policy modes. No SnarkyCtl event-history
+files, databases, archives, backups, or persistent log queues may be created in
+either mode. The existing SQLite VPN target catalogue is unrelated and unchanged:
+event history does not persist the selected VPN target.
 
-If the mode changes from `persistent` to `memory` or `off`, disclose and require a
-deliberate decision about deleting pre-existing persistent event history; simply
-switching off recording must not misleadingly imply old files were erased.
+## 6. Volatile event transport and trust boundaries
 
-## 6. Storage architecture and trust boundaries
+The privileged control daemon emits only strictly typed, approved event records.
+The unprivileged FastAPI/Uvicorn web service owns the bounded in-memory event
+buffer, retention policy enforcement, authenticated event APIs, and event-derived
+notifications. It must not gain privileges, read systemd journals, or access
+provider logs to reconstruct history.
 
-The privileged control daemon owns the event producer, retention policy, event
-buffer, and any opt-in persistent store. The unprivileged FastAPI/Uvicorn process
-is an authenticated presentation/API proxy and has **no direct filesystem access**
-to event storage or systemd journal data.
+Provide a local, non-persistent Unix-domain IPC path for event delivery from the
+privileged daemon to the web process; use fixed root-controlled endpoints,
+restrictive socket permissions, and verified peer credentials. Choose and test the
+exact socket and message framing during implementation. Do not expose an event
+receiver on TCP/UDP, accept arbitrary browser-supplied event records, or allow the
+event channel to execute provider commands.
 
-Use the existing authenticated Unix control socket and versioned request/response
-protocol for bounded, read-only event retrieval and explicit deletion commands.
-The daemon continues verifying peer credentials; the HTTPS service stays bound to
-the private WireGuard management address.
+Event delivery must be bounded and best-effort: failure or absence of the web
+consumer must not delay, fail, or roll back a VPN operation. No daemon-side backlog,
+disk spool, or retained replay stream is permitted. An event may be dropped while
+the web process is offline, and must not reappear after the web process restarts.
+Use a single authoritative in-memory event buffer per running web instance;
+if multi-worker hosting is introduced later, it needs an explicitly reviewed
+volatile sharing design rather than silently creating inconsistent histories.
 
-For persistent mode, constrain storage to a dedicated root-owned file/directory
-under the package's approved state directory, with restrictive permissions and
-explicit size/rotation/retention bounds. Avoid symlink traversal, arbitrary paths,
-SQL supplied by the browser, file-name inputs, or shell invocation. No uncontrolled
-backup, archive, or rotating copy should be created by SnarkyCtl.
+The HTTPS console stays on the private WireGuard management address, using its
+existing authentication and same-origin controls. Event transport and clearing
+do not alter VPN mode, routing, firewall, or the daemon's control privileges.
 
-An event failure must not make the VPN less safe or prevent a user from requesting
-LOCKED mode. If the log subsystem is unavailable, report it as an independent
-status failure; do not fabricate an empty history or a successful deletion.
+An event subsystem failure must not make VPN operation less safe or prevent
+LOCKED mode. Report event-history unavailability independently from an empty list.
 
 ## 7. Console presentation
 
@@ -201,9 +213,9 @@ timestamp, and a link to the corresponding history entry when available.
   current state; do not mislabel a reconnect as a verified recovery.
 
 A successful recovery notification may remain visible for up to 24 hours **only
-while its event remains in the configured history**. No event persistence is
-introduced solely to keep a notification visible. After daemon restart under
-`memory` mode, prior event notifications disappear.
+while its event remains in the web process's memory buffer**. Notifications
+and their underlying history disappear when the web service restarts. They
+must not be reconstructed from system logs after restart.
 
 The existing public-IP exposure warning and unknown gateway safety indication
 always take precedence over informational event notifications. Clearing history
@@ -216,7 +228,7 @@ before Advanced Gateway Modes. Present newest first, with timestamp, severity,
 human-readable description, and a small detail view of allowlisted fields.
 
 - Load the latest 25 events initially; permit bounded pagination of older events.
-- Provide Refresh and a clear indication of the active history mode.
+- Provide Refresh and a clear indication of whether in-memory history is enabled.
 - Continue the existing dashboard's authenticated, five-second status refresh;
   event history may be fetched on demand or efficiently checked for newer events.
 - Render with text nodes, not untrusted HTML; preserve keyboard and screen-reader access.
@@ -236,19 +248,19 @@ Illustrative routes:
 
 | Route | Purpose |
 |---|---|
-| `GET /api/v2/events` | Retrieve a bounded, newest-first page of sanitized events |
-| `GET /api/v2/events/status` | Retrieve retention mode, availability, and limited counts |
-| `POST /api/v2/events/clear` | Delete **all** SnarkyCtl-managed event history |
+| `GET /api/v2/events` | Retrieve a bounded, newest-first page of sanitized in-memory events |
+| `GET /api/v2/events/status` | Retrieve enabled/disabled policy, availability, and limited counts |
+| `POST /api/v2/events/clear` | Clear **all** SnarkyCtl-managed in-memory event history |
 
 The list operation supports bounded `limit` and opaque cursor parameters; it
 never accepts filesystem paths, provider commands, or arbitrary queries.
 Use existing HTTP Basic authentication and the private management interface.
 For `POST`, enforce the existing JSON content type, `X-SnarkyCtl-Request: 1`,
-Origin and Fetch Metadata restrictions before calling the daemon.
-Require an explicit confirmation token/body validated at both API and control
-protocol boundaries. Clear is administrative even though it cannot alter VPN mode.
+Origin and Fetch Metadata restrictions before touching the in-memory buffer.
+Require an explicit confirmation token/body validated by the web API, which
+owns the buffer. Clear is administrative even though it cannot alter VPN mode.
 
-The response must distinguish success from a partial or failed clear operation.
+The response must distinguish confirmed success from a failed clear operation.
 Do not return deleted event bodies in the response.
 
 ## 9. Delete all log history
@@ -261,10 +273,10 @@ Do not trigger deletion merely by expanding the section or pressing Refresh.
 
 The confirmation copy must say, in substance:
 
-> This permanently clears event history maintained by SnarkyCtl, including any
-> in-memory records, optional on-disk history, and notifications derived from
-> those events. It does not delete Linux system journals, Uvicorn or provider
-> logs, VPS provider records, external backups, or other independent logs.
+> This clears all event history held in SnarkyCtl's memory, including notifications
+> derived from those events. It does not delete Linux system journals, Uvicorn
+> or provider logs, VPS provider records, or other independent logs.
+> Event history is never saved to disk by SnarkyCtl.
 
 Disable repeated submissions while the action is in flight. On success, clear
 the event list and any event-derived banners immediately, and show a short
@@ -275,35 +287,26 @@ event into the just-cleared history.
 
 A successful clear must:
 
-1. Erase the current daemon's entire in-memory event ring, regardless of
-   configured retention mode.
-2. Delete all persistent event-history records, archives, and rotated copies
-   **managed by SnarkyCtl**, if any exist; include history from a previously
-   selected retention mode.
-3. Invalidate pending buffered writes and in-flight event publication from before
-   the clear barrier (e.g., with a generation/epoch guard), so cleared events
-   cannot be resurrected by a late write or concurrent worker.
-4. Invalidate cached event pages/derived banners for connected browsers on their
-   next refresh and make stale pagination cursors unusable.
-5. Preserve current connectivity status, mode, target catalogue, safety warnings,
-   authentication, and other non-history application state.
-6. Return success only after the daemon has confirmed the deletion under its
-   control. If deletion fails or is incomplete, report an error without asserting
-   that history has been removed.
+1. Erase the current web application's entire in-memory event ring, including
+   previously received disconnection and recovery events.
+2. Remove all event-derived notifications and dismissals maintained in the web
+   application's memory, without clearing independent live safety warnings.
+3. Use a clear barrier/generation so concurrently delivered or queued events
+   created before the clear cannot repopulate the buffer. A late event from
+   the preceding generation must be discarded rather than shown again.
+4. Invalidate all cached event pages in the running web process, stale cursors,
+   and event-derived banners in connected browsers on their next refresh.
+5. Preserve live connection status, gateway mode, target catalogue, security
+   settings, and other non-history state.
+6. Return success only once the in-memory clear and invalidation are complete;
+   return an explicit error rather than claiming success on failure.
 
-The clear operation applies across **all** SnarkyCtl-managed history stores; it
-must work even if persistent recording is currently switched off but an old
-SnarkyCtl history file remains. The UI must not misleadingly suggest that
-changing the retention mode alone has deleted prior records.
+Events genuinely produced **after** the clear barrier may appear as new events.
+Clearing does not disable subsequent event collection; select `off` separately
+for that. Do not record a `HISTORY_CLEARED` event into the emptied history.
 
-Events that occur genuinely **after** the clear barrier may appear as new events.
-A clear does not disable future collection; choose `off` separately to do that.
-No event-derived notification from before the barrier may reappear.
-
-Filesystem deletion is a logical deletion under SnarkyCtl's control, not a
-guarantee of forensic secure erasure from SSD wear-leveling, snapshots, backup
-systems, or underlying host storage. Document this limit prominently rather
-than promising irreversible physical destruction.
+There is no SnarkyCtl-managed on-disk event history to delete. The action must
+not try to delete operating-system, provider, or unrelated application logs.
 
 ### 9.3 Out-of-scope records
 
@@ -320,7 +323,7 @@ including history contents or sensitive identifiers in such diagnostics.
 
 - Event recording is never a precondition for VPN connect/disconnect or LOCKED mode.
 - Event API reads and deletion cannot invoke VPN mode changes.
-- Bounded memory, disk, query size, and result count must prevent log-volume DoS.
+- Bounded memory, IPC messages, query size, and result count must prevent log-volume DoS.
 - Serialized deletion must be safe against event producer concurrency.
 - History unavailability is shown distinctly from an empty event list.
 - A failed recovery must not be reported as a successful recovery just because
@@ -337,9 +340,9 @@ including history contents or sensitive identifiers in such diagnostics.
 
 - Tests reject prohibited IP fields, URLs, free-form exception text, and arbitrary
   provider metadata at every event producer and serializer boundary.
-- Inspect emitted events, daemon diagnostics, HTTP responses, browser state,
-  and optional persistent storage for forbidden data.
-- Verify memory/off modes never create event-history files.
+- Inspect emitted events, local IPC messages, daemon diagnostics, HTTP responses,
+  and browser state for forbidden data.
+- Verify neither mode ever creates event-history files, databases, or disk queues.
 - Audit Uvicorn/control-daemon diagnostic logging separately; explicitly document
   records remaining outside the history feature's control.
 
@@ -349,8 +352,9 @@ including history contents or sensitive identifiers in such diagnostics.
   sanitized event; routine status polling generates none.
 - Notifications reflect severity and do not obscure current exposure warnings.
 - Event history survives browser refresh and is bounded, ordered, and paginated.
-- Memory history expires after daemon restart; persistent history survives restart
-  only when expressly enabled.
+- Restarting only the web service erases event history and notifications; browser
+  refresh does not. Events while the web process is offline are not replayed.
+- A daemon-only restart need not clear events already held by the web process.
 - `off` exposes live status without retaining event history.
 - Events are unavailable to unauthenticated clients and are never exposed on
   the VPS public interface.
@@ -358,14 +362,13 @@ including history contents or sensitive identifiers in such diagnostics.
 ### Delete all history
 
 - Confirmation is mandatory; the same-origin mutation requirements are enforced.
-- Clear removes all memory and opt-in persistent history managed by SnarkyCtl,
-  including legacy files from a prior retention mode and managed rotated copies.
-- A browser refresh, second browser session, pagination request, and daemon
-  restart do not restore events erased before the clear barrier.
-- Simulate concurrent event publication and queued disk writes; old events cannot
+- Clear removes all SnarkyCtl in-memory event history and derived notifications.
+- A browser refresh, second browser session, or pagination request cannot restore
+  events erased before the clear barrier.
+- Simulate concurrent event delivery and queued IPC messages; prior events cannot
   reappear after successful deletion.
 - Current safety warnings remain visible; new events after deletion work normally.
-- Simulated filesystem deletion failure yields an explicit error and no false
+- Simulated in-memory clear failure yields an explicit error and no false
   success indication.
 - Test that unrelated systemd journals and Uvicorn/provider logs are untouched.
 
@@ -373,16 +376,18 @@ including history contents or sensitive identifiers in such diagnostics.
 
 1. Define a strict, versioned event schema and approved event codes; write
    data-minimization and serialization tests first.
-2. Implement bounded daemon-owned in-memory history with `off` and `memory`
-   policies, including concurrency and eviction tests.
-3. Extend the Unix control protocol and authenticated HTTP API for read/status/
-   clear; implement confirmed deletion and stale-cursor invalidation.
-4. Add the console Event Log viewer, notifications, and Delete all history dialog.
-5. Add the separately opted-in persistent store with bounded retention and
-   complete managed-store deletion; verify restart and migration behavior.
-6. Audit system-level diagnostic boundaries, update operator/API/configuration
+2. Implement bounded web-owned in-memory history with `off` and `memory`
+   policies, including concurrency and eviction tests; no persistent storage.
+3. Implement a credential-checked, best-effort Unix-domain event channel from
+   the privileged daemon to the unprivileged web process, with no replay queue.
+4. Add authenticated HTTP read/status/clear endpoints, a confirmed in-memory
+   clear barrier, and stale-cursor invalidation.
+5. Add the console Event Log viewer, notifications, and Delete all history dialog.
+6. Test isolated web restart (history lost), browser refresh (history retained),
+   daemon restart, producer outage, and clear-vs-delivery races.
+7. Audit system-level diagnostic boundaries, update operator/API/configuration
    documentation, package tests, and perform UAT on `snarkypuss-test`.
-7. Once merged to `main`, rebase `feature/auto-recovery` and replace ad-hoc
+8. Once merged to `main`, rebase `feature/auto-recovery` and replace ad-hoc
    recovery log messages with the approved event codes and notifications.
 
 **Out of scope:** Implementing automatic recovery itself, redesigning the VPN
