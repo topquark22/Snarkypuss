@@ -149,9 +149,25 @@ the browser. The only permitted modes are:
 | `off` | No event history is retained; live status and current safety warnings continue |
 | `memory` (default) | A bounded ring buffer in the SnarkyCtl **web application process** |
 
-In `memory` mode, retain at most 100 events for at most 24 hours; evict the oldest
-events first. Browser refreshes and new authenticated browser sessions can retrieve
-events while the web application process is alive. **Restarting the SnarkyCtl web
+Configure the retention window in the root-owned `/etc/snarkyctl/snarkyctl.yaml`:
+
+```yaml
+event_log:
+  mode: memory
+  retention_hours: 24
+```
+
+`event_log.retention_hours` is an integer number of hours, defaults to **24** when
+omitted, and must be positive and bounded (proposed range: 1–720 hours). It controls
+the maximum age of in-memory events only; it never enables disk persistence.
+When `mode: off`, the setting is ignored. Reject invalid values and unknown keys.
+
+In `memory` mode, retain at most 100 events within the configured retention
+window; evict expired events and, when full, the oldest events first. Apply
+expiration to both event-list requests and event-derived notifications, even if
+no new events have arrived. Browser refreshes and new authenticated browser
+sessions can retrieve events while the web application process is alive.
+**Restarting the SnarkyCtl web
 service (Uvicorn) clears all recorded events and their derived notifications.**
 There is no restart recovery, disk backup, export file, or replay from system logs.
 A daemon-only restart does not itself erase the web process's current buffer, though
@@ -212,8 +228,8 @@ timestamp, and a link to the corresponding history entry when available.
 - While recovery is in progress, show a temporary state indicator derived from
   current state; do not mislabel a reconnect as a verified recovery.
 
-A successful recovery notification may remain visible for up to 24 hours **only
-while its event remains in the web process's memory buffer**. Notifications
+A successful recovery notification may remain visible only **while its event
+remains within the configured in-memory retention window**. Notifications
 and their underlying history disappear when the web service restarts. They
 must not be reconstructed from system logs after restart.
 
@@ -352,6 +368,9 @@ including history contents or sensitive identifiers in such diagnostics.
   sanitized event; routine status polling generates none.
 - Notifications reflect severity and do not obscure current exposure warnings.
 - Event history survives browser refresh and is bounded, ordered, and paginated.
+- `event_log.retention_hours` defaults to 24, accepts valid configured values,
+  and expires records and notifications even without incoming events; invalid
+  values are rejected without creating persistent storage.
 - Restarting only the web service erases event history and notifications; browser
   refresh does not. Events while the web process is offline are not replayed.
 - A daemon-only restart need not clear events already held by the web process.
@@ -377,7 +396,8 @@ including history contents or sensitive identifiers in such diagnostics.
 1. Define a strict, versioned event schema and approved event codes; write
    data-minimization and serialization tests first.
 2. Implement bounded web-owned in-memory history with `off` and `memory`
-   policies, including concurrency and eviction tests; no persistent storage.
+   policies, configurable `event_log.retention_hours` (default 24), and concurrency,
+   expiry, and eviction tests; no persistent storage.
 3. Implement a credential-checked, best-effort Unix-domain event channel from
    the privileged daemon to the unprivileged web process, with no replay queue.
 4. Add authenticated HTTP read/status/clear endpoints, a confirmed in-memory
