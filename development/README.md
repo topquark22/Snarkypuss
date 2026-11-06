@@ -11,6 +11,6 @@ constraints; they are not installation or operator documentation.
 - [**PLAN10.md**](PLAN10.md) — completed provider-neutral SQLite target-catalogue plan.
 - [**UAT10.md**](UAT10.md) — Plan 10 user-acceptance record.
 
-User and administrator documentation remains in the repository root. Begin with the main
-[project overview](../README.md), the [Snarkypuss technical reference](../SNARKYPUSS.md), or
-the [SnarkyCtl installation guide](../INSTALL.md).
+User and administrator documentation is in `docs/`. Begin with the main
+[project overview](../README.md), the [Snarkypuss technical reference](../docs/11_ARCHITECTURE.md), or
+the [SnarkyCtl installation guide](../docs/03_SETUP_SNARKYCTL.md).
