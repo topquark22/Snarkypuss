@@ -402,6 +402,7 @@ for them.
 | SnarkyCtl service/network policy | `/etc/snarkyctl/snarkyctl.yaml` |
 | Approved VPN destinations | Provider-scoped target repository / SQLite catalogue |
 | Current committed catalogue snapshot | Privileged control daemon memory |
+| Watchdog VPN intent, failures, and retry cooldown | Privileged control daemon memory only |
 | Provider connection/settings state | Upstream provider, observed through its adapter |
 | Dashboard presentation state | Browser only; never authoritative |
 
@@ -425,6 +426,11 @@ It is root-controlled because only the privileged daemon opens it in production.
 
 The repository is provider-scoped. Alias and ordering uniqueness apply within a provider's
 catalogue, and each provider catalogue has an independent revision.
+
+**The target database persists configuration, never runtime control state.** In
+particular, it does not record the current VPN connection, selected active target,
+desired gateway mode, watchdog failure counters, or retry schedule. Those values
+must not be added to the catalogue schema as part of automatic recovery.
 
 The domain/control layers depend on the `TargetRepository` contract rather than issuing SQL
 directly. SQLite is therefore a storage implementation, not part of the provider or HTTP
@@ -473,6 +479,24 @@ For provider-backed discovered choices, the dashboard treats a saved value that 
 from current discovery as stale. It never silently substitutes a different value and normally
 cleans up the unavailable persisted destination automatically; failed automatic cleanup is
 surfaced for administrator action.
+
+### Automatic recovery runtime state
+
+While a protected VPN is intended, the daemon keeps the last selected target
+alias, connectivity failure count, and next permitted recovery attempt in memory.
+A disconnected provider can therefore produce an observed `LOCKED` mode while
+the watchdog still intends to reconnect automatically. An explicit operator
+disconnect, LOCKED request, or DIRECT request cancels that intent; a transient
+outage or failed reconnect does not. The watchdog preserves leak protection and
+retries after a cooldown until upstream connectivity is verified.
+
+Daemon restart discards this runtime intent. If the provider is still connected
+and verified protected, monitoring may resume using a configured destination
+fallback, which need not be the previously selected one. If the provider is
+disconnected at startup, the daemon cannot distinguish intentional LOCKED mode
+from a failed VPN without stored runtime state, and must not guess. This
+limitation is accepted: **no additional persistence will be introduced**.
+See ADR-017 in `development/DECISIONS.md`.
 
 ## 10. Gateway modes are observed state
 

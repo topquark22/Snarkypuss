@@ -348,8 +348,9 @@ provider registry name, interface constraints, and configured target backend.
 
 ## 9. SQLite target catalogue
 
-The target database is separate from the main YAML file because VPN destinations are
-editable operational data.
+The target database is separate from the main YAML file because approved VPN
+destinations are editable configuration data. It is not a store for runtime
+software state, including the active VPN selection or watchdog state.
 
 The reference database is:
 
@@ -637,6 +638,9 @@ restarts after the provider is already disconnected, it cannot distinguish an
 intentional Locked mode from a dropped VPN without persisting additional state;
 it therefore does not automatically connect in that ambiguous case. This
 limitation is necessary to honor explicit Locked mode without adding persistence.
+The tradeoff is intentional: the target database remains configuration-only,
+while the watchdog's desired target, health counters, and retry cooldown are
+volatile control-daemon state. See ADR-017 in `development/DECISIONS.md`.
 
 Recovery emits diagnostic messages in the control daemon's normal service logs
 until the independent `feature/event-log` framework is available. When that

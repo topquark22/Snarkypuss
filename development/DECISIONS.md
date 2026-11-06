@@ -864,3 +864,44 @@ with a shorter generic user-facing message.
   up automatically.
 - Exact server semantics remain owned by the provider instead of being duplicated in the
   dashboard.
+
+## ADR-017: Volatile watchdog intent; target catalogue is configuration only
+
+**Status:** Accepted for `feature/auto-recovery`.
+
+### Decision
+
+The SQLite target catalogue is persistent **configuration**, containing approved
+provider-scoped destinations, selectors, ordering, and catalogue revisions. It must
+not store the active VPN target, requested gateway mode, watchdog counters, retry
+timers, connection-health observations, or any other operational software state.
+Do not add columns, tables, or a second persistent state store for these purposes.
+
+The privileged control daemon holds the watchdog's intended VPN target alias,
+consecutive failure count, and recovery cooldown in **process memory**. Actual VPN
+connection and leak-protection state remain owned by the upstream provider and are
+observed through its adapter. The observed gateway mode is not identical to the
+operator's transient reconnect intent: an unexpectedly disconnected provider can
+report `LOCKED` while the watchdog is still trying to restore VPN service.
+
+While VPN mode remains intended, failed health checks, spontaneous provider
+disconnections, and unsuccessful reconnects must not silently cancel recovery.
+The watchdog retries with a bounded cooldown, without operator intervention,
+until upstream connectivity is verified or an explicit operator disconnect,
+LOCKED, or DIRECT request cancels the in-memory intent. The watchdog must never
+disable leak protection or use Direct mode as a recovery fallback.
+
+### Restart and failure consequences
+
+Runtime intent and retry history are deliberately lost when the privileged
+daemon restarts; this is accepted and does not justify persistence in SQLite.
+If a restart finds a connected, verified protected VPN, the daemon may resume
+monitoring with a configured target fallback; the catalogue cannot establish
+which target was previously selected. If the provider is disconnected at
+startup, the daemon cannot reliably distinguish an operator-selected LOCKED
+mode from an unexpected outage, and must not infer permission to reconnect.
+The database is neither a journal nor a substitute for that missing intent.
+
+The separate `feature/event-log` facility will later receive sanitized
+recovery notifications. It does not change the target database's scope or
+introduce persistent watchdog state.
