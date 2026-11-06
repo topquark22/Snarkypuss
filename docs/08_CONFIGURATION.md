@@ -348,8 +348,9 @@ provider registry name, interface constraints, and configured target backend.
 
 ## 9. SQLite target catalogue
 
-The target database is separate from the main YAML file because VPN destinations are
-editable operational data.
+The target database is separate from the main YAML file because approved VPN
+destinations are editable configuration data. It does not store runtime software
+state, such as the currently active VPN target or connection status.
 
 The reference database is:
 
