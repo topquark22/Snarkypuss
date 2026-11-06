@@ -50,6 +50,7 @@ def test_load_valid_config(tmp_path: Path) -> None:
     loaded = load_config(write_config(tmp_path))
     assert loaded.settings.upstream_vpn.provider == "nordvpn"
     assert loaded.settings.status.public_ip_url == "https://api.ipify.org"
+    assert loaded.settings.control.recovery_enabled is True
     assert loaded.targets is not None
     assert loaded.targets.targets[0].alias == "dallas"
 
@@ -145,3 +146,14 @@ def test_non_mapping_yaml_is_rejected(tmp_path: Path) -> None:
     path.write_text("- item\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="top level"):
         load_config(path)
+
+
+def test_automatic_recovery_can_be_disabled(tmp_path: Path) -> None:
+    path = write_config(tmp_path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(
+        "  operation_timeout_seconds: 60",
+        "  operation_timeout_seconds: 60\n  recovery_enabled: false",
+    )
+    path.write_text(content, encoding="utf-8")
+    assert load_config(path).settings.control.recovery_enabled is False

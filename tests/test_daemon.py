@@ -1245,7 +1245,7 @@ def test_recovery_does_not_act_without_verified_firewall() -> None:
     assert service._recovery_failures == 0
 
 
-def test_recovery_failure_returns_to_locked_and_requires_manual_selection() -> None:
+def test_recovery_failure_retries_without_manual_selection() -> None:
     class FailingReconnectProvider(FakeProvider):
         def __init__(self) -> None:
             super().__init__()
@@ -1253,16 +1253,22 @@ def test_recovery_failure_returns_to_locked_and_requires_manual_selection() -> N
 
         def connect(self, target: VpnTarget) -> VpnStatus:
             self.connects += 1
-            if self.connects > 1:
+            if self.connects == 2:
                 raise ProviderError("PROVIDER_COMMAND_FAILED", "reconnect failed")
             return super().connect(target)
 
-    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
-        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
-
     provider = FailingReconnectProvider()
+
+    def intermittent(_url: str, _timeout: float) -> PublicIpStatus:
+        if provider.connects < 3:
+            raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+        return PublicIpStatus(
+            address="203.0.113.42",
+            checked_at=datetime.now(UTC),
+        )
+
     service = control_service(
-        provider, recovery_enabled=True, public_ip_collector=unavailable
+        provider, recovery_enabled=True, public_ip_collector=intermittent
     )
     assert service.dispatch(
         ProtectedRequest(
@@ -1276,10 +1282,19 @@ def test_recovery_failure_returns_to_locked_and_requires_manual_selection() -> N
         service.check_recovery()
     assert provider.connected_target is None
     assert provider.protection_enabled
-    assert service._current_target_alias is None
+    assert service._current_target_alias == "dallas"
     assert provider.connects == 2
+
+    # The cooldown suppresses repeated attempts; expiration permits another.
     service.check_recovery()
     assert provider.connects == 2
+    service._recovery_retry_after = 0.0
+    service.check_recovery()
+    assert provider.connects == 3
+    assert provider.connected_target is not None
+    assert provider.protection_enabled
+    assert service._recovery_failures == 0
+    assert service._recovery_retry_after == 0.0
 
 
 def test_recovery_does_not_compete_with_manual_operations() -> None:
@@ -1308,3 +1323,205 @@ def test_recovery_does_not_compete_with_manual_operations() -> None:
     service.check_recovery()
     assert provider.connected_target is not None
     assert service._recovery_retry_after > 0
+
+
+def test_watchdog_recovers_spontaneous_disconnect_after_status_poll() -> None:
+    class RecordingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.connects = 0
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            self.connects += 1
+            return super().connect(target)
+
+    provider = RecordingProvider()
+    service = control_service(provider, recovery_enabled=True)
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    # Simulate NordVPN dropping without a SnarkyCtl Disconnect/Lock command.
+    provider.disconnect()
+    service.dispatch(
+        StatusRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.STATUS,
+        )
+    )
+    assert service._current_target_alias == "dallas"
+
+    for _ in range(3):
+        service.check_recovery()
+    assert provider.connects == 2
+    assert provider.connected_target is not None
+    assert provider.protection_enabled
+    assert service._recovery_failures == 0
+
+
+def test_watchdog_never_reconnects_after_explicit_locked_or_direct_mode() -> None:
+    provider = FakeProvider()
+    service = control_service(provider, recovery_enabled=True)
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    assert service.dispatch(
+        LockRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.LOCK,
+        )
+    ).success
+    for _ in range(4):
+        service.check_recovery()
+    assert service._current_target_alias is None
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+
+    assert service.dispatch(
+        DirectRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.DIRECT,
+            confirmation_token="EXPOSE VPS IP",
+        )
+    ).success
+    for _ in range(4):
+        service.check_recovery()
+    assert provider.connected_target is None
+    assert provider.protection_enabled is False
+
+
+def test_watchdog_resumes_after_restart_only_if_provider_is_connected() -> None:
+    target = VpnTarget(alias="dallas", label="Dallas", provider_target="us9167")
+    provider = FakeProvider()
+    provider.connect(target)
+    service = control_service(provider, recovery_enabled=True)
+    assert service._current_target_alias == "dallas"
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service._public_ip_collector = unavailable
+    for _ in range(3):
+        service.check_recovery()
+    assert provider.connected_target is not None
+
+    # On a separate restart into a disconnected state, Locked is ambiguous.
+    provider.disconnect()
+    another = control_service(provider, recovery_enabled=True)
+    assert another._current_target_alias is None
+    for _ in range(4):
+        another.check_recovery()
+    assert provider.connected_target is None
+
+
+def test_watchdog_repeats_when_reconnect_succeeds_but_internet_stays_down() -> None:
+    class RecordingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.connects = 0
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            self.connects += 1
+            return super().connect(target)
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    provider = RecordingProvider()
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    for _ in range(3):
+        service.check_recovery()
+    assert provider.connects == 2
+    assert service._recovery_failures == daemon.RECOVERY_FAILURE_THRESHOLD
+
+    service._recovery_retry_after = 0.0
+    service.check_recovery()
+    assert provider.connects == 3
+    assert service._current_target_alias == "dallas"
+
+
+def test_watchdog_does_not_run_if_explicitly_disabled() -> None:
+    class RecordingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.connects = 0
+
+        def connect(self, target: VpnTarget) -> VpnStatus:
+            self.connects += 1
+            return super().connect(target)
+
+    provider = RecordingProvider()
+    service = control_service(provider, recovery_enabled=False)
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    provider.disconnect()
+    for _ in range(4):
+        service.check_recovery()
+    assert provider.connects == 1
+
+
+def test_watchdog_resets_stuck_connecting_provider_without_intervention() -> None:
+    class StuckProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.stuck = False
+            self.disconnects = 0
+
+        def status(self) -> VpnStatus:
+            if self.stuck:
+                return VpnStatus(state=VpnState.CONNECTING, provider="fake")
+            return super().status()
+
+        def disconnect(self) -> VpnStatus:
+            self.disconnects += 1
+            self.stuck = False
+            return super().disconnect()
+
+    provider = StuckProvider()
+    service = control_service(provider, recovery_enabled=True)
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    provider.stuck = True
+
+    for _ in range(3):
+        service.check_recovery()
+    assert provider.disconnects == 1
+    assert provider.connected_target is not None
+    assert provider.protection_enabled
+    assert service._recovery_failures == 0

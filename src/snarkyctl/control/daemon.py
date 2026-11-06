@@ -133,6 +133,25 @@ class ControlService:
             target.alias: target
             for target in self._catalogue.targets
         }
+        # A still-connected protected VPN on daemon startup implies VPN intent.
+        # The catalogue does not persist an active selection; choose a fallback.
+        if self._recovery_enabled:
+            try:
+                status = self._provider.status()
+                settings = self._provider.settings()
+            except ProviderError as exc:
+                LOGGER.warning("watchdog startup inspection failed: %s", exc.code)
+            else:
+                if (
+                    status.state is VpnState.CONNECTED
+                    and settings.leak_protection_enabled is True
+                    and settings.firewall_enabled is True
+                ):
+                    target = self._recovery_target()
+                    if target is not None:
+                        self._current_target_alias = target.alias
+                        LOGGER.info("watchdog resumed for existing protected VPN")
+
 
     def _make_builtin_recommended_target(self) -> StoredTarget | None:
         """Return the provider's parameterless recommended target, if supported."""
@@ -420,8 +439,6 @@ class ControlService:
                     status = status.model_copy(
                         update={"target": self._current_target_alias}
                     )
-                elif status.state is VpnState.DISCONNECTED:
-                    self._current_target_alias = None
                 try:
                     settings = self._provider.settings()
                 except ProviderError as exc:
@@ -482,9 +499,9 @@ class ControlService:
                     "PROTECTION_NOT_ENABLED",
                     "Provider did not confirm that leak protection is enabled.",
                 )
+            self._current_target_alias = target.alias
             status = self._provider.connect_stored(target)
             status = status.model_copy(update={"target": target.alias})
-            self._current_target_alias = target.alias
             status = self._with_gateway_mode(status, self._provider.settings())
             if status.gateway_mode is not GatewayMode.VPN:
                 raise ProviderError(
@@ -506,9 +523,9 @@ class ControlService:
                     error_code="UNKNOWN_TARGET",
                     message="The requested target alias is not configured.",
                 )
+            self._current_target_alias = target.alias
             status = self._provider.connect_stored(target)
             status = status.model_copy(update={"target": target.alias})
-            self._current_target_alias = target.alias
             try:
                 settings = self._provider.settings()
             except ProviderError:
@@ -521,6 +538,9 @@ class ControlService:
                 vpn_status=status,
             )
         if isinstance(request, DisconnectRequest):
+            # An explicit disconnect cancels the watchdog even if it cannot complete.
+            self._current_target_alias = None
+            self._recovery_failures = 0
             settings = self._provider.settings()
             if not (
                 settings.leak_protection_enabled is True
@@ -536,7 +556,6 @@ class ControlService:
                     ),
                 )
             status = self._provider.disconnect()
-            self._current_target_alias = None
             status = self._with_gateway_mode(status, settings)
             return ControlResponse(
                 request_id=request.request_id,
@@ -546,6 +565,8 @@ class ControlService:
             )
         if isinstance(request, LockRequest):
             self._require_protection_configuration()
+            self._current_target_alias = None
+            self._recovery_failures = 0
             settings = self._provider.set_leak_protection(True)
             if settings.leak_protection_enabled is not True:
                 raise ProviderError(
@@ -568,6 +589,8 @@ class ControlService:
             )
         if isinstance(request, DirectRequest):
             self._require_protection_configuration()
+            self._current_target_alias = None
+            self._recovery_failures = 0
             try:
                 settings = self._provider.set_leak_protection(False)
                 if settings.leak_protection_enabled is not False:
@@ -643,6 +666,16 @@ class ControlService:
         )
 
 
+    def _recovery_target(self) -> StoredTarget | None:
+        """Reuse the active selection or a configured fallback after a restart."""
+        if self._current_target_alias is not None:
+            target = self._resolve_target(self._current_target_alias)
+            if target is not None:
+                return target
+        if len(self._targets) == 1:
+            return next(iter(self._targets.values()))
+        return self._builtin_recommended_target or next(iter(self._targets.values()), None)
+
     def _probe_upstream(self) -> tuple[bool, tuple[str, ...]]:
         """Try independent verified-HTTPS endpoints without logging URL contents."""
         failures: list[str] = []
@@ -656,7 +689,7 @@ class ControlService:
         return False, tuple(failures)
 
     def check_recovery(self) -> None:
-        """Attempt bounded recovery only for an explicitly selected protected VPN."""
+        """Keep restoring a selected VPN until upstream connectivity returns."""
         if not self._recovery_enabled:
             return
         alias = self._current_target_alias
@@ -671,16 +704,22 @@ class ControlService:
             self._recovery_failures = 0
             return
         if (
-            status.state is not VpnState.CONNECTED
-            or settings.leak_protection_enabled is not True
+            settings.leak_protection_enabled is not True
             or settings.firewall_enabled is not True
         ):
-            self._recovery_failures = 0
+            LOGGER.warning("watchdog cannot verify leak protection and firewall")
             return
-
-        reachable, failures = self._probe_upstream()
-        if reachable or self._current_target_alias != alias:
-            self._recovery_failures = 0
+        if status.state is VpnState.CONNECTED:
+            reachable, failures = self._probe_upstream()
+            if reachable:
+                if self._recovery_failures:
+                    LOGGER.info("VPN upstream connectivity restored")
+                self._recovery_failures = 0
+                self._recovery_retry_after = 0.0
+                return
+        else:
+            failures = (f"VPN_{status.state.value}",)
+        if self._current_target_alias != alias:
             return
         self._recovery_failures = min(
             RECOVERY_FAILURE_THRESHOLD, self._recovery_failures + 1
@@ -701,10 +740,10 @@ class ControlService:
         try:
             if self._current_target_alias != alias:
                 return
-            target = self._resolve_target(alias)
+            target = self._recovery_target()
             if target is None:
-                LOGGER.error("recovery target no longer exists; manual selection required")
-                self._current_target_alias = None
+                LOGGER.error("no configured recovery target; retrying later")
+                self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
                 return
             try:
                 status = self._provider.status()
@@ -713,21 +752,29 @@ class ControlService:
                 LOGGER.warning("recovery recheck failed: %s", exc.code)
                 return
             if (
-                status.state is not VpnState.CONNECTED
-                or settings.leak_protection_enabled is not True
+                settings.leak_protection_enabled is not True
                 or settings.firewall_enabled is not True
             ):
                 return
+            if status.state is VpnState.CONNECTED:
+                reachable, _failures = self._probe_upstream()
+                if reachable:
+                    self._recovery_failures = 0
+                    self._recovery_retry_after = 0.0
+                    return
             self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
-            LOGGER.warning(
-                "attempting protected VPN recovery; target=%s; mode=VPN", alias
-            )
+            LOGGER.warning("attempting protected automatic VPN recovery")
             try:
-                disconnected = self._provider.disconnect()
+                if status.state is not VpnState.DISCONNECTED:
+                    disconnected = self._provider.disconnect()
+                    if disconnected.state is not VpnState.DISCONNECTED:
+                        raise ProviderError(
+                            "UNSAFE_RECOVERY",
+                            "provider did not confirm disconnection",
+                        )
                 locked_settings = self._provider.settings()
                 if (
-                    disconnected.state is not VpnState.DISCONNECTED
-                    or locked_settings.leak_protection_enabled is not True
+                    locked_settings.leak_protection_enabled is not True
                     or locked_settings.firewall_enabled is not True
                 ):
                     raise ProviderError(
@@ -746,8 +793,8 @@ class ControlService:
                         "provider did not confirm protected VPN mode",
                     )
             except ProviderError as exc:
-                LOGGER.error("protected VPN recovery failed: %s", exc.code)
-                # Recover only toward LOCKED, never toward DIRECT.
+                LOGGER.error("protected VPN recovery failed: %s; retrying later", exc.code)
+                # Keep the intended target for later retries; never enter Direct.
                 try:
                     protection = self._provider.set_leak_protection(True)
                     if (
@@ -759,18 +806,19 @@ class ControlService:
                         LOGGER.critical("cannot verify firewall after recovery failure")
                 except ProviderError:
                     LOGGER.exception("could not confirm Locked mode after recovery failure")
-                self._current_target_alias = None
                 return
+            self._current_target_alias = target.alias
             reachable, failures = self._probe_upstream()
             if reachable:
-                LOGGER.info("protected VPN upstream connectivity restored; target=%s", alias)
+                LOGGER.info("protected VPN upstream connectivity restored automatically")
+                self._recovery_failures = 0
+                self._recovery_retry_after = 0.0
             else:
                 LOGGER.warning(
-                    "VPN reconnected but upstream probes still fail: %s",
+                    "VPN reconnected but upstream probes still fail; retrying later: %s",
                     ", ".join(failures),
                 )
         finally:
-            self._recovery_failures = 0
             self._operation_lock.release()
 
 

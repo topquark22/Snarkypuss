@@ -64,7 +64,7 @@ The package must be self-contained: installing it on the VPS must not contact Py
 |---|---|---|---|
 | Python application | FastAPI routes, models, parsers, authentication, and policy logic | `snarkyctl` | Built as a wheel and installed in the packaged virtual environment |
 | Web resources | Jinja2 templates, CSS, and JavaScript | `snarkyctl`, unprivileged | Included as Python package data |
-| Privileged control daemon | Fixed provider operations and status collection | Root, reached only through the authenticated Unix socket | Included in the Python application and started by systemd socket activation |
+| Privileged control daemon | Fixed provider operations and status collection | Root, reached only through the authenticated Unix socket | Included in the Python application, started at boot after explicit enablement, using the systemd socket |
 | Service integration | Control socket, privileged daemon, and unprivileged web units | System | Installed by the `.deb` but not enabled or started automatically |
 | Administrator configuration | Network, service, and provider settings | Read by `snarkyctl` | Installed as an example, then copied and edited locally |
 | Authentication | Username and salted password hash | Read by `snarkyctl` | Generated locally; never included with real credentials |
@@ -468,6 +468,7 @@ Only after preflight succeeds should the service be activated:
 
 ```bash
 sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable --now snarkyctl-control.service
 sudo systemctl enable --now snarkyctl-web.service
 ```
 
@@ -717,6 +718,7 @@ After configuration and successful preflight:
 
 ```bash
 sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable --now snarkyctl-control.service
 sudo systemctl enable --now snarkyctl-web.service
 ```
 

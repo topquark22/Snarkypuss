@@ -19,8 +19,8 @@ web:
 control:
   socket_path: /run/snarkyctl/control.sock
   operation_timeout_seconds: 60
-  # Opt in after testing; automatic recovery never disables the kill switch.
-  recovery_enabled: false
+  # Automatically restore an interrupted protected VPN; disable for manual-only operation.
+  recovery_enabled: true
 
 status:
   # HTTPS verification uses the operating system trust store and cannot be disabled.

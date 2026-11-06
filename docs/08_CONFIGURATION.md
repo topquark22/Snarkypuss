@@ -602,22 +602,44 @@ Unsupported versions are rejected explicitly. Schema migration must be an intent
 administrative operation; SnarkyCtl does not silently reinterpret an unknown configuration
 or database schema.
 
-## Optional automatic VPN recovery
+## Automatic upstream VPN recovery
 
-Set `control.recovery_enabled: true` to opt in to the automatic upstream
-connectivity watchdog. It checks every 60 seconds, and attempts one protected
-LOCKED-to-VPN reconnection after three consecutive checks fail against both
-the configured public-IP HTTPS endpoint and an independent HTTPS fallback.
-Attempts are separated by at least 15 minutes; the daemon logs failure codes
-and the outcome before and after each attempt. HTTPS failures by themselves
-do not identify which network component was responsible.
+The background watchdog is enabled by default. To disable it and manage VPN
+reconnections manually, set `control.recovery_enabled: false` in the root-owned
+configuration. The example configuration enables it explicitly. The watchdog
+runs every 60 seconds, checks two independent verified-HTTPS public-IP endpoints,
+and confirms both the provider kill switch and firewall are enabled before
+making network changes. Three consecutive unhealthy checks trigger an automatic
+protected LOCKED-to-VPN reconnect; another attempt may follow after a 15-minute
+cooldown if connectivity is still unavailable.
 
-Recovery requires a currently selected target **in the running daemon**, a
-connected VPN, and confirmation that both the provider kill switch and firewall
-are enabled. It never enables Direct mode or overrides manually selected
-Locked or Direct modes. It does not persist any additional state: a daemon
-restart loses its active target selection, so recovery is inactive until an
-operator selects a target again. The existing target catalogue remains in
-its configured storage. If reconnection fails, the daemon attempts to restore
-Locked mode and requires a manual target selection before trying again.
-If firewall protection cannot be verified, it refuses automatic transitions.
+The watchdog treats a spontaneously DISCONNECTED or FAILED VPN as unhealthy while
+a previously selected VPN mode remains intended. It retains that target through
+outages, failed reconnections and status polling, rather than abandoning retries
+or waiting for manual intervention. An already-LOCKED connection is reconnected
+directly without a redundant disconnect. A successful reconnect is not a
+successful *recovery* until upstream connectivity is verified. When reconnection
+fails, it attempts to restore protected Locked mode, then retries later with the
+same target. It never switches to Direct mode or turns off protection.
+
+An explicit operator disconnect, Locked-mode request, or Direct-mode request
+cancels automatic reconnect intent (including when a requested mode transition
+fails). User-requested mode changes take priority over the watchdog's
+nonblocking operation lock. No additional target-selection persistence is added.
+
+**Restart limitation:** The target database stores the destination catalogue,
+not the currently active target alias or desired gateway mode. If the privileged
+daemon restarts while the VPN is still connected and verified protected, the
+watchdog can resume monitoring by choosing the sole configured target (if there
+is one), otherwise the built-in recommended target or first catalogue entry.
+That fallback could differ from the target used before restart. If the daemon
+restarts after the provider is already disconnected, it cannot distinguish an
+intentional Locked mode from a dropped VPN without persisting additional state;
+it therefore does not automatically connect in that ambiguous case. This
+limitation is necessary to honor explicit Locked mode without adding persistence.
+
+Recovery emits diagnostic messages in the control daemon's normal service logs
+until the independent `feature/event-log` framework is available. When that
+feature is merged, recovery operations must emit only approved, sanitized event
+codes for memory-only console notifications; the watchdog itself must not
+persist an event history or retain public IP addresses in diagnostic messages.

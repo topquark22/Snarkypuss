@@ -124,13 +124,18 @@ Review every `FAIL`. Do not start the dashboard until failures involving configu
 file ownership, authentication, TLS, provider safety, management binding, or systemd units
 have been corrected.
 
-Enable and start the socket-activated control path and the HTTPS service. The important
-service model is:
+Enable the control socket, the privileged daemon, and the HTTPS service after preflight:
 
-- `snarkyctl-control.socket` is enabled and listening.
-- `snarkyctl-control.service` is started on demand by the socket and is **not** enabled
-  directly.
-- `snarkyctl-web.service` is enabled and runs as the unprivileged `snarkyctl` account.
+```bash
+sudo systemctl enable --now snarkyctl-control.socket
+sudo systemctl enable --now snarkyctl-control.service
+sudo systemctl enable --now snarkyctl-web.service
+```
+
+The daemon still consumes the systemd-passed Unix socket, but it now starts
+independently at boot so that the automatic recovery watchdog can monitor
+connectivity even when nobody has opened the dashboard. The web service
+continues to run as the unprivileged `snarkyctl` account.
 
 Verify that the dashboard listener exists only on the private WireGuard address:
 
@@ -214,26 +219,27 @@ Before rebooting, verify enablement and current state:
 ```bash
 systemctl is-enabled ssh.service \
     snarkyctl-control.socket \
+    snarkyctl-control.service \
     snarkyctl-web.service
 
 systemctl is-active ssh.service \
     snarkyctl-control.socket \
+    snarkyctl-control.service \
     snarkyctl-web.service
 ```
 
-The SnarkyCtl control socket and web service should be enabled. SSH enablement
-depends on the selected activation mode: check `ssh.socket` as well on a
-socket-managed installation. An enabled socket with an inactive SSH daemon can
-be normal before a connection arrives. The privileged
-`snarkyctl-control.service` may be inactive until a request arrives; that is normal socket
-activation.
+The SnarkyCtl control socket, privileged daemon and web service should all
+be enabled. SSH enablement depends on the selected activation mode: check
+`ssh.socket` as well on a socket-managed installation. An enabled socket with
+an inactive SSH daemon can be normal before a connection arrives. In contrast,
+`snarkyctl-control.service` must be active independently for unattended recovery.
 
 Keep the independent VPS console available and perform a controlled reboot. After the host
 returns, verify the base gateway, DNS, and SnarkyCtl services:
 
 ```bash
 systemctl is-active wg-quick@wg0.service snarkypuss-dns.service ssh.service
-systemctl is-active snarkyctl-control.socket snarkyctl-web.service
+systemctl is-active snarkyctl-control.socket snarkyctl-control.service snarkyctl-web.service
 sudo ss -xlpn | grep /run/snarkyctl/control.sock
 ```
 

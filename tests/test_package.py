@@ -44,6 +44,15 @@ def test_debian_package_installs_all_systemd_units_inactive() -> None:
     assert "dh_installsystemd --no-enable --no-start" in rules
 
 
+def test_control_daemon_is_enabled_explicitly_for_unattended_recovery() -> None:
+    unit = Path("systemd/snarkyctl-control.service").read_text(encoding="utf-8")
+    rules = Path("debian/rules").read_text(encoding="utf-8")
+
+    assert "After=network-online.target wg-quick@wg0.service snarkyctl-control.socket" in unit
+    assert "[Install]\nWantedBy=multi-user.target" in unit
+    assert "dh_installsystemd --no-enable --no-start" in rules
+
+
 def test_builtin_venv_does_not_receive_virtualenv_only_options() -> None:
     rules = Path("debian/rules").read_text(encoding="utf-8")
 
