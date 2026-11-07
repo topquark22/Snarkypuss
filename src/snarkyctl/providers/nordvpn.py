@@ -495,6 +495,37 @@ class NordVpnProvider(VpnProvider):
     def import_legacy_target(self, value: str) -> JsonObject:
         return self.validate_selector({"kind": "legacy", "value": value})
 
+    def geographic_recovery_target(
+        self, target: StoredTarget, connected_status: VpnStatus | None
+    ) -> StoredTarget | None:
+        """Use explicit geography or the last confirmed specific-server location."""
+        selector = self.validate_selector(target.selector)
+        if selector["kind"] in {"country", "city"}:
+            return target
+        if (
+            selector["kind"] != "server"
+            or connected_status is None
+            or connected_status.state is not VpnState.CONNECTED
+            or connected_status.provider != self.name
+        ):
+            return None
+
+        country = connected_status.details.get("country")
+        if not country:
+            return None
+        try:
+            country_value = _normalize_discovery_value(country, 32)
+            city = connected_status.details.get("city")
+            location: JsonObject
+            if city:
+                city_value = _normalize_discovery_value(city, 100)
+                location = {"kind": "city", "country": country_value, "city": city_value}
+            else:
+                location = {"kind": "country", "country": country_value}
+            return target.model_copy(update={"selector": self.validate_selector(location)})
+        except ProviderError:
+            return None
+
     def connect_stored(self, target: StoredTarget) -> VpnStatus:
         selector = self.validate_selector(target.selector)
         kind = selector["kind"]

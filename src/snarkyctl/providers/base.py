@@ -169,6 +169,13 @@ class VpnProvider(ABC):
             VpnTarget(alias=target.alias, label=target.label, provider_target=value)
         )
 
+    def geographic_recovery_target(
+        self, target: StoredTarget, connected_status: VpnStatus | None
+    ) -> StoredTarget | None:
+        """Return a provider-validated geographic scope, or None if unknown."""
+        del target, connected_status
+        return None
+
     @abstractmethod
     def disconnect(self) -> VpnStatus:
         """Disconnect the upstream VPN and return resulting status."""

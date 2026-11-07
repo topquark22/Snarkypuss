@@ -13,6 +13,7 @@ from snarkyctl.providers import (
     available_providers,
     create_provider,
 )
+from snarkyctl.providers.base import VpnStatus
 from snarkyctl.providers.nordvpn import (
     MAX_ERROR_DETAIL_LENGTH,
     MAX_OUTPUT_LENGTH,
@@ -494,3 +495,72 @@ def test_placeholder_rejects_mutation() -> None:
 def test_target_alias_has_safe_provider_neutral_shape(alias: str) -> None:
     with pytest.raises(ValidationError):
         VpnTarget(alias=alias, label="Invalid", provider_target="opaque-provider-value")
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"kind": "country", "country": "us"},
+        {"kind": "city", "country": "us", "city": "Chicago"},
+    ],
+)
+def test_nordvpn_geographic_recovery_preserves_explicit_scope(
+    selector: dict[str, str],
+) -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    target = StoredTarget(alias="region", label="Region", position=0, selector=selector)
+    assert provider.geographic_recovery_target(target, None) == target
+
+
+def test_nordvpn_geographic_recovery_uses_confirmed_specific_server_location() -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    target = StoredTarget(
+        alias="exact", label="Specific server", position=0,
+        selector={"kind": "server", "server": "us6275"},
+    )
+    candidate = provider.geographic_recovery_target(
+        target, parse_status(CONNECTED_STATUS)
+    )
+    assert candidate is not None
+    assert candidate.alias == "exact"
+    assert candidate.selector == {
+        "kind": "city", "country": "united_states", "city": "chicago"
+    }
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"kind": "group", "group": "P2P"},
+        {"kind": "recommended"},
+        {"kind": "legacy", "value": "us6275"},
+    ],
+)
+def test_nordvpn_geographic_recovery_rejects_targets_without_geographic_scope(
+    selector: dict[str, str],
+) -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    target = StoredTarget(alias="unclear", label="Unclear", position=0, selector=selector)
+    assert provider.geographic_recovery_target(
+        target, parse_status(CONNECTED_STATUS)
+    ) is None
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        None,
+        parse_status("Status: Disconnected\n"),
+        parse_status("Status: Connected\nServer: US #6275\n"),
+        parse_status("Status: Connected\nCountry: @@@\nCity: Chicago\n"),
+    ],
+)
+def test_nordvpn_geographic_recovery_rejects_missing_or_invalid_status(
+    status: VpnStatus | None,
+) -> None:
+    provider = NordVpnProvider(runner=lambda *_args: CommandResult(0, "", ""))
+    target = StoredTarget(
+        alias="exact", label="Specific server", position=0,
+        selector={"kind": "server", "server": "us6275"},
+    )
+    assert provider.geographic_recovery_target(target, status) is None

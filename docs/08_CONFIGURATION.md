@@ -614,7 +614,7 @@ are enabled before making network changes. Three consecutive unhealthy checks
 trigger an automatic protected LOCKED-to-VPN reconnect; another attempt may
 follow after a 15-minute cooldown if connectivity is still unavailable.
 
-Set `control.recovery_target_policy` to `strict` or `fallback` (default):
+Set `control.recovery_target_policy` to `strict`, `wide`, or `fallback` (default):
 
 ```yaml
 control:
@@ -626,6 +626,19 @@ control:
   another target alias. The provider may resolve a broader selector to different
   physical servers according to its own rules. Pinning one physical server
   requires a provider-supported exact-server selector.
+- `wide`: Permit a provider-selected server within the selected geographic
+  scope, but never use the provider's unrestricted Recommended destination.
+  An explicit country or city target already specifies a permitted area.
+  For a Specific Server target, the adapter may derive a bounded geographic
+  selector from that server's last confirmed connected location, retained only
+  in control-daemon memory. If there is no trustworthy geographic scope, or
+  neither the original server nor a server within that scope can restore
+  verified connectivity, the watchdog enters protected LOCKED mode and stops
+  automatic reconnects until an operator selects a VPN target again. A
+  non-geographic group, legacy, or Recommended target does not automatically
+  acquire an inferred geographical designation. Editing or deleting the
+  selected destination invalidates any cached scope and cancels wide recovery
+  intent until a new explicit VPN selection.
 - `fallback` (default): Try the selected target specification first. The
   provider may choose another physical server within that specification. If
   connectivity cannot be verified, SnarkyCtl may instead try the provider's
@@ -633,10 +646,14 @@ control:
   other entry from the SQLite targets catalogue.
 
 When a replacement target is connected **and** upstream Internet connectivity
-is verified, it becomes the active selection for subsequent watchdog checks.
-Until then, the previously selected target remains the intended destination.
-If no permitted alternative exists, the watchdog retries the original target
-after the normal cooldown. Both modes retain kill-switch protection, never
+is verified, it becomes the effective in-memory recovery target for later checks.
+Under `wide`, the original catalogue alias remains selected; under `fallback`,
+a successful Recommended replacement becomes the selected alias. Until verified
+recovery, the original target remains intended.
+For `strict` and `fallback`, a failed recovery is retried after the normal
+cooldown. In `wide` mode, failure to recover within the geographic boundary
+instead ends in protected LOCKED mode, with no automatic retry until a new
+explicit VPN request. All three policies preserve leak protection, never
 enter Direct mode during recovery, and require no additional persisted state.
 
 The watchdog treats a spontaneously DISCONNECTED or FAILED VPN as unhealthy while
@@ -645,8 +662,10 @@ outages, failed reconnections and status polling, rather than abandoning retries
 or waiting for manual intervention. An already-LOCKED connection is reconnected
 directly without a redundant disconnect. A successful reconnect is not a
 successful *recovery* until upstream connectivity is verified. When reconnection
-fails, it attempts to restore protected Locked mode, then retries later with the
-same target. It never switches to Direct mode or turns off protection.
+fails, it attempts to restore protected Locked mode. The `strict` and
+`fallback` policies retry later; `wide` remains Locked once the permitted
+geographical options are exhausted. Recovery never switches to Direct mode or
+turns off protection.
 
 An explicit operator disconnect, Locked-mode request, or Direct-mode request
 cancels automatic reconnect intent (including when a requested mode transition
@@ -657,9 +676,10 @@ nonblocking operation lock. No additional target-selection persistence is added.
 not the currently active target alias or desired gateway mode. If the privileged
 daemon restarts while the VPN is still connected and verified protected, the
 watchdog can resume monitoring under `fallback` policy using the built-in
-Recommended target. Under `strict` policy, it cannot infer the original selection
-and does not substitute one. If Recommended is unavailable, the watchdog does
-not invent a destination from the target catalogue.
+Recommended target. Under `strict` and `wide` policies, it cannot infer the
+original selection or geographic scope and does not substitute one. If
+Recommended is unavailable, the watchdog does not invent a destination from
+the target catalogue.
 If the daemon restarts after the provider is already disconnected, it cannot distinguish an
 intentional Locked mode from a dropped VPN without persisting additional state;
 it therefore does not automatically connect in that ambiguous case. This

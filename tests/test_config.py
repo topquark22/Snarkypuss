@@ -160,7 +160,7 @@ def test_automatic_recovery_can_be_disabled(tmp_path: Path) -> None:
     assert load_config(path).settings.control.recovery_enabled is False
 
 
-@pytest.mark.parametrize("value", ["strict", "fallback"])
+@pytest.mark.parametrize("value", ["strict", "wide", "fallback"])
 def test_recovery_target_policy_accepts_supported_values(
     tmp_path: Path, value: str
 ) -> None:
@@ -174,7 +174,7 @@ def test_recovery_target_policy_accepts_supported_values(
     assert load_config(path).settings.control.recovery_target_policy == value
 
 
-@pytest.mark.parametrize("value", ["random", "recommended", "STRICT", "true"])
+@pytest.mark.parametrize("value", ["random", "recommended", "STRICT", "WIDE", "true"])
 def test_recovery_target_policy_rejects_unknown_values(
     tmp_path: Path, value: str
 ) -> None:

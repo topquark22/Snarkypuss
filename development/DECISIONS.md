@@ -893,14 +893,20 @@ disable leak protection or use Direct mode as a recovery fallback.
 
 The root-owned `control.recovery_target_policy` configuration determines
 whether the watchdog can substitute another target. `strict` retries only the
-selected target specification. `fallback` (default) first retries that
-specification and then permits the provider's built-in Recommended target if
-connectivity verification still fails. Each provider owns the interpretation
-of its selectors, including whether a selector may resolve to a different
-physical server. Exact-server pinning requires provider support; neither mode
-implies it for broader selectors. No other catalogue row is selected
-arbitrarily. A successful, verified replacement becomes the active in-memory
-target; failed attempts do not overwrite the original intent.
+selected target specification. `wide` permits another server only within an
+explicit geographic selector or a geographic scope safely derived by the
+provider adapter from the last confirmed Specific Server location. If that
+scope cannot be established or the available geographic attempts fail, the
+watchdog confirms protected LOCKED mode and cancels automatic reconnect intent.
+`fallback` (default) first retries the selected specification and then permits
+the provider's built-in Recommended target if connectivity verification fails.
+Each provider owns selector interpretation, including whether a selector may
+resolve to different physical servers. Exact-server pinning requires provider
+support; no other catalogue row is selected arbitrarily. Successful verified
+replacement targets are remembered in process memory, without changing the
+persistent catalogue. Wide retains the original alias while using the
+provider-bounded effective selector, and drops that intent if the configured
+destination is changed or removed.
 
 ### Restart and failure consequences
 
@@ -908,8 +914,9 @@ Runtime intent and retry history are deliberately lost when the privileged
 daemon restarts; this is accepted and does not justify persistence in SQLite.
 If a restart finds a connected, verified protected VPN, the daemon may resume
 monitoring under `fallback` policy using the provider's built-in Recommended
-selector. Under `strict` policy it must not guess the previous target. The catalogue cannot establish
-which target was previously selected. If the provider is disconnected at
+selector. Under `strict` and `wide` policies it must not guess the previous
+target or its geographical scope. The catalogue cannot establish which target
+was previously selected. If the provider is disconnected at
 startup, the daemon cannot reliably distinguish an operator-selected LOCKED
 mode from an unexpected outage, and must not infer permission to reconnect.
 The database is neither a journal nor a substitute for that missing intent.

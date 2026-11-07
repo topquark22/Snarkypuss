@@ -101,6 +101,8 @@ class ControlService:
         self._public_ip_timeout_seconds = config.settings.status.public_ip_timeout_seconds
         self._operation_lock = Lock()
         self._current_target_alias: str | None = None
+        self._wide_geographic_target: StoredTarget | None = None
+        self._wide_active_target: StoredTarget | None = None
         self._recovery_enabled = getattr(
             getattr(config.settings, "control", None), "recovery_enabled", False
         )
@@ -388,12 +390,30 @@ class ControlService:
                     error_code=code,
                     message=str(exc),
                 )
+            previous_target = (
+                self._resolve_target(self._current_target_alias)
+                if self._recovery_target_policy == "wide"
+                and self._current_target_alias is not None
+                else None
+            )
             self._catalogue = catalogue
             self._targets = {
                 target.alias: target
                 for target in catalogue.targets
                 if not self._is_reserved_builtin_target(target)
             }
+            if self._recovery_target_policy == "wide" and self._current_target_alias is not None:
+                current_target = self._resolve_target(self._current_target_alias)
+                if (
+                    previous_target is None
+                    or current_target is None
+                    or current_target.selector != previous_target.selector
+                ):
+                    self._current_target_alias = None
+                    self._wide_geographic_target = None
+                    self._wide_active_target = None
+                    self._recovery_failures = 0
+                    self._recovery_retry_after = 0.0
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -503,6 +523,8 @@ class ControlService:
                     "Provider did not confirm that leak protection is enabled.",
                 )
             self._current_target_alias = target.alias
+            self._wide_geographic_target = None
+            self._wide_active_target = None
             status = self._provider.connect_stored(target)
             status = status.model_copy(update={"target": target.alias})
             status = self._with_gateway_mode(status, self._provider.settings())
@@ -511,6 +533,7 @@ class ControlService:
                     "MODE_TRANSITION_FAILED",
                     "Provider did not reach protected VPN mode.",
                 )
+            self._remember_recovery_geography(target, status)
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -527,6 +550,8 @@ class ControlService:
                     message="The requested target alias is not configured.",
                 )
             self._current_target_alias = target.alias
+            self._wide_geographic_target = None
+            self._wide_active_target = None
             status = self._provider.connect_stored(target)
             status = status.model_copy(update={"target": target.alias})
             try:
@@ -534,6 +559,8 @@ class ControlService:
             except ProviderError:
                 settings = None
             status = self._with_gateway_mode(status, settings)
+            if status.gateway_mode is GatewayMode.VPN:
+                self._remember_recovery_geography(target, status)
             return ControlResponse(
                 request_id=request.request_id,
                 success=True,
@@ -543,6 +570,8 @@ class ControlService:
         if isinstance(request, DisconnectRequest):
             # An explicit disconnect cancels the watchdog even if it cannot complete.
             self._current_target_alias = None
+            self._wide_geographic_target = None
+            self._wide_active_target = None
             self._recovery_failures = 0
             settings = self._provider.settings()
             if not (
@@ -569,6 +598,8 @@ class ControlService:
         if isinstance(request, LockRequest):
             self._require_protection_configuration()
             self._current_target_alias = None
+            self._wide_geographic_target = None
+            self._wide_active_target = None
             self._recovery_failures = 0
             settings = self._provider.set_leak_protection(True)
             if settings.leak_protection_enabled is not True:
@@ -593,6 +624,8 @@ class ControlService:
         if isinstance(request, DirectRequest):
             self._require_protection_configuration()
             self._current_target_alias = None
+            self._wide_geographic_target = None
+            self._wide_active_target = None
             self._recovery_failures = 0
             try:
                 settings = self._provider.set_leak_protection(False)
@@ -674,17 +707,41 @@ class ControlService:
         if self._current_target_alias is not None:
             target = self._resolve_target(self._current_target_alias)
             if target is not None:
+                if self._recovery_target_policy == "wide":
+                    return self._wide_active_target or target
                 return target
-            if self._recovery_target_policy == "strict":
+            if self._recovery_target_policy != "fallback":
                 return None
             return self._builtin_recommended_target
-        if self._recovery_target_policy == "strict":
+        if self._recovery_target_policy != "fallback":
             return None
         return self._builtin_recommended_target
 
+    def _remember_recovery_geography(
+        self, target: StoredTarget, status: VpnStatus
+    ) -> None:
+        """Cache only a validated geographic selector, never provider status details."""
+        if self._recovery_target_policy != "wide" or status.state is not VpnState.CONNECTED:
+            return
+        self._wide_geographic_target = self._provider.geographic_recovery_target(
+            target, status
+        )
+
+    def _enter_wide_locked_mode(self) -> None:
+        """Abandon automatic recovery only after protected Locked mode is verified."""
+        if not self._restore_protected_locked_mode():
+            LOGGER.critical("wide recovery could not confirm protected Locked mode")
+            return
+        self._current_target_alias = None
+        self._wide_geographic_target = None
+        self._wide_active_target = None
+        self._recovery_failures = 0
+        self._recovery_retry_after = 0.0
+        LOGGER.warning("wide recovery exhausted permitted geography; entered Locked mode")
+
     def _recovery_fallback(self, target: StoredTarget) -> StoredTarget | None:
         """Permit only the built-in recommended target as a replacement."""
-        if self._recovery_target_policy == "strict":
+        if self._recovery_target_policy != "fallback":
             return None
         if self._builtin_recommended_target is None:
             return None
@@ -705,6 +762,13 @@ class ControlService:
             disconnected = self._provider.disconnect()
             if disconnected.state is not VpnState.DISCONNECTED:
                 LOGGER.critical("could not confirm Locked mode after recovery failure")
+                return False
+            confirmed = self._provider.settings()
+            if (
+                confirmed.leak_protection_enabled is not True
+                or confirmed.firewall_enabled is not True
+            ):
+                LOGGER.critical("could not verify leak protection in Locked mode")
                 return False
         except ProviderError as exc:
             LOGGER.error("could not confirm Locked mode after recovery failure: %s", exc.code)
@@ -745,6 +809,10 @@ class ControlService:
             LOGGER.warning("watchdog cannot verify leak protection and firewall")
             return
         if status.state is VpnState.CONNECTED:
+            if self._recovery_target_policy == "wide":
+                selected = self._resolve_target(alias)
+                if selected is not None and self._wide_geographic_target is None:
+                    self._remember_recovery_geography(selected, status)
             reachable, failures = self._probe_upstream()
             if reachable:
                 if self._recovery_failures:
@@ -777,8 +845,11 @@ class ControlService:
                 return
             target = self._recovery_target()
             if target is None:
-                LOGGER.error("no configured recovery target; retrying later")
-                self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
+                LOGGER.error("no configured recovery target")
+                if self._recovery_target_policy == "wide":
+                    self._enter_wide_locked_mode()
+                else:
+                    self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
                 return
             try:
                 status = self._provider.status()
@@ -799,8 +870,18 @@ class ControlService:
                     return
             self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
             LOGGER.warning("attempting protected automatic VPN recovery")
-            fallback = self._recovery_fallback(target)
-            candidates = (target,) if fallback is None else (target, fallback)
+            if self._recovery_target_policy == "wide":
+                geographic = self._wide_geographic_target
+                if geographic is None:
+                    self._enter_wide_locked_mode()
+                    return
+                candidates = (
+                    (target,) if geographic.selector == target.selector
+                    else (target, geographic)
+                )
+            else:
+                fallback = self._recovery_fallback(target)
+                candidates = (target,) if fallback is None else (target, fallback)
             for position, candidate in enumerate(candidates):
                 try:
                     status = self._provider.status()
@@ -842,7 +923,15 @@ class ControlService:
 
                 reachable, failures = self._probe_upstream()
                 if reachable:
-                    self._current_target_alias = candidate.alias
+                    if self._recovery_target_policy == "wide":
+                        selected = self._resolve_target(alias)
+                        self._wide_active_target = (
+                            candidate
+                            if selected is not None and candidate.selector != selected.selector
+                            else None
+                        )
+                    else:
+                        self._current_target_alias = candidate.alias
                     LOGGER.info("protected VPN upstream connectivity restored automatically")
                     self._recovery_failures = 0
                     self._recovery_retry_after = 0.0
@@ -855,7 +944,10 @@ class ControlService:
                     # Keep the original intent rather than claiming an unhealthy fallback.
                     if not self._restore_protected_locked_mode():
                         return
-            LOGGER.warning("upstream recovery remains incomplete; retrying after cooldown")
+            if self._recovery_target_policy == "wide":
+                self._enter_wide_locked_mode()
+            else:
+                LOGGER.warning("upstream recovery remains incomplete; retrying after cooldown")
         finally:
             self._operation_lock.release()
 

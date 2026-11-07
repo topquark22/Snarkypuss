@@ -1741,3 +1741,368 @@ def test_recovery_does_not_substitute_a_different_saved_catalogue_entry() -> Non
     )
     service._current_target_alias = "missing"
     assert service._recovery_target() is None
+
+
+class GeographicRecoveryProvider(RecommendedRecoveryProvider):
+    """Test that geographic recovery never uses the Recommended destination."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.geo_unavailable = False
+
+    def geographic_recovery_target(
+        self, target: StoredTarget, connected_status: VpnStatus | None
+    ) -> StoredTarget | None:
+        if target.selector.get("kind") == "city":
+            return target
+        if connected_status is None or connected_status.state is not VpnState.CONNECTED:
+            return None
+        if target.selector.get("value") != "us9167":
+            return None
+        return target.model_copy(
+            update={"selector": {"kind": "legacy", "value": "dallas_area"}}
+        )
+
+    def validate_selector(self, selector: JsonObject) -> JsonObject:
+        if selector == {"kind": "city", "country": "us", "city": "dallas"}:
+            return selector
+        return super().validate_selector(selector)
+
+    def connect_stored(self, target: StoredTarget) -> VpnStatus:
+        kind = target.selector.get("kind")
+        if kind == "city" or target.selector.get("value") == "dallas_area":
+            self.attempted_aliases.append("geographic")
+            if self.geo_unavailable:
+                raise ProviderError("PROVIDER_COMMAND_FAILED", "geography unavailable")
+            self.connected_target = VpnTarget(
+                alias=target.alias, label=target.label, provider_target="dallas_area"
+            )
+            return self.status()
+        return super().connect_stored(target)
+
+
+def test_wide_recovers_a_specific_server_within_original_geography() -> None:
+    provider = GeographicRecoveryProvider()
+
+    def check_ip(_url: str, _timeout: float) -> PublicIpStatus:
+        if (
+            provider.connected_target is not None
+            and provider.connected_target.provider_target == "dallas_area"
+        ):
+            return PublicIpStatus(address="203.0.113.42", checked_at=datetime.now(UTC))
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+        public_ip_collector=check_ip,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    assert service._wide_geographic_target is not None
+    assert service._wide_geographic_target.selector["value"] == "dallas_area"
+
+    provider.primary_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas", "dallas", "geographic"]
+    assert service._current_target_alias == "dallas"
+    assert service._wide_active_target is not None
+    assert service._wide_active_target.selector["value"] == "dallas_area"
+    assert provider.connected_target is not None
+    assert provider.connected_target.provider_target == "dallas_area"
+    assert provider.protection_enabled
+    assert service._recovery_failures == 0
+
+
+def test_wide_exhausted_geography_enters_locked_and_stops_retrying() -> None:
+    provider = GeographicRecoveryProvider()
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+        public_ip_collector=unavailable,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    provider.primary_unavailable = True
+    provider.geo_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas", "dallas", "geographic"]
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+    assert service._current_target_alias is None
+    assert service._wide_geographic_target is None
+    assert service._wide_active_target is None
+
+    for _ in range(4):
+        service.check_recovery()
+    assert provider.attempted_aliases == ["dallas", "dallas", "geographic"]
+
+
+def test_wide_without_verified_geographic_scope_locks_without_recommended() -> None:
+    provider = RecommendedRecoveryProvider()
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+        public_ip_collector=unavailable,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas"]
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+    assert service._current_target_alias is None
+
+
+def test_wide_with_geographic_selector_does_not_leave_its_scope() -> None:
+    provider = GeographicRecoveryProvider()
+    repository = MemoryTargetRepository(
+        (
+            TargetCatalogue(
+                provider="fake",
+                revision=1,
+                targets=(
+                    StoredTarget(
+                        alias="dallas",
+                        label="Dallas",
+                        position=0,
+                        selector={"kind": "city", "country": "us", "city": "dallas"},
+                    ),
+                ),
+            ),
+        )
+    )
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+        target_repository=repository,
+        public_ip_collector=unavailable,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    provider.geo_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["geographic", "geographic"]
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+    assert service._current_target_alias is None
+
+
+def test_wide_does_not_infer_a_target_after_daemon_restart() -> None:
+    provider = GeographicRecoveryProvider()
+    provider.connect(VpnTarget(alias="dallas", label="Dallas", provider_target="us9167"))
+    service = control_service(
+        provider, recovery_enabled=True, recovery_target_policy="wide"
+    )
+    assert service._current_target_alias is None
+    assert service._wide_geographic_target is None
+    assert service._recovery_target() is None
+
+
+def test_wide_reuses_verified_geographic_selection_after_later_outage() -> None:
+    provider = GeographicRecoveryProvider()
+    is_available = True
+
+    def probe(_url: str, _timeout: float) -> PublicIpStatus:
+        if (
+            is_available
+            and provider.connected_target is not None
+            and provider.connected_target.provider_target == "dallas_area"
+        ):
+            return PublicIpStatus(address="203.0.113.42", checked_at=datetime.now(UTC))
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+        public_ip_collector=probe,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    provider.primary_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+    assert service._wide_active_target is not None
+    assert provider.attempted_aliases == ["dallas", "dallas", "geographic"]
+
+    is_available = False
+    provider.geo_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == [
+        "dallas", "dallas", "geographic", "geographic"
+    ]
+    assert service._current_target_alias is None
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+
+
+def test_explicit_locked_mode_cancels_wide_recovery_geography() -> None:
+    provider = GeographicRecoveryProvider()
+    service = control_service(
+        provider, recovery_enabled=True, recovery_target_policy="wide"
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    assert service._wide_geographic_target is not None
+    assert service.dispatch(
+        LockRequest(version=PROTOCOL_VERSION, request_id=REQUEST_ID, operation=Operation.LOCK)
+    ).success
+
+    assert service._current_target_alias is None
+    assert service._wide_geographic_target is None
+    assert service._wide_active_target is None
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+
+
+def test_catalogue_change_invalidates_stale_wide_geography() -> None:
+    provider = GeographicRecoveryProvider()
+    repository = MemoryTargetRepository(
+        (
+            TargetCatalogue(
+                provider="fake",
+                revision=1,
+                targets=(
+                    StoredTarget(
+                        alias="dallas",
+                        label="Dallas",
+                        position=0,
+                        selector={"kind": "legacy", "value": "us9167"},
+                    ),
+                ),
+            ),
+        )
+    )
+    service = control_service(
+        provider,
+        target_repository=repository,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+    assert service._wide_geographic_target is not None
+
+    replacement = service.dispatch(
+        TargetCatalogReplaceRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.TARGET_CATALOG_REPLACE,
+            provider="fake",
+            expected_revision=1,
+            targets=(
+                StoredTarget(
+                    alias="dallas",
+                    label="Dallas",
+                    position=0,
+                    selector={"kind": "legacy", "value": "us9999"},
+                ),
+            ),
+        )
+    )
+    assert replacement.success
+    assert service._current_target_alias is None
+    assert service._wide_geographic_target is None
+    assert service._wide_active_target is None
+
+
+def test_wide_never_reselects_recommended_without_geographic_scope() -> None:
+    provider = RecommendedRecoveryProvider()
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="wide",
+        public_ip_collector=unavailable,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="recommended",
+        )
+    ).success
+
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["recommended"]
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+    assert service._current_target_alias is None

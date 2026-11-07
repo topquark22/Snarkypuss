@@ -490,13 +490,22 @@ disconnect, LOCKED request, or DIRECT request cancels that intent; a transient
 outage or failed reconnect does not. The watchdog preserves leak protection and
 retries after a cooldown until upstream connectivity is verified.
 
-The root-owned `control.recovery_target_policy` may be `strict` or
-`fallback` (default). Strict retries the selected target specification without
-substituting another target. Fallback retries that specification and may then
-try the provider's built-in Recommended target when connectivity is still
-unavailable. Each provider defines how its selectors resolve to physical
-servers. Pinning one physical server requires an exact-server selector
-supported by that provider. The watchdog never selects arbitrary catalogue rows.
+The root-owned `control.recovery_target_policy` may be `strict`, `wide`, or
+`fallback` (default). Strict retries the configured target specification without
+substituting another target. Wide permits only an explicitly geographic
+selector or a geographic fallback derived by the provider adapter from the
+last confirmed location of a selected Specific Server. If the permitted
+geography cannot restore verified connectivity, wide enters protected LOCKED
+mode and clears reconnect intent rather than trying an unrestricted server.
+Fallback retries the selected specification and may then try the provider's
+built-in Recommended target. Each provider defines how its selectors resolve
+to physical servers. Pinning one physical server requires an exact-server
+selector supported by that provider. The watchdog never selects arbitrary
+catalogue rows. Geographic fallback information is volatile and does not
+modify the target catalogue. A verified geographic recovery replaces the
+effective in-memory selector while retaining its original catalogue alias.
+Editing or removing that configured destination cancels wide recovery intent
+and invalidates its cached geographic scope.
 
 **TODO — provider-neutral protection verification:** Recovery currently requires
 both `VpnSettings.leak_protection_enabled` and `VpnSettings.firewall_enabled`
@@ -510,7 +519,8 @@ as permission to reconnect.
 
 Daemon restart discards this runtime intent. If the provider is still connected
 and verified protected, monitoring may resume with Recommended under
-`fallback` policy; `strict` never guesses the missing selection.
+`fallback` policy; neither `strict` nor `wide` guesses the missing selection
+or geographic scope.
 If the provider is disconnected at startup, the daemon cannot distinguish intentional LOCKED mode
 from a failed VPN without stored runtime state, and must not guess. This
 limitation is accepted: **no additional persistence will be introduced**.
