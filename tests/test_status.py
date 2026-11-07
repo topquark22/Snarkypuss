@@ -51,7 +51,7 @@ def test_public_ip_collector_accepts_only_ipv4() -> None:
     ("payload", "message"),
     [
         (b"not-an-ip", "did not return an IP address"),
-        (b"2001:db8::1", "did not return an IPv4 address"),
+        (b"2001:db8::42", "did not return an IPv4 address"),
         (b"x" * 129, "too much data"),
         ("\N{SNOWMAN}".encode(), "non-ASCII"),
     ],
