@@ -1,6 +1,7 @@
-# Snarkypuss — webdev
+# Snarkypuss — p18
 
-This is an orphan branch. It shares no history with `main` and holds the
+This branch is based on the orphan `webdev` branch. It shares no history
+with `main` and holds the
 project's published material rather than its software: the brochure and its
 sources, and the artwork behind them.
 
@@ -14,7 +15,8 @@ to do with the software's.
 | Branch | Holds |
 |---|---|
 | `main` | the Snarkypuss software — AGPL-3 licensed |
-| `webdev` | this branch: brochure, sources, artwork |
+| `webdev` | existing 16-page brochure, sources, artwork |
+| `p18` | expansion build machinery; defaults to a 20-page booklet with blank padding |
 | `gh-pages` | the published site at snarkypuss.ca |
 
 A `git clone` fetches every branch's objects regardless, so the separation is
@@ -27,8 +29,12 @@ git clone --single-branch --branch main https://github.com/topquark22/Snarkypuss
 ## Contents
 
 ```
-brochure/          the 16-page A5 brochure — see brochure/README.md
+brochure/          unchanged brochure sources plus 20-page build support
 ```
+
+The current 16-page source remains unchanged. The default build inserts four
+blank pages before the back cover; an eventual 18-page source needs only two.
+No website files are changed or published.
 
 [`brochure/README.md`](brochure/README.md) is the operative document: toolchain,
 build commands, the page-marker model, edition and dating, and the artwork dimensions.

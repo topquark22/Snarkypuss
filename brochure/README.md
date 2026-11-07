@@ -1,7 +1,13 @@
 # Snarkypuss brochure
 
-A5 portrait, 16 pages, full colour, designed for saddle-stitch booklet
-printing on four folded A4 sheets.
+A5 portrait, full colour. On the `p18` branch the default build is a
+**20-page booklet**, designed for saddle-stitch printing on five folded A4
+sheets. The authored brochure is unchanged at 16 pages: four blank pages are
+inserted before its back cover. Once the authored material grows to 18 pages,
+only two blanks remain. No content or artwork is invented or rewritten.
+
+The `webdev` branch retains its existing 16-page build. This branch's
+`--pages 16` option also reproduces that layout and its original filenames.
 
 `PLAN.md` is the editorial plan — audience, tone, the non-partisan standard,
 project positioning, and what belongs on each page. This file is everything
@@ -19,7 +25,7 @@ printing at home. Its filename includes the legislative snapshot and full versio
 from `edition.conf`, for example:
 
 ```text
-build/snarkypuss_2026-10-16_v1.3.0.pdf
+build/snarkypuss-p20_2026-10-16_v1.3.1.pdf
 ```
 
 For the printer:
@@ -28,13 +34,16 @@ For the printer:
 python3 tools/build.py --press
 ```
 
-The press edition uses the same metadata, with `-press` after the stem:
+The press edition uses the same metadata, with `-press` after the page-count stem:
 
 ```text
-build/snarkypuss-press_2026-10-16_v1.3.0.pdf
+build/snarkypuss-p20-press_2026-10-16_v1.3.1.pdf
 ```
 
-The general pattern is `snarkypuss[-press]_<legislative_snapshot>_v<version>.pdf`.
+The general pattern is
+`snarkypuss[-p18|-p20][-press]_<legislative_snapshot>_v<version>.pdf`.
+The 16-page mode omits the page-count suffix to retain its original filenames.
+Expanded outputs therefore cannot overwrite the existing 16-page edition.
 The snapshot retains its configured precision (`YYYY-MM-DD` or `YYYY-MM`), and
 all version components are included. A minor-version change therefore produces a
 new filename even when the legislative snapshot stays the same. Rebuilding the
@@ -45,12 +54,14 @@ it does not increment versions, change the snapshot, copy to the website, commit
 or push anything. Publication remains manual.
 
 The legislative snapshot and edition metadata also appear inside the brochure.
-The build fails if the result is not exactly 16 pages at the expected size.
+The build fails if the result does not match the selected page count and
+expected size. Press output must have a multiple of four pages.
 
 ### The two editions
 
-Both come from the same sources and the same artwork. Only the page geometry
-differs.
+Both come from the same sources and the same artwork. In the default 20-page
+mode their page plan is identical; only the geometry differs. The optional
+18-page screen mode receives two additional blank pages for press output.
 
 | | Screen | Press |
 |---|---|---|
@@ -76,10 +87,11 @@ the guillotine anyway.
 
 | Flag | Effect |
 |---|---|
-| `--press` | Press edition: adds 3 mm bleed, trim marks, and PDF TrimBox/BleedBox. |
+| `--pages {16,18,20}` | Target page count, default **20**. Blank padding goes before the back cover. Source pages must fit the selected count. |
+| `--press` | Press edition: adds 3 mm bleed, trim marks, and PDF TrimBox/BleedBox. Rounds an 18-page target up to 20 pages. |
 | `--body-size PT` | Body text size. The entire type scale derives from it. Default 11.0. |
 | `--fit` | Exit non-zero if any page overflows its text block. Use in CI. |
-| `--tex-only` | Write `build/snarkypuss.tex` without running LuaLaTeX. |
+| `--tex-only` | Write the selected TeX job (default `build/snarkypuss-p20.tex`) without running LuaLaTeX. |
 | `--verbose` | Show LaTeX output. |
 | `--clean` | Remove build artifacts. |
 
@@ -87,6 +99,65 @@ Every build prints a per-page fill report. A page over 100% overprints its
 box; it does not repaginate, because each page is a fixed-height box. That is
 deliberate — the page count cannot drift, so overflow is a build diagnostic
 rather than something you discover by flipping through the PDF.
+
+## Expansion and blank pages
+
+The current source pages 1–15 keep their content, folios, and facing-page
+positions. In the default build, output pages **16–19 are blank** and the
+unchanged back cover moves to page **20**. Blank pages have no folio, text,
+artwork, or fill-report entry. Press blanks retain trim marks and the same
+TrimBox/BleedBox as the other pages.
+
+When new material is actually approved, insert its page markers before the
+back cover and renumber the back-cover source marker so the source remains
+contiguous. For example, new content on pages 16–17 and a back-cover source
+marker of 18 produces content on output pages 1–17, blanks on 18–19, and the
+back cover on 20. With 20 authored pages no padding is needed. The build
+refuses gaps, duplicate numbers, misplaced covers, broken facing spreads,
+and source material exceeding the chosen target; it never discards content.
+
+```bash
+# Current branch default: 20-page screen PDF and 20-page press PDF
+python3 tools/build.py --fit
+python3 tools/build.py --press --fit
+
+# Original 16-page layout, without padding
+python3 tools/build.py --pages 16 --fit
+
+# Optional digital target of 18 pages; press still needs 20
+python3 tools/build.py --pages 18 --fit
+python3 tools/build.py --pages 18 --press --fit
+```
+
+`snarkypuss-p18-press_...pdf` has **20 pages**: its `p18` name identifies the
+requested screen target, not the physical print count. Every build prints its
+actual page plan before compiling, including the number of authored and blank
+pages.
+
+Press files contain **single pages in reading order**, not imposed A4 spreads.
+Give the 20-page press PDF to the printer for five-sheet saddle-stitch
+imposition. For home booklet printing use the screen PDF with the print
+application's booklet mode. Do not print the press PDF as ordinary A4 pages
+or treat its bleed-and-marks page size as an A4 sheet.
+
+The page splits under `build/pages-p20/` (or `pages-p20-press/`,
+`pages-p18/`, `pages-p18-press/`, and legacy `pages/`) are derived inspection
+files. Padding exists only in generated files, never in `content/`. The
+page-plan machinery does not change edition metadata or publish anything.
+
+### Build tests
+
+The test suite uses only Python's standard library and does not require TeX:
+
+```bash
+cd brochure
+python3 -m unittest discover -s tools -v
+```
+
+It covers current and future source counts, padding placement, back-cover
+position, source validation, output naming, TeX generation, and both PDF
+validation paths. For final print approval, also build both editions with
+`--fit` and inspect the generated PDFs; unit tests do not verify typesetting.
 
 ## Toolchain
 
@@ -169,7 +240,7 @@ README.md         this file
 ```
 
 `build/` is generated and is ignored by `.gitignore`. That includes
-`build/pages/`, the per-page split the build writes for inspection. Those
+the `build/pages*/` per-page splits the build writes for inspection. Those
 files are derived — never edit them, and never commit them.
 
 ### Page markers
@@ -197,7 +268,8 @@ pages. Currently: `01-why.md` covers 1–4, `02-what.md` 5–9,
 
 To move a paragraph from one page to the next, move the page marker — not the
 paragraph. To repaginate a whole section, move several markers. The build
-validates that pages run 1–16 with no gaps, and that a
+validates that source pages run consecutively from 1 with no gaps or duplicates,
+fit the selected target, begin with a cover and end with a back cover, and that a
 `spread-left` falls on an even page with `spread-right` on the page after it.
 In a saddle-stitched booklet page 1 is a right-hand page, so facing pairs are
 2–3, 4–5, 6–7, 8–9, 10–11, 12–13 and 14–15. A spread beginning on an odd page

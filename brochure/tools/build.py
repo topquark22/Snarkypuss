@@ -18,18 +18,35 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTENT = ROOT / "content"
 EDITION = ROOT / "edition.conf"
 QR_TEX = ROOT / "images" / "diagrams" / "qr-site.tex"
-DERIVED = ROOT / "build" / "pages"
 TEMPLATE = ROOT / "templates" / "brochure.tex"
 BUILD = ROOT / "build"
-def artifacts(press=False):
+DEFAULT_PAGE_COUNT = 20
+PAGE_COUNTS = (16, 18, 20)
+
+
+def output_page_count(page_count=DEFAULT_PAGE_COUNT, press=False):
+    """Press signatures need a multiple of four; screen PDFs do not."""
+    if page_count not in PAGE_COUNTS:
+        raise BuildError(f"page count must be one of {PAGE_COUNTS}; got {page_count}")
+    return ((page_count + 3) // 4) * 4 if press else page_count
+
+
+def artifact_stem(press=False, page_count=DEFAULT_PAGE_COUNT):
+    # Preserve the original 16-page filenames. Expanded variants never replace
+    # that edition's output, even if version and snapshot are unchanged.
+    suffix = "" if page_count == 16 else f"-p{page_count}"
+    return "snarkypuss" + suffix + ("-press" if press else "")
+
+
+def artifacts(press=False, page_count=DEFAULT_PAGE_COUNT):
     """Stable working filenames for the TeX job; not the delivered PDF names."""
-    stem = "snarkypuss-press" if press else "snarkypuss"
+    stem = artifact_stem(press, page_count)
     return BUILD / f"{stem}.tex", BUILD / f"{stem}.pdf"
 
 
-def pdf_name(edition, press=False):
+def pdf_name(edition, press=False, page_count=DEFAULT_PAGE_COUNT):
     """Name the local PDF using the manually maintained snapshot and full version."""
-    stem = "snarkypuss-press" if press else "snarkypuss"
+    stem = artifact_stem(press, page_count)
     return BUILD / f"{stem}_{edition['snapshot_raw']}_v{edition['version']}.pdf"
 
 
@@ -39,7 +56,6 @@ MARK_MM = 5.0                 # zone outside the bleed for trim marks
 MARGIN_MM = BLEED_MM + MARK_MM
 MM_TO_BP = 72.0 / 25.4
 
-PAGE_COUNT = 16
 PAGE_MARKER_RE = __import__("re").compile(
     r"^<!--\s*page:\s*(\d+)((?:\s+[a-z_]+=\S+)*)\s*-->\s*$")
 DEFAULT_BODY_SIZE = 11.0
@@ -381,9 +397,14 @@ def load_pages():
     pages.sort(key=lambda item: item[0]["page"])
 
     numbers = [meta["page"] for meta, _ in pages]
-    if numbers != list(range(1, PAGE_COUNT + 1)):
+    if numbers != list(range(1, len(pages) + 1)):
         raise BuildError(
-            f"page sequence must be 1..{PAGE_COUNT} with no gaps or duplicates; got {numbers}")
+            f"page sequence must be 1..{len(pages)} with no gaps or duplicates; got {numbers}")
+    if (len(pages) < 2 or pages[0][0]["layout"] != "cover"
+            or pages[-1][0]["layout"] != "backcover"):
+        raise BuildError("content must begin with a cover and end with a backcover")
+    if any(meta["layout"] in ("cover", "backcover") for meta, _ in pages[1:-1]):
+        raise BuildError("cover and backcover layouts are only allowed at the ends")
 
     # A saddle-stitched booklet puts an even page on the left of each facing
     # pair. A spread that starts on an odd page does not face its partner.
@@ -409,23 +430,54 @@ def load_pages():
     return pages
 
 
-def write_derived(pages):
-    """Write the split pages for inspection. Generated, not source."""
-    DERIVED.mkdir(parents=True, exist_ok=True)
+def plan_pages(pages, page_count=DEFAULT_PAGE_COUNT, press=False):
+    """Pad before the back cover without rewriting or repaginating source text.
+
+    All existing interior pages keep their folios and facing-page parity. The
+    back cover moves to the final page. Padding is deliberately blank: no folio,
+    placeholder text, artwork or fill-report entry.
+    """
+    target = output_page_count(page_count, press)
+    if len(pages) > page_count:
+        raise BuildError(
+            f"{len(pages)} source pages exceed --pages {page_count}; "
+            "choose a larger page count or repaginate the content")
+    planned = [(dict(meta), body) for meta, body in pages]
+    back, body = planned.pop()
+    for n in range(len(pages), target):
+        planned.append(({"page": n, "layout": "blank",
+                         "source": "build padding (no authored content)"}, ""))
+    back["page"] = target
+    planned.append((back, body))
+    return planned
+
+
+def write_derived(pages, press=False, page_count=DEFAULT_PAGE_COUNT):
+    """Write the page plan for inspection. Generated, not source."""
+    suffix = "" if page_count == 16 else f"-p{page_count}" + ("-press" if press else "")
+    derived = BUILD / ("pages" + suffix)
+    derived.mkdir(parents=True, exist_ok=True)
+    for old in derived.glob("[0-9][0-9].md"):
+        old.unlink()
     for meta, body in pages:
         lines = [f"<!-- derived from {meta['source']} - do not edit -->",
                  f"<!-- page: {meta['page']} layout={meta['layout']} -->", ""]
-        (DERIVED / f"{meta['page']:02d}.md").write_text(
+        (derived / f"{meta['page']:02d}.md").write_text(
             "\n".join(lines) + body + "\n", encoding="utf-8")
 
 
-def generate_tex(verbose=False, body_size=DEFAULT_BODY_SIZE, press=False):
+def generate_tex(verbose=False, body_size=DEFAULT_BODY_SIZE, press=False,
+                 page_count=DEFAULT_PAGE_COUNT):
     edition = read_edition()
-    pages = load_pages()
-    write_derived(pages)
+    pages = plan_pages(load_pages(), page_count, press)
+    write_derived(pages, press, page_count)
     chunks = []
     for meta, body in pages:
         n, layout = meta["page"], meta["layout"]
+        if layout == "blank":
+            chunks.append("% Blank padding page " + str(n) + "\n"
+                          + r"\thispagestyle{empty}\cropmarks\null\clearpage")
+            continue
         if layout in ("cover", "backcover"):
             art = meta.get("art")
             if not art:
@@ -466,7 +518,7 @@ def generate_tex(verbose=False, body_size=DEFAULT_BODY_SIZE, press=False):
             raise BuildError(f"template is missing {key} placeholder")
         tex = tex.replace(key, value)
     tex = tex.replace("%%CONTENT%%", "\n".join(chunks))
-    tex_path, _ = artifacts(press)
+    tex_path, _ = artifacts(press, page_count)
     BUILD.mkdir(parents=True, exist_ok=True)
     tex_path.write_text(tex, encoding="utf-8")
     if verbose:
@@ -498,7 +550,7 @@ def check_fonts():
             "\n            TeX Live:      tlmgr install libertinus-fonts")
 
 
-def compile_pdf(verbose=False, press=False):
+def compile_pdf(verbose=False, press=False, page_count=DEFAULT_PAGE_COUNT):
     engine = shutil.which("lualatex")
     if not engine:
         raise BuildError("lualatex was not found in PATH")
@@ -511,7 +563,7 @@ def compile_pdf(verbose=False, press=False):
     # an escape; MiKTeX and TeX Live both accept them.
     command = [engine, "-interaction=nonstopmode", "-halt-on-error",
                "-output-directory", BUILD.relative_to(ROOT).as_posix(),
-               artifacts(press)[0].relative_to(ROOT).as_posix()]
+               artifacts(press, page_count)[0].relative_to(ROOT).as_posix()]
     log = ""
     for _ in range(2):
         env = dict(os.environ, max_print_line="10000", error_line="254", half_error_line="238")
@@ -560,7 +612,7 @@ def print_fit(rows):
         print(f"  {page:>4}  {layout:<13}  {pct:>5.1f}%  {status}")
 
 
-def validate_pdf(press=False, log=""):
+def validate_pdf(press=False, log="", page_count=DEFAULT_PAGE_COUNT):
     """Check the produced PDF.
 
     pdfinfo (poppler) gives the strongest check, reading page count and page
@@ -569,7 +621,8 @@ def validate_pdf(press=False, log=""):
     to the engine's own report of what it wrote. That still catches a wrong
     page count; it cannot independently confirm the page size.
     """
-    pdf = artifacts(press)[1]
+    expected_count = output_page_count(page_count, press)
+    pdf = artifacts(press, page_count)[1]
     if not pdf.exists():
         raise BuildError("PDF was not produced")
 
@@ -581,8 +634,8 @@ def validate_pdf(press=False, log=""):
                 "cannot verify the PDF: pdfinfo is not in PATH and the LaTeX "
                 "log did not report a page count")
         count = int(m.group(1))
-        if count != PAGE_COUNT:
-            raise BuildError(f"expected exactly {PAGE_COUNT} pages, got {count}")
+        if count != expected_count:
+            raise BuildError(f"expected exactly {expected_count} pages, got {count}")
         print("note: pdfinfo not found; page size not independently verified")
         return count
 
@@ -593,8 +646,8 @@ def validate_pdf(press=False, log=""):
     if not pages:
         raise BuildError("could not determine PDF page count")
     count = int(pages.group(1))
-    if count != PAGE_COUNT:
-        raise BuildError(f"expected exactly {PAGE_COUNT} pages, got {count}")
+    if count != expected_count:
+        raise BuildError(f"expected exactly {expected_count} pages, got {count}")
     size = re.search(r"^Page size:\s+([0-9.]+) x ([0-9.]+) pts", info, re.M)
     if not size:
         raise BuildError("could not determine PDF page size")
@@ -615,6 +668,10 @@ def clean():
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--pages", type=int, choices=PAGE_COUNTS,
+                        default=DEFAULT_PAGE_COUNT,
+                        help="target pages (default: 20 on p18); pad before the back cover. "
+                             "--press rounds 18 up to 20")
     parser.add_argument("--tex-only", action="store_true")
     parser.add_argument("--fit", action="store_true",
                         help="report per-page fill and exit non-zero on overflow")
@@ -633,7 +690,10 @@ def main():
 
     edition = read_edition()
     ensure_qr(edition["site_url"])
-    generate_tex(args.verbose, args.body_size, args.press)
+    pages = generate_tex(args.verbose, args.body_size, args.press, args.pages)
+    blanks = sum(meta["layout"] == "blank" for meta, _ in pages)
+    print(f"page plan: {len(pages)} total, {len(pages) - blanks} authored, "
+          f"{blanks} blank; back cover on page {len(pages)}")
     if args.tex_only:
         return
 
@@ -643,10 +703,10 @@ def main():
     except (RuntimeError, subprocess.CalledProcessError) as exc:
         raise BuildError(str(exc)) from exc
 
-    log = compile_pdf(args.verbose, args.press)
-    count = validate_pdf(args.press, log)
-    target = pdf_name(edition, args.press)
-    artifacts(args.press)[1].replace(target)
+    log = compile_pdf(args.verbose, args.press, args.pages)
+    count = validate_pdf(args.press, log, args.pages)
+    target = pdf_name(edition, args.press, args.pages)
+    artifacts(args.press, args.pages)[1].replace(target)
     rows = fit_report(log)
     geometry = "press, trim + 3mm bleed + marks" if args.press else "screen, A5 trim"
     print(f"built {target} ({count} pages, {geometry}) at {args.body_size}pt body")
