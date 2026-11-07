@@ -44,6 +44,7 @@ from snarkyctl.providers.base import (
 )
 from snarkyctl.status import PublicIpStatus, StatusCollectionError
 from snarkyctl.targets.models import (
+    JsonObject,
     ProviderTargetSchema,
     SelectorField,
     SelectorFieldType,
@@ -113,13 +114,17 @@ def control_service(
     public_ip_collector: object | None = None,
     target_repository: TargetRepository | None = None,
     recovery_enabled: bool = False,
+    recovery_target_policy: str = "fallback",
 ) -> daemon.ControlService:
     configured_target = VpnTarget(
         alias="dallas", label="Dallas, United States", provider_target="us9167"
     )
     config = SimpleNamespace(
         settings=SimpleNamespace(
-            control=SimpleNamespace(recovery_enabled=recovery_enabled),
+            control=SimpleNamespace(
+                recovery_enabled=recovery_enabled,
+                recovery_target_policy=recovery_target_policy,
+            ),
             status=SimpleNamespace(
                 public_ip_url="https://api.ipify.org",
                 public_ip_timeout_seconds=5,
@@ -1406,10 +1411,10 @@ def test_watchdog_never_reconnects_after_explicit_locked_or_direct_mode() -> Non
 
 def test_watchdog_resumes_after_restart_only_if_provider_is_connected() -> None:
     target = VpnTarget(alias="dallas", label="Dallas", provider_target="us9167")
-    provider = FakeProvider()
+    provider = RecommendedRecoveryProvider()
     provider.connect(target)
     service = control_service(provider, recovery_enabled=True)
-    assert service._current_target_alias == "dallas"
+    assert service._current_target_alias == "recommended"
 
     def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
         raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
@@ -1525,3 +1530,214 @@ def test_watchdog_resets_stuck_connecting_provider_without_intervention() -> Non
     assert provider.connected_target is not None
     assert provider.protection_enabled
     assert service._recovery_failures == 0
+
+
+class RecommendedRecoveryProvider(FakeProvider):
+    """Fake adapter supporting the built-in Recommended target for watchdog tests."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.attempted_aliases: list[str] = []
+        self.primary_unavailable = False
+
+    def target_schema(self) -> ProviderTargetSchema:
+        return ProviderTargetSchema(
+            provider="fake",
+            selector_kinds=(
+                SelectorKind(kind="legacy", label="Legacy"),
+                SelectorKind(kind="recommended", label="Recommended"),
+            ),
+        )
+
+    def validate_selector(self, selector: JsonObject) -> JsonObject:
+        if selector == {"kind": "recommended"}:
+            return selector
+        return super().validate_selector(selector)
+
+    def connect_stored(self, target: StoredTarget) -> VpnStatus:
+        self.attempted_aliases.append(target.alias)
+        if target.alias == "dallas" and self.primary_unavailable:
+            raise ProviderError("PROVIDER_COMMAND_FAILED", "selected server unavailable")
+        if target.alias == "recommended":
+            self.connected_target = VpnTarget(
+                alias="recommended", label="Recommended", provider_target="recommended"
+            )
+            return self.status()
+        return super().connect_stored(target)
+
+
+def test_recovery_fallback_default_chooses_recommended_after_selected_failure() -> None:
+    provider = RecommendedRecoveryProvider()
+
+    def probe(_url: str, _timeout: float) -> PublicIpStatus:
+        if provider.connected_target is None or provider.connected_target.alias != "recommended":
+            raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+        return PublicIpStatus(address="203.0.113.42", checked_at=datetime.now(UTC))
+
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=probe
+    )
+    assert service._recovery_target_policy == "fallback"
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    provider.primary_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas", "dallas", "recommended"]
+    assert provider.connected_target is not None
+    assert provider.connected_target.alias == "recommended"
+    assert service._current_target_alias == "recommended"
+    assert service._recovery_failures == 0
+    assert provider.protection_enabled
+
+
+def test_recovery_fallback_runs_after_connected_but_unreachable_primary() -> None:
+    provider = RecommendedRecoveryProvider()
+
+    def probe(_url: str, _timeout: float) -> PublicIpStatus:
+        if provider.connected_target is None or provider.connected_target.alias != "recommended":
+            raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+        return PublicIpStatus(address="203.0.113.42", checked_at=datetime.now(UTC))
+
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=probe
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas", "dallas", "recommended"]
+    assert service._current_target_alias == "recommended"
+    assert provider.protection_enabled
+
+
+def test_recovery_strict_never_substitutes_an_unavailable_target() -> None:
+    provider = RecommendedRecoveryProvider()
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider,
+        recovery_enabled=True,
+        recovery_target_policy="strict",
+        public_ip_collector=unavailable,
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    provider.primary_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas", "dallas"]
+    assert provider.connected_target is None
+    assert service._current_target_alias == "dallas"
+    assert provider.protection_enabled
+
+    service._recovery_retry_after = 0.0
+    service.check_recovery()
+    assert provider.attempted_aliases == ["dallas", "dallas", "dallas"]
+
+
+def test_recovery_strict_does_not_guess_after_restart_or_target_removal() -> None:
+    provider = RecommendedRecoveryProvider()
+    provider.connect(VpnTarget(alias="dallas", label="Dallas", provider_target="us9167"))
+    strict = control_service(
+        provider, recovery_enabled=True, recovery_target_policy="strict"
+    )
+    assert strict._current_target_alias is None
+    assert strict._recovery_target() is None
+
+    strict._current_target_alias = "missing"
+    assert strict._recovery_target() is None
+    recommended = strict._resolve_target("recommended")
+    assert recommended is not None
+    assert strict._recovery_fallback(recommended) is None
+
+
+def test_recovery_fallback_does_not_choose_arbitrary_catalogue_entry() -> None:
+    provider = RecommendedRecoveryProvider()
+    service = control_service(provider, recovery_enabled=True)
+    service._current_target_alias = "missing"
+    target = service._recovery_target()
+    assert target is not None
+    assert target.alias == "recommended"
+    assert service._recovery_fallback(target) is None
+
+
+def test_recovery_unreachable_fallback_leaves_original_intent_protected() -> None:
+    provider = RecommendedRecoveryProvider()
+
+    def unavailable(_url: str, _timeout: float) -> PublicIpStatus:
+        raise StatusCollectionError("PUBLIC_IP_REQUEST_FAILED", "unreachable")
+
+    service = control_service(
+        provider, recovery_enabled=True, public_ip_collector=unavailable
+    )
+    assert service.dispatch(
+        ProtectedRequest(
+            version=PROTOCOL_VERSION,
+            request_id=REQUEST_ID,
+            operation=Operation.PROTECTED,
+            target="dallas",
+        )
+    ).success
+
+    provider.primary_unavailable = True
+    for _ in range(3):
+        service.check_recovery()
+
+    assert provider.attempted_aliases == ["dallas", "dallas", "recommended"]
+    assert provider.connected_target is None
+    assert provider.protection_enabled
+    assert service._current_target_alias == "dallas"
+    assert service._recovery_retry_after > 0
+
+
+def test_recovery_does_not_substitute_a_different_saved_catalogue_entry() -> None:
+    repository = MemoryTargetRepository(
+        (
+            TargetCatalogue(
+                provider="fake",
+                revision=1,
+                targets=(
+                    StoredTarget(
+                        alias="dallas", label="Dallas", position=0,
+                        selector={"kind": "legacy", "value": "us9167"},
+                    ),
+                    StoredTarget(
+                        alias="paris", label="Paris", position=1,
+                        selector={"kind": "legacy", "value": "fr812"},
+                    ),
+                ),
+            ),
+        )
+    )
+    service = control_service(
+        FakeProvider(), recovery_enabled=True, target_repository=repository
+    )
+    service._current_target_alias = "missing"
+    assert service._recovery_target() is None

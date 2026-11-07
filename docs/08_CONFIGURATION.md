@@ -614,6 +614,33 @@ making network changes. Three consecutive unhealthy checks trigger an automatic
 protected LOCKED-to-VPN reconnect; another attempt may follow after a 15-minute
 cooldown if connectivity is still unavailable.
 
+Set `control.recovery_target_policy` to `strict` or `fallback` (default):
+
+```yaml
+control:
+  recovery_enabled: true
+  recovery_target_policy: fallback
+```
+
+- `strict`: Retry the currently selected configured target only. Never substitute a
+  different target alias. A Specific Server selector therefore remains pinned to
+  that server. A country, city, group, or Recommended selector may still resolve
+  to a different physical server *within that selector* under NordVPN's own
+  selection rules; use Specific Server to pin one physical server.
+- `fallback` (default): Try the selected target first. Country, city, and group
+  selectors allow NordVPN to choose another server matching the same specification.
+  If the selected target cannot establish verified connectivity, SnarkyCtl may
+  instead connect using the provider's built-in Recommended target, when supported.
+  A Specific Server target can therefore recover using Recommended. The fallback
+  never selects an arbitrary other entry from the SQLite targets catalogue.
+
+When a replacement target is connected **and** upstream Internet connectivity
+is verified, it becomes the active selection for subsequent watchdog checks.
+Until then, the previously selected target remains the intended destination.
+If no permitted alternative exists, the watchdog retries the original target
+after the normal cooldown. Both modes retain kill-switch protection, never
+enter Direct mode during recovery, and require no additional persisted state.
+
 The watchdog treats a spontaneously DISCONNECTED or FAILED VPN as unhealthy while
 a previously selected VPN mode remains intended. It retains that target through
 outages, failed reconnections and status polling, rather than abandoning retries
@@ -631,10 +658,11 @@ nonblocking operation lock. No additional target-selection persistence is added.
 **Restart limitation:** The target database stores the destination catalogue,
 not the currently active target alias or desired gateway mode. If the privileged
 daemon restarts while the VPN is still connected and verified protected, the
-watchdog can resume monitoring by choosing the sole configured target (if there
-is one), otherwise the built-in recommended target or first catalogue entry.
-That fallback could differ from the target used before restart. If the daemon
-restarts after the provider is already disconnected, it cannot distinguish an
+watchdog can resume monitoring under `fallback` policy using the built-in
+Recommended target. Under `strict` policy, it cannot infer the original selection
+and does not substitute one. If Recommended is unavailable, the watchdog does
+not invent a destination from the target catalogue.
+If the daemon restarts after the provider is already disconnected, it cannot distinguish an
 intentional Locked mode from a dropped VPN without persisting additional state;
 it therefore does not automatically connect in that ambiguous case. This
 limitation is necessary to honor explicit Locked mode without adding persistence.

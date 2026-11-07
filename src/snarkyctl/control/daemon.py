@@ -104,6 +104,9 @@ class ControlService:
         self._recovery_enabled = getattr(
             getattr(config.settings, "control", None), "recovery_enabled", False
         )
+        self._recovery_target_policy = getattr(
+            getattr(config.settings, "control", None), "recovery_target_policy", "fallback"
+        )
         self._recovery_failures = 0
         self._recovery_retry_after = 0.0
         repository = target_repository
@@ -667,14 +670,46 @@ class ControlService:
 
 
     def _recovery_target(self) -> StoredTarget | None:
-        """Reuse the active selection or a configured fallback after a restart."""
+        """Resolve the desired target without changing it under strict policy."""
         if self._current_target_alias is not None:
             target = self._resolve_target(self._current_target_alias)
             if target is not None:
                 return target
-        if len(self._targets) == 1:
-            return next(iter(self._targets.values()))
-        return self._builtin_recommended_target or next(iter(self._targets.values()), None)
+            if self._recovery_target_policy == "strict":
+                return None
+            return self._builtin_recommended_target
+        if self._recovery_target_policy == "strict":
+            return None
+        return self._builtin_recommended_target
+
+    def _recovery_fallback(self, target: StoredTarget) -> StoredTarget | None:
+        """Permit only the built-in recommended target as a replacement."""
+        if self._recovery_target_policy == "strict":
+            return None
+        if self._builtin_recommended_target is None:
+            return None
+        if target.alias == self._builtin_recommended_target.alias:
+            return None
+        return self._builtin_recommended_target
+
+    def _restore_protected_locked_mode(self) -> bool:
+        """Attempt to recover the kill-switch-protected Locked state."""
+        try:
+            settings = self._provider.set_leak_protection(True)
+            if (
+                settings.leak_protection_enabled is not True
+                or settings.firewall_enabled is not True
+            ):
+                LOGGER.critical("cannot verify firewall after recovery failure")
+                return False
+            disconnected = self._provider.disconnect()
+            if disconnected.state is not VpnState.DISCONNECTED:
+                LOGGER.critical("could not confirm Locked mode after recovery failure")
+                return False
+        except ProviderError as exc:
+            LOGGER.error("could not confirm Locked mode after recovery failure: %s", exc.code)
+            return False
+        return True
 
     def _probe_upstream(self) -> tuple[bool, tuple[str, ...]]:
         """Try independent verified-HTTPS endpoints without logging URL contents."""
@@ -764,60 +799,63 @@ class ControlService:
                     return
             self._recovery_retry_after = time.monotonic() + RECOVERY_COOLDOWN_SECONDS
             LOGGER.warning("attempting protected automatic VPN recovery")
-            try:
-                if status.state is not VpnState.DISCONNECTED:
-                    disconnected = self._provider.disconnect()
-                    if disconnected.state is not VpnState.DISCONNECTED:
+            fallback = self._recovery_fallback(target)
+            candidates = (target,) if fallback is None else (target, fallback)
+            for position, candidate in enumerate(candidates):
+                try:
+                    status = self._provider.status()
+                    if status.state is not VpnState.DISCONNECTED:
+                        disconnected = self._provider.disconnect()
+                        if disconnected.state is not VpnState.DISCONNECTED:
+                            raise ProviderError(
+                                "UNSAFE_RECOVERY",
+                                "provider did not confirm disconnection",
+                            )
+                    locked_settings = self._provider.settings()
+                    if (
+                        locked_settings.leak_protection_enabled is not True
+                        or locked_settings.firewall_enabled is not True
+                    ):
                         raise ProviderError(
                             "UNSAFE_RECOVERY",
-                            "provider did not confirm disconnection",
+                            "provider did not confirm protected Locked mode",
                         )
-                locked_settings = self._provider.settings()
-                if (
-                    locked_settings.leak_protection_enabled is not True
-                    or locked_settings.firewall_enabled is not True
-                ):
-                    raise ProviderError(
-                        "UNSAFE_RECOVERY",
-                        "provider did not confirm protected Locked mode",
-                    )
-                connected = self._provider.connect_stored(target)
-                connected_settings = self._provider.settings()
-                if (
-                    connected.state is not VpnState.CONNECTED
-                    or connected_settings.leak_protection_enabled is not True
-                    or connected_settings.firewall_enabled is not True
-                ):
-                    raise ProviderError(
-                        "UNSAFE_RECOVERY",
-                        "provider did not confirm protected VPN mode",
-                    )
-            except ProviderError as exc:
-                LOGGER.error("protected VPN recovery failed: %s; retrying later", exc.code)
-                # Keep the intended target for later retries; never enter Direct.
-                try:
-                    protection = self._provider.set_leak_protection(True)
+                    connected = self._provider.connect_stored(candidate)
+                    connected_settings = self._provider.settings()
                     if (
-                        protection.leak_protection_enabled is True
-                        and protection.firewall_enabled is True
+                        connected.state is not VpnState.CONNECTED
+                        or connected_settings.leak_protection_enabled is not True
+                        or connected_settings.firewall_enabled is not True
                     ):
-                        self._provider.disconnect()
-                    else:
-                        LOGGER.critical("cannot verify firewall after recovery failure")
-                except ProviderError:
-                    LOGGER.exception("could not confirm Locked mode after recovery failure")
-                return
-            self._current_target_alias = target.alias
-            reachable, failures = self._probe_upstream()
-            if reachable:
-                LOGGER.info("protected VPN upstream connectivity restored automatically")
-                self._recovery_failures = 0
-                self._recovery_retry_after = 0.0
-            else:
+                        raise ProviderError(
+                            "UNSAFE_RECOVERY",
+                            "provider did not confirm protected VPN mode",
+                        )
+                except ProviderError as exc:
+                    LOGGER.error(
+                        "protected VPN recovery connection failed: %s; retrying later",
+                        exc.code,
+                    )
+                    if not self._restore_protected_locked_mode():
+                        return
+                    continue
+
+                reachable, failures = self._probe_upstream()
+                if reachable:
+                    self._current_target_alias = candidate.alias
+                    LOGGER.info("protected VPN upstream connectivity restored automatically")
+                    self._recovery_failures = 0
+                    self._recovery_retry_after = 0.0
+                    return
                 LOGGER.warning(
-                    "VPN reconnected but upstream probes still fail; retrying later: %s",
+                    "VPN reconnected but upstream probes still fail: %s",
                     ", ".join(failures),
                 )
+                if position > 0:
+                    # Keep the original intent rather than claiming an unhealthy fallback.
+                    if not self._restore_protected_locked_mode():
+                        return
+            LOGGER.warning("upstream recovery remains incomplete; retrying after cooldown")
         finally:
             self._operation_lock.release()
 

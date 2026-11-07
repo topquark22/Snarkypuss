@@ -51,6 +51,7 @@ def test_load_valid_config(tmp_path: Path) -> None:
     assert loaded.settings.upstream_vpn.provider == "nordvpn"
     assert loaded.settings.status.public_ip_url == "https://api.ipify.org"
     assert loaded.settings.control.recovery_enabled is True
+    assert loaded.settings.control.recovery_target_policy == "fallback"
     assert loaded.targets is not None
     assert loaded.targets.targets[0].alias == "dallas"
 
@@ -157,3 +158,32 @@ def test_automatic_recovery_can_be_disabled(tmp_path: Path) -> None:
     )
     path.write_text(content, encoding="utf-8")
     assert load_config(path).settings.control.recovery_enabled is False
+
+
+@pytest.mark.parametrize("value", ["strict", "fallback"])
+def test_recovery_target_policy_accepts_supported_values(
+    tmp_path: Path, value: str
+) -> None:
+    path = write_config(tmp_path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(
+        "  operation_timeout_seconds: 60",
+        f"  operation_timeout_seconds: 60\n  recovery_target_policy: {value}",
+    )
+    path.write_text(content, encoding="utf-8")
+    assert load_config(path).settings.control.recovery_target_policy == value
+
+
+@pytest.mark.parametrize("value", ["random", "recommended", "STRICT", "true"])
+def test_recovery_target_policy_rejects_unknown_values(
+    tmp_path: Path, value: str
+) -> None:
+    path = write_config(tmp_path)
+    content = path.read_text(encoding="utf-8")
+    content = content.replace(
+        "  operation_timeout_seconds: 60",
+        f"  operation_timeout_seconds: 60\n  recovery_target_policy: {value}",
+    )
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(ConfigError, match="recovery_target_policy"):
+        load_config(path)

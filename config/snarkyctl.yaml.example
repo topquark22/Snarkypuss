@@ -21,6 +21,8 @@ control:
   operation_timeout_seconds: 60
   # Automatically restore an interrupted protected VPN; disable for manual-only operation.
   recovery_enabled: true
+  # 'strict' retries only the selected target; 'fallback' may use Recommended.
+  recovery_target_policy: fallback
 
 status:
   # HTTPS verification uses the operating system trust store and cannot be disabled.

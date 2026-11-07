@@ -490,10 +490,18 @@ disconnect, LOCKED request, or DIRECT request cancels that intent; a transient
 outage or failed reconnect does not. The watchdog preserves leak protection and
 retries after a cooldown until upstream connectivity is verified.
 
+The root-owned `control.recovery_target_policy` may be `strict` or
+`fallback` (default). Strict keeps the current configured selector;
+fallback retries that selector and may then select the provider's built-in
+Recommended target when connectivity is still unavailable. Country/city/group
+selectors delegate server choice within their constraints to the provider.
+A specific physical server is pinned only by a Specific Server selector.
+The watchdog does not select arbitrary other catalogue rows.
+
 Daemon restart discards this runtime intent. If the provider is still connected
-and verified protected, monitoring may resume using a configured destination
-fallback, which need not be the previously selected one. If the provider is
-disconnected at startup, the daemon cannot distinguish intentional LOCKED mode
+and verified protected, monitoring may resume with Recommended under
+`fallback` policy; `strict` never guesses the missing selection.
+If the provider is disconnected at startup, the daemon cannot distinguish intentional LOCKED mode
 from a failed VPN without stored runtime state, and must not guess. This
 limitation is accepted: **no additional persistence will be introduced**.
 See ADR-017 in `development/DECISIONS.md`.

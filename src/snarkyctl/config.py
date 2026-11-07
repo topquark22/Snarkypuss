@@ -71,6 +71,7 @@ class ControlConfig(BaseModel):
     socket_path: Path
     operation_timeout_seconds: float = Field(gt=0, le=300)
     recovery_enabled: bool = True
+    recovery_target_policy: Literal["strict", "fallback"] = "fallback"
 
     @field_validator("socket_path")
     @classmethod
