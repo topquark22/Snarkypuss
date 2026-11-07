@@ -609,10 +609,10 @@ The background watchdog is enabled by default. To disable it and manage VPN
 reconnections manually, set `control.recovery_enabled: false` in the root-owned
 configuration. The example configuration enables it explicitly. The watchdog
 runs every 60 seconds, checks two independent verified-HTTPS public-IP endpoints,
-and confirms both the provider kill switch and firewall are enabled before
-making network changes. Three consecutive unhealthy checks trigger an automatic
-protected LOCKED-to-VPN reconnect; another attempt may follow after a 15-minute
-cooldown if connectivity is still unavailable.
+and confirms both provider-reported leak protection and firewall protection
+are enabled before making network changes. Three consecutive unhealthy checks
+trigger an automatic protected LOCKED-to-VPN reconnect; another attempt may
+follow after a 15-minute cooldown if connectivity is still unavailable.
 
 Set `control.recovery_target_policy` to `strict` or `fallback` (default):
 
@@ -622,17 +622,15 @@ control:
   recovery_target_policy: fallback
 ```
 
-- `strict`: Retry the currently selected configured target only. Never substitute a
-  different target alias. A Specific Server selector therefore remains pinned to
-  that server. A country, city, group, or Recommended selector may still resolve
-  to a different physical server *within that selector* under NordVPN's own
-  selection rules; use Specific Server to pin one physical server.
-- `fallback` (default): Try the selected target first. Country, city, and group
-  selectors allow NordVPN to choose another server matching the same specification.
-  If the selected target cannot establish verified connectivity, SnarkyCtl may
-  instead connect using the provider's built-in Recommended target, when supported.
-  A Specific Server target can therefore recover using Recommended. The fallback
-  never selects an arbitrary other entry from the SQLite targets catalogue.
+- `strict`: Retry the selected target specification only; never substitute
+  another target alias. The provider may resolve a broader selector to different
+  physical servers according to its own rules. Pinning one physical server
+  requires a provider-supported exact-server selector.
+- `fallback` (default): Try the selected target specification first. The
+  provider may choose another physical server within that specification. If
+  connectivity cannot be verified, SnarkyCtl may instead try the provider's
+  built-in Recommended target, when supported. It never chooses an arbitrary
+  other entry from the SQLite targets catalogue.
 
 When a replacement target is connected **and** upstream Internet connectivity
 is verified, it becomes the active selection for subsequent watchdog checks.

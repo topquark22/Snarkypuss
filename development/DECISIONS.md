@@ -892,14 +892,15 @@ LOCKED, or DIRECT request cancels the in-memory intent. The watchdog must never
 disable leak protection or use Direct mode as a recovery fallback.
 
 The root-owned `control.recovery_target_policy` configuration determines
-whether the watchdog can substitute another target. `strict` permits only
-the current configured selector. `fallback` (default) first retries the same
-selector (which may select another server within a geographic or group scope)
-and then permits the built-in Recommended selector if verification still fails.
-No other catalogue row is selected arbitrarily. Strict selection of a specific
-physical server requires a Specific Server selector; the provider owns the
-resolution of broader selectors. A successful, verified replacement becomes
-the active in-memory target; failed attempts do not overwrite the original intent.
+whether the watchdog can substitute another target. `strict` retries only the
+selected target specification. `fallback` (default) first retries that
+specification and then permits the provider's built-in Recommended target if
+connectivity verification still fails. Each provider owns the interpretation
+of its selectors, including whether a selector may resolve to a different
+physical server. Exact-server pinning requires provider support; neither mode
+implies it for broader selectors. No other catalogue row is selected
+arbitrarily. A successful, verified replacement becomes the active in-memory
+target; failed attempts do not overwrite the original intent.
 
 ### Restart and failure consequences
 

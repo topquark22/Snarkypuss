@@ -491,12 +491,22 @@ outage or failed reconnect does not. The watchdog preserves leak protection and
 retries after a cooldown until upstream connectivity is verified.
 
 The root-owned `control.recovery_target_policy` may be `strict` or
-`fallback` (default). Strict keeps the current configured selector;
-fallback retries that selector and may then select the provider's built-in
-Recommended target when connectivity is still unavailable. Country/city/group
-selectors delegate server choice within their constraints to the provider.
-A specific physical server is pinned only by a Specific Server selector.
-The watchdog does not select arbitrary other catalogue rows.
+`fallback` (default). Strict retries the selected target specification without
+substituting another target. Fallback retries that specification and may then
+try the provider's built-in Recommended target when connectivity is still
+unavailable. Each provider defines how its selectors resolve to physical
+servers. Pinning one physical server requires an exact-server selector
+supported by that provider. The watchdog never selects arbitrary catalogue rows.
+
+**TODO — provider-neutral protection verification:** Recovery currently requires
+both `VpnSettings.leak_protection_enabled` and `VpnSettings.firewall_enabled`
+to be explicitly `True` before changing the connection. This is fail-closed
+with the current NordVPN adapter, but equivalent safety reporting has not yet
+been tested with a second provider. When integrating another adapter, evaluate
+whether these fields express its protection guarantees adequately; if not,
+define and test a provider-neutral verified-protection capability before
+enabling automatic recovery. Never treat missing or unknown protection state
+as permission to reconnect.
 
 Daemon restart discards this runtime intent. If the provider is still connected
 and verified protected, monitoring may resume with Recommended under
