@@ -427,10 +427,9 @@ It is root-controlled because only the privileged daemon opens it in production.
 The repository is provider-scoped. Alias and ordering uniqueness apply within a provider's
 catalogue, and each provider catalogue has an independent revision.
 
-**The target database persists configuration, never runtime control state.** In
-particular, it does not record the current VPN connection, selected active target,
-desired gateway mode, watchdog failure counters, or retry schedule. Those values
-must not be added to the catalogue schema as part of automatic recovery.
+**The target database persists configuration, never runtime control state.** It
+does not record the current VPN connection, selected active target, or gateway
+mode. Those are observed or managed independently of the target catalogue.
 
 The domain/control layers depend on the `TargetRepository` contract rather than issuing SQL
 directly. SQLite is therefore a storage implementation, not part of the provider or HTTP
