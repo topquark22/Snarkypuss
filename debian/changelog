@@ -1,3 +1,9 @@
+snarkyctl (2.2.0~dev0-1) unstable; urgency=medium
+
+  * Begin SnarkyCtl 2.2.0 development with protected VPN auto-recovery.
+
+ -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Mon, 09 Nov 2026 19:45:00 -0500
+
 snarkyctl (2.1.0-1) unstable; urgency=medium
 
   * Release SnarkyCtl 2.1.0 with NordVPN 6.x CLI compatibility.
