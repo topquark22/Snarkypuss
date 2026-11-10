@@ -274,6 +274,57 @@ These survive upgrades:
 
 The package may install `.example` files for initial configuration. It must never ship real credentials or overwrite locally generated secrets.
 
+### Configuration changes on upgrade
+
+Installing or upgrading the package **never modifies** `/etc/snarkyctl/snarkyctl.yaml`, and
+`scripts/reinstall-deb.sh` does not edit it either. New options introduced by a release
+therefore appear only in the packaged example, `/usr/share/snarkyctl/examples/snarkyctl.yaml.example`,
+which is refreshed on every install. An existing configuration does not gain them
+automatically.
+
+An option omitted from the configuration takes its built-in default, so an unchanged file
+keeps working. The behavior it gets is the default, which may differ from what the example
+shows or what you intend. For example, `control.recovery_enabled` defaults to `true` and
+`control.recovery_target_policy` defaults to `fallback`; a configuration that omits them
+runs the automatic recovery watchdog with the `fallback` policy.
+
+After every upgrade:
+
+1. Compare your configuration with the refreshed example, and read the release notes in
+   `/usr/share/doc/snarkyctl/changelog.Debian.gz` for new options:
+
+   ```bash
+   diff -u /etc/snarkyctl/snarkyctl.yaml \
+       /usr/share/snarkyctl/examples/snarkyctl.yaml.example
+   ```
+
+   Differences in site-specific values such as addresses, interfaces, and paths are expected.
+   Look for keys present only in the example.
+
+2. Back up the configuration, then add the options you want to set explicitly:
+
+   ```bash
+   sudo cp -a /etc/snarkyctl/snarkyctl.yaml /etc/snarkyctl/snarkyctl.yaml.bak
+   sudoedit /etc/snarkyctl/snarkyctl.yaml
+   ```
+
+   Keep the existing ownership and mode (`root:snarkyctl`, normally `0640`). Never copy the
+   example over the live file.
+
+3. Validate the file, then restart the control service so the daemon rereads it (the
+   configuration is read at startup):
+
+   ```bash
+   sudo snarkyctl validate-config --config /etc/snarkyctl/snarkyctl.yaml
+   sudo systemctl restart snarkyctl-control.service snarkyctl-web.service
+   ```
+
+   A restart can interrupt an active watchdog or operation; do not restart during a mode
+   change. A configuration with unknown keys is rejected, so a typo fails validation instead
+   of being ignored silently.
+
+Each release that adds or changes a configuration option lists it in `debian/changelog`.
+
 ### Runtime and persistent state
 
 Operation locks and other ephemeral data belong under:

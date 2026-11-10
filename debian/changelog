@@ -1,6 +1,9 @@
 snarkyctl (2.2.0~dev0-1) unstable; urgency=medium
 
   * Begin SnarkyCtl 2.2.0 development with protected VPN auto-recovery.
+  * New optional settings control.recovery_enabled and control.recovery_target_policy
+    appear only in the packaged example; upgrades never edit
+    /etc/snarkyctl/snarkyctl.yaml, and omitted settings use their defaults.
 
  -- Geoffrey Trueman Falk <topquark22@users.noreply.github.com>  Mon, 09 Nov 2026 19:45:00 -0500
 

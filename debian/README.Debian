@@ -20,3 +20,12 @@ After preflight succeeds, explicitly enable and start the socket and web unit:
 
 The privileged service is socket-activated. Do not start
 snarkyctl-control.service directly.
+
+Upgrades never modify /etc/snarkyctl/snarkyctl.yaml. New options introduced by a release
+appear only in the packaged example; an option you omit takes its built-in default. After
+upgrading, compare your configuration with the example and add any option you want to set
+explicitly:
+
+  diff -u /etc/snarkyctl/snarkyctl.yaml /usr/share/snarkyctl/examples/snarkyctl.yaml.example
+
+See "Configuration changes on upgrade" in DEPLOYMENT.md.

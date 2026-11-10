@@ -605,6 +605,13 @@ or database schema.
 
 ## Automatic upstream VPN recovery
 
+> **Upgrading:** Package upgrades never change `/etc/snarkyctl/snarkyctl.yaml`, so these
+> options do not appear in an existing configuration until you add them. If they are
+> omitted, the defaults below apply (watchdog enabled, `fallback` policy). To set them
+> explicitly, add them under `control:`, run `sudo snarkyctl validate-config`, and restart
+> `snarkyctl-control.service`. See
+> [Configuration changes on upgrade](../DEPLOYMENT.md#configuration-changes-on-upgrade).
+
 The background watchdog is enabled by default. To disable it and manage VPN
 reconnections manually, set `control.recovery_enabled: false` in the root-owned
 configuration. The example configuration enables it explicitly. The watchdog
